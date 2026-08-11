@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://mtr-cz1o.vercel.app/sitemap.xml
+Sitemap: https://go.mtrhit.ru/sitemap.xml
