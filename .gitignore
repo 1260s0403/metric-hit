@@ -27,6 +27,8 @@ id_ed25519*
 *.sqlite-*
 data/database/*
 !data/database/.gitkeep
+!data/database/migrations/
+!data/database/migrations/*.sql
 
 # Logs
 *.log
@@ -62,4 +64,3 @@ Thumbs.db
 desktop.ini
 .idea/
 .vscode/
-
