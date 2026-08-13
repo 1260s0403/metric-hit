@@ -1,0 +1,65 @@
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+secrets/
+**/secrets/
+*.secret
+*.secrets
+*token*
+*credentials*
+
+# Private keys and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+
+# Local databases
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+data/database/*
+!data/database/.gitkeep
+
+# Logs
+*.log
+*.log.*
+logs/*
+!logs/.gitkeep
+
+# Temporary files and caches
+tmp/
+temp/
+*.tmp
+*.temp
+*.swp
+*.swo
+*.bak
+*.cache
+.cache/
+~$*
+
+# Backups
+backups/*
+!backups/.gitkeep
+*.backup
+*.bkp
+
+# Local imports
+data/imports/*
+!data/imports/.gitkeep
+
+# OS and editor metadata
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+
