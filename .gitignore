@@ -58,6 +58,10 @@ backups/*
 data/imports/*
 !data/imports/.gitkeep
 
+# Original migration archives are retained locally but are not repository content.
+work/archive/migration-packages/**/*.zip
+work/inbox/metrichit-*-migration-2026-08-13.zip
+
 # OS and editor metadata
 .DS_Store
 Thumbs.db

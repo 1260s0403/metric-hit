@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://go.mtrhit.ru/sitemap.xml
