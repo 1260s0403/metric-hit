@@ -7,6 +7,8 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { checkDatabase, requiredTables } from '../scripts/check-memory.mjs';
 import { initializeDatabase } from '../scripts/init-memory.mjs';
+import { importChatSummaries } from '../scripts/import-chat-summaries.mjs';
+import { applyInitialMemoryDecision } from '../scripts/apply-initial-memory-decision.mjs';
 
 function temporaryDatabase(t) {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-memory-'));
@@ -732,4 +734,69 @@ test('read-only check rejects unexpected triggers', (t) => {
   t.after(remove);
 
   assert.throws(() => checkDatabase(databasePath), /Unexpected triggers/);
+});
+
+test('chat summary import is repeatable and keeps candidates pending', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  t.after(remove);
+
+  const first = importChatSummaries(databasePath);
+  const second = importChatSummaries(databasePath);
+  assert.deepEqual(first.created, { sources: 3, documents: 3, versions: 3, candidates: 25 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+  assert.deepEqual(second.totals, { sources: 3, documents: 3, versions: 3, candidates: 25 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const statuses = database.prepare(
+    'SELECT status, count(*) AS count FROM memory_candidates GROUP BY status',
+  ).all();
+  const duplicates = database.prepare(`
+    SELECT semantic_key FROM memory_candidates
+    GROUP BY semantic_key HAVING count(*) > 1
+  `).all();
+  database.close();
+  assert.deepEqual(statuses.map(({ status, count }) => ({ status, count })), [{ status: 'pending', count: 25 }]);
+  assert.deepEqual(duplicates, []);
+});
+
+test('initial owner decision is repeatable and preserves terminal records', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  t.after(remove);
+  importChatSummaries(databasePath);
+
+  const first = applyInitialMemoryDecision(databasePath);
+  const second = applyInitialMemoryDecision(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1, tasks: 1 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0, tasks: 0 });
+  assert.deepEqual(second.counts, { approved: 24, rejected: 2 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const analytics = database.prepare(
+    "SELECT status, review_note FROM memory_candidates WHERE semantic_key = 'analytics.utm_registration_click'",
+  ).get();
+  const oldAvito = database.prepare(
+    "SELECT status FROM memory_candidates WHERE semantic_key = 'publication.avito_saint_petersburg'",
+  ).get();
+  const correctedAvito = database.prepare(
+    "SELECT status, content, data_json FROM memory_candidates WHERE semantic_key = 'publication.avito_active_ads_2026_08_13'",
+  ).get();
+  const task = database.prepare('SELECT status, content, data_json FROM tasks').get();
+  const terminalVersions = database.prepare(`
+    SELECT min(version) AS minimum, max(version) AS maximum
+    FROM memory_candidates WHERE status IN ('approved', 'rejected')
+  `).get();
+  database.close();
+
+  assert.equal(analytics.status, 'rejected');
+  assert.match(analytics.review_note, /Функциональность не реализована/);
+  assert.equal(oldAvito.status, 'rejected');
+  assert.equal(correctedAvito.status, 'approved');
+  assert.deepEqual(JSON.parse(correctedAvito.data_json).cities, [
+    'Новосибирск', 'Пермь', 'Екатеринбург', 'Санкт-Петербург', 'Москва',
+  ]);
+  assert.equal(task.status, 'pending');
+  assert.match(task.content, /не изменяя mtrhit\.ru/);
+  assert.equal(JSON.parse(task.data_json).due_at, 'unknown');
+  assert.equal(terminalVersions.minimum, 2);
+  assert.equal(terminalVersions.maximum, 2);
 });
