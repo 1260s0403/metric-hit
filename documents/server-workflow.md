@@ -21,7 +21,8 @@ node scripts/memory-cli.mjs conflicts
 
 ## Резервное копирование и восстановление
 
-Создать локальную резервную копию:
+Создать локальный атомарный backup-набор (workspace ZIP, полный Git bundle и
+manifest с SHA-256):
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-metrichit.ps1
@@ -32,6 +33,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-metrichit.p
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-restore-metrichit.ps1
 ```
+
+Набор должен восстанавливать одновременно SQLite, весь `work/` и Git-историю.
+Состав, ручное восстановление, исключения и внешнее копирование описаны в
+`documents/backup-and-restore.md`.
 
 Для продолжения предыдущего чата Codex используйте сохранённый идентификатор сессии:
 
