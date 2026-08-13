@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -9,6 +9,9 @@ import { checkDatabase, requiredTables } from '../scripts/check-memory.mjs';
 import { initializeDatabase } from '../scripts/init-memory.mjs';
 import { importChatSummaries } from '../scripts/import-chat-summaries.mjs';
 import { applyInitialMemoryDecision } from '../scripts/apply-initial-memory-decision.mjs';
+import { applyModelRoutingPolicy } from '../scripts/apply-model-routing-policy.mjs';
+import { readMemory } from '../scripts/memory-cli.mjs';
+import { exportCurrentContext } from '../scripts/export-current-context.mjs';
 
 function temporaryDatabase(t) {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-memory-'));
@@ -799,4 +802,78 @@ test('initial owner decision is repeatable and preserves terminal records', (t) 
   assert.equal(JSON.parse(task.data_json).due_at, 'unknown');
   assert.equal(terminalVersions.minimum, 2);
   assert.equal(terminalVersions.maximum, 2);
+});
+
+test('model routing decision is repeatable and creates an approved policy', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  t.after(remove);
+  initializeDatabase(databasePath);
+
+  const first = applyModelRoutingPolicy(databasePath);
+  const second = applyModelRoutingPolicy(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const policy = database.prepare(`
+    SELECT status, reviewed_by, reviewed_at, data_json
+    FROM memory_candidates WHERE semantic_key = 'ai.model_routing_policy'
+  `).get();
+  database.close();
+  assert.equal(policy.status, 'approved');
+  assert.equal(policy.reviewed_by, 'owner');
+  assert.equal(policy.reviewed_at, '2026-08-13T00:00:00.000Z');
+  assert.equal(JSON.parse(policy.data_json).default_model, 'GPT-5.6 Terra');
+});
+
+test('memory CLI reads approved memory without modifying the database', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  t.after(remove);
+  importChatSummaries(databasePath);
+  applyInitialMemoryDecision(databasePath);
+  applyModelRoutingPolicy(databasePath);
+
+  const beforeDatabase = new DatabaseSync(databasePath, { readOnly: true });
+  const before = beforeDatabase.prepare('SELECT count(*) AS count FROM memory_candidates').get().count;
+  beforeDatabase.close();
+  const summary = readMemory('summary', '', databasePath);
+  const avito = readMemory('search', 'Avito', databasePath);
+  const tasks = readMemory('tasks', '', databasePath);
+  const facts = readMemory('facts', '', databasePath);
+  const decisions = readMemory('decisions', '', databasePath);
+  const rules = readMemory('rules', '', databasePath);
+  const sources = readMemory('sources', '', databasePath);
+  const pending = readMemory('pending', '', databasePath);
+  const conflicts = readMemory('conflicts', '', databasePath);
+  const afterDatabase = new DatabaseSync(databasePath, { readOnly: true });
+  const after = afterDatabase.prepare('SELECT count(*) AS count FROM memory_candidates').get().count;
+  afterDatabase.close();
+
+  assert.match(summary, /Approved candidates: 25/);
+  assert.match(avito, /Пять активных объявлений Avito/);
+  assert.match(tasks, /registration_click/);
+  assert.match(facts, /Действующая тарифная сетка/);
+  assert.match(decisions, /Политика выбора модели Codex/);
+  assert.match(rules, /Не давать недоказуемых гарантий/);
+  assert.match(sources, /Решение владельца по первоначальным кандидатам памяти/);
+  assert.match(pending, /Нет записей/);
+  assert.match(conflicts, /Нет записей/);
+  assert.equal(after, before);
+});
+
+test('current context export separates approved memory from open tasks', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  importChatSummaries(databasePath);
+  applyInitialMemoryDecision(databasePath);
+  applyModelRoutingPolicy(databasePath);
+
+  const result = exportCurrentContext(databasePath, outputPath, '2026-08-13T12:00:00.000Z');
+  assert.match(result.content, /# MetricHit — текущий рабочий контекст/);
+  assert.match(result.content, /GPT-5\.6 Terra/);
+  assert.match(result.content, /## Открытые задачи и планы/);
+  assert.match(result.content, /registration_click/);
+  assert.doesNotMatch(result.content, /analytics\.utm_registration_click/);
+  assert.doesNotMatch(result.content, /workspace\/scratch|libfile/i);
 });
