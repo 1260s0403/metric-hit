@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools==82.0.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "metrichit-os"
+version = "0.1.0"
+description = "Read-only Python/FastAPI compatibility layer for MetricHit OS"
+requires-python = ">=3.13,<3.14"
+dependencies = [
+  "fastapi==0.141.1",
+  "pydantic==2.13.4",
+  "uvicorn==0.52.3",
+]
+
+[project.optional-dependencies]
+test = [
+  "httpx==0.28.1",
+  "pytest==9.1.1",
+]
+
+[project.scripts]
+metrichit-os = "metrichit_os.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+pythonpath = ["src"]
+testpaths = ["tests_python"]
