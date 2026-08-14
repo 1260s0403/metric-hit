@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -39,6 +40,11 @@ def _tags(value: str | None) -> list[str]:
     if not value:
         return []
     return [tag.strip() for tag in value.split(",") if tag.strip()]
+
+
+def _task_title(text: str, limit: int = 80) -> str:
+    sentence = re.split(r"(?<=[.!?])\s+", " ".join(text.split()), maxsplit=1)[0]
+    return sentence if len(sentence) <= limit else sentence[: limit - 1].rstrip() + "…"
 
 
 class KnowledgeStore:
@@ -168,7 +174,7 @@ class KnowledgeStore:
                 "knowledge_tags": metadata.get("tags", []),
                 "knowledge_topic": metadata.get("topic", entry["title"]),
             }
-            task_title = title.strip() if title and title.strip() else entry["title"]
+            task_title = title.strip() if title and title.strip() else _task_title(entry["content"])
             connection.execute(
                 """
                 INSERT INTO tasks
@@ -271,10 +277,15 @@ class KnowledgeStore:
     @staticmethod
     def _task(row: dict[str, object]) -> dict[str, object]:
         metadata = json.loads(str(row["data_json"]))
+        description = row.get("source_text") or row["content"]
+        display_title = row["title"]
+        if display_title.casefold() in {"панель", "кейс", "статьи"}:
+            display_title = f"{display_title} — {_task_title(description)}"
         return {
             "author": row["author"],
             "content": row["content"],
-            "description": row.get("source_text") or row["content"],
+            "description": description,
+            "display_title": display_title,
             "created_at": row["created_at"],
             "id": row["id"],
             "knowledge_entry_id": metadata["knowledge_entry_id"],

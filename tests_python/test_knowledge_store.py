@@ -134,7 +134,7 @@ def test_converts_owner_idea_with_topic_as_default_title(tmp_path):
 
     task = json.loads(command("knowledge-to-task", "--db", str(database), "--id", entry["id"]).stdout)
 
-    assert task["title"] == "Новая рубрика"
+    assert task["title"] == "Добавить чек-лист"
     assert task["knowledge_kind"] == "owner_idea"
 
 

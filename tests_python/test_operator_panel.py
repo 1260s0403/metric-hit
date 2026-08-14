@@ -233,6 +233,33 @@ def test_task_confirmation_and_details_are_local(tmp_path):
     assert "taskFeedback" in page and "Открыть задачу" in page and "Подробнее" in page
 
 
+def test_existing_task_is_returned_with_exact_anchor_and_target_style(tmp_path):
+    client, token, _ = panel(tmp_path)
+    entry = add(client, token, "artem", "Панель", "Добавить несколько регионов в один проект.").json()
+    created = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
+
+    listed = client.get("/api/entries", params={"kind": "artem"}).json()[0]
+    page = client.get("/").text
+
+    assert listed["task"]["id"] == created["id"]
+    assert f"#task-${{result.id}}" in page
+    assert ".entry:target" in page
+
+
+def test_task_card_uses_short_description_and_keeps_full_text_in_details(tmp_path):
+    client, token, _ = panel(tmp_path)
+    text = "Первое действие " + "очень длинное " * 30
+    entry = add(client, token, "artem", "Панель", text).json()
+    created = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"], "title": "Панель"}).json()
+    item = client.get("/api/tasks").json()[0]
+    page = client.get("/").text
+
+    assert item["display_title"].startswith("Панель — ")
+    assert item["description"] == text
+    assert "slice(0,160)" in page and "details.className='hidden'" in page
+    assert created["id"] not in page.split("function renderTasks")[1].split("details.append")[0]
+
+
 def test_rejects_post_without_token_and_escapes_user_html(tmp_path):
     client, token, _ = panel(tmp_path)
     assert client.post("/api/entries", json={"kind": "idea", "topic": "Тема", "text": "Текст"}).status_code == 403
