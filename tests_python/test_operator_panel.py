@@ -274,6 +274,19 @@ def test_focus_task_and_modal_markup_are_present(tmp_path):
     assert "document.body.style.overflow='hidden'" in page and "Escape" in page
 
 
+def test_summary_and_plan_requests_work_for_both_sections(tmp_path):
+    client, token, _ = panel(tmp_path)
+    add(client, token, "artem", "SEO", "Тезис рекомендации").raise_for_status()
+    add(client, token, "idea", "Контент", "Тезис идеи").raise_for_status()
+
+    for kind, phrase in (("artem", "Тезис рекомендации"), ("idea", "Тезис идеи")):
+        summary = client.get("/api/summary", params={"kind": kind}).json()
+        plan = client.get("/api/action-plan", params={"kind": kind}).json()
+        assert "kind must be" not in str(summary) + str(plan)
+        assert phrase in summary["markdown"]
+        assert "# План действий" in plan["markdown"]
+
+
 def test_rejects_post_without_token_and_escapes_user_html(tmp_path):
     client, token, _ = panel(tmp_path)
     assert client.post("/api/entries", json={"kind": "idea", "topic": "Тема", "text": "Текст"}).status_code == 403
