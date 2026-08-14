@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import sqlite3
 import subprocess
 import sys
 
@@ -9,7 +10,7 @@ import pytest
 
 from metrichit_os import cli
 from metrichit_os.config import MEMORY_DATABASE
-from metrichit_os.knowledge_store import KnowledgeStore
+from metrichit_os.knowledge_store import KnowledgeError, KnowledgeStore
 
 
 def temporary_database(tmp_path):
@@ -106,6 +107,53 @@ def test_cli_stdin_preserves_utf8_multiline_text_and_validates_input_mode(tmp_pa
         )
         assert rejected.returncode == 2
         assert json.loads(rejected.stdout)["error"] == "ValueError"
+
+
+def test_converts_artem_recommendation_to_idempotent_task(tmp_path):
+    database = temporary_database(tmp_path)
+    store = KnowledgeStore(database)
+    entry = store.add(kind="artem", text="Проверить семантику", topic="SEO", tags="seo, audit")
+
+    first = store.to_task(entry_id=entry["id"], title="Проверить кластер")
+    second = store.to_task(entry_id=entry["id"])
+
+    assert first == second
+    assert first["title"] == "Проверить кластер"
+    assert first["knowledge_entry_id"] == entry["id"]
+    assert first["knowledge_kind"] == "artem_recommendation"
+    assert first["knowledge_topic"] == "SEO"
+    assert first["knowledge_tags"] == ["seo", "audit"]
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT count(*) FROM tasks").fetchone()[0] == 1
+        assert connection.execute("SELECT content FROM documents WHERE id=?", (entry["id"],)).fetchone()[0] == entry["text"]
+
+
+def test_converts_owner_idea_with_topic_as_default_title(tmp_path):
+    database = temporary_database(tmp_path)
+    entry = KnowledgeStore(database).add(kind="idea", text="Добавить чек-лист", topic="Новая рубрика")
+
+    task = json.loads(command("knowledge-to-task", "--db", str(database), "--id", entry["id"]).stdout)
+
+    assert task["title"] == "Новая рубрика"
+    assert task["knowledge_kind"] == "owner_idea"
+
+
+def test_to_task_rejects_unknown_uuid(tmp_path):
+    with pytest.raises(KnowledgeError, match="knowledge entry was not found"):
+        KnowledgeStore(temporary_database(tmp_path)).to_task(entry_id="00000000-0000-0000-0000-000000000000")
+
+
+def test_to_task_rejects_non_knowledge_document(tmp_path):
+    database = temporary_database(tmp_path)
+    document_id = "00000000-0000-0000-0000-000000000001"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """INSERT INTO documents (id, type, title, content, status, author)
+               VALUES (?, 'note', 'Обычный документ', 'Текст', 'active', 'owner')""",
+            (document_id,),
+        )
+    with pytest.raises(KnowledgeError, match="not a supported knowledge entry"):
+        KnowledgeStore(database).to_task(entry_id=document_id)
 
 
 def test_working_memory_database_is_not_changed_by_temp_database_tests(tmp_path):

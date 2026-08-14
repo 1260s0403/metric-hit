@@ -135,6 +135,58 @@ class KnowledgeStore:
             ).fetchall()
         return [self._entry(dict(row)) for row in rows]
 
+    def to_task(self, *, entry_id: str, title: str | None = None) -> dict[str, object]:
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            entry = connection.execute(
+                "SELECT id, type, title, content, data_json, author FROM documents WHERE id=?",
+                (entry_id,),
+            ).fetchone()
+            if entry is None:
+                raise KnowledgeError("knowledge entry was not found")
+            if entry["type"] != "knowledge_entry":
+                raise KnowledgeError("document is not a supported knowledge entry")
+            metadata = json.loads(entry["data_json"])
+            kind = metadata.get("kind")
+            if kind not in set(KNOWLEDGE_KINDS.values()):
+                raise KnowledgeError("document is not a supported knowledge entry")
+            existing = connection.execute(
+                """
+                SELECT id, type, title, content, data_json, status, author, created_at
+                FROM tasks WHERE json_extract(data_json, '$.knowledge_entry_id')=?
+                """,
+                (entry_id,),
+            ).fetchone()
+            if existing is not None:
+                return self._task(dict(existing))
+            task_id = str(uuid4())
+            created_at = _utc_text()
+            task_metadata = {
+                "knowledge_entry_id": entry_id,
+                "knowledge_kind": kind,
+                "knowledge_tags": metadata.get("tags", []),
+                "knowledge_topic": metadata.get("topic", entry["title"]),
+            }
+            task_title = title.strip() if title and title.strip() else entry["title"]
+            connection.execute(
+                """
+                INSERT INTO tasks
+                  (id, type, title, content, data_json, status, author, created_at, updated_at, access_level, version)
+                VALUES (?, 'knowledge_task', ?, ?, ?, 'pending', ?, ?, ?, 'internal', 1)
+                """,
+                (
+                    task_id, task_title, entry["content"],
+                    json.dumps(task_metadata, ensure_ascii=False, sort_keys=True),
+                    entry["author"], created_at, created_at,
+                ),
+            )
+            return self._task({
+                "id": task_id, "type": "knowledge_task", "title": task_title,
+                "content": entry["content"], "data_json": json.dumps(task_metadata, ensure_ascii=False, sort_keys=True),
+                "status": "pending", "author": entry["author"], "created_at": created_at,
+            })
+
     @staticmethod
     def _entry(row: dict[str, object]) -> dict[str, object]:
         metadata = json.loads(str(row["data_json"]))
@@ -148,4 +200,21 @@ class KnowledgeStore:
             "tags": metadata["tags"],
             "text": row["content"],
             "topic": metadata["topic"],
+        }
+
+    @staticmethod
+    def _task(row: dict[str, object]) -> dict[str, object]:
+        metadata = json.loads(str(row["data_json"]))
+        return {
+            "author": row["author"],
+            "content": row["content"],
+            "created_at": row["created_at"],
+            "id": row["id"],
+            "knowledge_entry_id": metadata["knowledge_entry_id"],
+            "knowledge_kind": metadata["knowledge_kind"],
+            "knowledge_tags": metadata["knowledge_tags"],
+            "knowledge_topic": metadata["knowledge_topic"],
+            "status": row["status"],
+            "title": row["title"],
+            "type": row["type"],
         }

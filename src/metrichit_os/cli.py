@@ -77,11 +77,12 @@ def workflow_parser() -> argparse.ArgumentParser:
     mvp.add_argument("--account-id", required=True)
     mvp.add_argument("--provider", choices=("fake", "openai"), required=True)
     mvp.add_argument("--simulation", action="store_true")
-    for name in ("knowledge-add", "knowledge-list", "knowledge-search"):
+    for name in ("knowledge-add", "knowledge-list", "knowledge-search", "knowledge-to-task"):
         command = subparsers.add_parser(name)
         command.add_argument("--db", required=True)
-        command.add_argument("--kind", choices=("artem", "idea"), required=True)
-        command.add_argument("--limit", type=int, default=20)
+        if name != "knowledge-to-task":
+            command.add_argument("--kind", choices=("artem", "idea"), required=True)
+            command.add_argument("--limit", type=int, default=20)
         if name == "knowledge-add":
             content = command.add_mutually_exclusive_group(required=True)
             content.add_argument("--text")
@@ -93,6 +94,9 @@ def workflow_parser() -> argparse.ArgumentParser:
             command.add_argument("--status", choices=("active", "converted_to_task", "archived"), default="active")
         if name == "knowledge-search":
             command.add_argument("--query", required=True)
+        if name == "knowledge-to-task":
+            command.add_argument("--id", required=True)
+            command.add_argument("--title")
     for name in WRITE_COMMANDS:
         command = subparsers.add_parser(name)
         command.add_argument("--db", required=True)
@@ -133,6 +137,8 @@ def run_workflow_command(arguments_list: list[str]) -> int:
             ))
         elif arguments.command == "knowledge-list":
             print_json(store.list(kind=arguments.kind, limit=arguments.limit))
+        elif arguments.command == "knowledge-to-task":
+            print_json(store.to_task(entry_id=arguments.id, title=arguments.title))
         else:
             print_json(store.search(kind=arguments.kind, query=arguments.query, limit=arguments.limit))
         return 0
