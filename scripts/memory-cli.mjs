@@ -24,12 +24,22 @@ function renderRows(rows) {
 export function readMemory(command, query = '', databasePath = defaultDatabasePath) {
   const database = openReadOnly(databasePath);
   try {
-    const listApproved = (types) => database.prepare(`
+    const listApproved = (types) => {
+      const excludedEditorialRules = types.includes('editorial_rule')
+        ? `AND semantic_key NOT IN (
+          SELECT value
+          FROM memory_candidates AS policies, json_each(policies.data_json, '$.supersedes_editorial_rules')
+          WHERE policies.status = 'approved' AND policies.semantic_key = 'content.editorial_directness_policy'
+        )`
+        : '';
+      return database.prepare(`
       SELECT type, semantic_key, title, content
       FROM memory_candidates
       WHERE ${approvedWhere} AND type IN (${types.map(() => '?').join(', ')})
+      ${excludedEditorialRules}
       ORDER BY semantic_key
-    `).all(...types);
+      `).all(...types);
+    };
     switch (command) {
       case 'summary': {
         const candidates = database.prepare(

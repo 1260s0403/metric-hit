@@ -8,9 +8,17 @@ const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.
 const defaultOutputPath = join(repositoryRoot, 'knowledge', 'approved', 'current-context.md');
 
 function section(database, heading, types) {
+  const excludedEditorialRules = types.includes('editorial_rule')
+    ? `AND semantic_key NOT IN (
+      SELECT value
+      FROM memory_candidates AS policies, json_each(policies.data_json, '$.supersedes_editorial_rules')
+      WHERE policies.status = 'approved' AND policies.semantic_key = 'content.editorial_directness_policy'
+    )`
+    : '';
   const rows = database.prepare(`
     SELECT title, content FROM memory_candidates
     WHERE status = 'approved' AND type IN (${types.map(() => '?').join(', ')})
+    ${excludedEditorialRules}
     ORDER BY semantic_key
   `).all(...types);
   const body = rows.length
@@ -71,4 +79,3 @@ if (isMainModule()) {
   const result = exportCurrentContext(databasePath);
   console.log(`Current context exported: ${result.outputPath}`);
 }
-
