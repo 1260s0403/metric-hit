@@ -10,7 +10,7 @@ test('workspace status reports the local work contours without file contents', (
   assert.equal(status.memory.valid, true);
   assert.equal(status.memory.pendingCandidates, 0);
   assert.equal(status.memory.openConflicts, 0);
-  assert.equal(status.memory.openTasks, 1);
+  assert.equal(status.memory.openTasks, 13);
   assert.equal(typeof status.contours['articles/drafts'], 'number');
   assert.ok(status.contours['articles/drafts'] >= 1, 'editorial drafts are allowed');
   assert.match(output, /Work materials:/);

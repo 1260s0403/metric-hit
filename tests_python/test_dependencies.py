@@ -15,6 +15,7 @@ def test_dependency_groups_are_exact_and_separated():
     ]
     assert configuration["project"]["optional-dependencies"]["test"] == [
         "httpx==0.28.1",
+        "playwright==1.62.0",
         "pytest==9.1.1",
     ]
 
@@ -30,6 +31,6 @@ def test_lock_contains_unique_exact_versions():
     assert "setuptools==82.0.1" in requirements
     for direct in (
         "fastapi==0.141.1", "openai==3.0.0", "pydantic==2.13.4", "uvicorn==0.52.3",
-        "httpx==0.28.1", "pytest==9.1.1",
+        "httpx==0.28.1", "playwright==1.62.0", "pytest==9.1.1",
     ):
         assert direct in requirements

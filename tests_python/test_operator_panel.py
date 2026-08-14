@@ -308,8 +308,8 @@ def test_tasks_focus_view_is_server_selected_and_task_actions_are_compact(tmp_pa
     page = client.get(f"/?view=tasks&focus_task={task['id']}#task-{task['id']}").text
     script = page.split("function renderTasks")[1]
 
-    assert 'data-view="tasks" class="active" aria-current="page"' in page
-    assert '<div id="knowledge" class="hidden">' in page
+    assert 'data-view="tasks" data-testid="tab-tasks" class="active" aria-current="page"' in page
+    assert '<div id="knowledge" data-testid="knowledge-screen" class="hidden">' in page
     assert f'const focusTask="{task["id"]}"' in page
     assert "task-focused" in script and "focusCard" in page
     assert "box.append(title,meta,actions,details)" in script

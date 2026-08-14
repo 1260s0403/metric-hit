@@ -17,6 +17,7 @@ dependencies = [
 [project.optional-dependencies]
 test = [
   "httpx==0.28.1",
+  "playwright==1.62.0",
   "pytest==9.1.1",
 ]
 
