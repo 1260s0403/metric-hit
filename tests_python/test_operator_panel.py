@@ -7,6 +7,7 @@ import subprocess
 import pytest
 from fastapi.testclient import TestClient
 
+from metrichit_os.config import CURRENT_CONTEXT
 from metrichit_os.operator_panel import create_operator_app, run_operator_panel
 
 
@@ -31,6 +32,31 @@ def add(client, token, kind, topic, text, tags=""):
     )
 
 
+def seed_memory(database, visible_content="Найти это"):
+    source_id = "00000000-0000-0000-0000-000000000010"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO sources (id, type, title, content, author) VALUES (?, 'test', 'Источник', 'x', 'owner')",
+            (source_id,),
+        )
+        connection.executemany(
+            """INSERT INTO memory_items (id, type, semantic_key, title, content, status, source_id, author, version)
+               VALUES (?, 'fact', ?, ?, ?, ?, ?, 'owner', 1)""",
+            [
+                ("00000000-0000-0000-0000-000000000011", "fact.visible", "Видимый факт", visible_content, "active", source_id),
+                ("00000000-0000-0000-0000-000000000012", "fact.hidden", "Скрытый факт", "Не показывать", "archived", source_id),
+            ],
+        )
+        connection.executemany(
+            """INSERT INTO decisions (id, type, title, content, status, author, version)
+               VALUES (?, 'decision', ?, ?, ?, 'owner', 1)""",
+            [
+                ("00000000-0000-0000-0000-000000000013", "Видимое решение", "Найти решение", "active"),
+                ("00000000-0000-0000-0000-000000000014", "Скрытое решение", "Не показывать", "archived"),
+            ],
+        )
+
+
 def test_refuses_external_host(tmp_path):
     with pytest.raises(ValueError, match="127.0.0.1"):
         run_operator_panel(temporary_database(tmp_path), port=8765, host="0.0.0.0")
@@ -42,6 +68,34 @@ def test_page_title_is_metrichit(tmp_path):
 
     assert "<title>MetricHit</title>" in page
     assert "<h1>MetricHit</h1>" in page
+
+
+def test_memory_context_uses_allowed_path_only(tmp_path):
+    client, _, _ = panel(tmp_path)
+
+    result = client.get("/api/memory/context", params={"path": "C:/outside.md"})
+
+    assert result.json()["content"] == CURRENT_CONTEXT.read_text(encoding="utf-8")
+
+
+def test_memory_shows_only_approved_records_and_searches(tmp_path):
+    client, _, database = panel(tmp_path)
+    seed_memory(database)
+
+    facts = client.get("/api/memory/facts", params={"query": "Найти"}).json()
+    decisions = client.get("/api/memory/decisions", params={"query": "решение"}).json()
+
+    assert [item["semantic_key"] for item in facts] == ["fact.visible"]
+    assert [item["title"] for item in decisions] == ["Видимое решение"]
+
+
+def test_memory_is_read_only_and_escapes_html(tmp_path):
+    client, _, database = panel(tmp_path)
+    seed_memory(database, "<img src=x onerror=alert(1)>")
+
+    assert "<img src=x onerror=alert(1)>" not in client.get("/").text
+    assert "content.textContent=item.content" in client.get("/").text
+    assert not any(route.path.startswith("/api/memory") and "POST" in route.methods for route in client.app.routes)
 
 
 def test_lists_and_searches_by_current_kind(tmp_path):
