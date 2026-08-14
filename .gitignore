@@ -30,6 +30,9 @@ data/database/*
 !data/database/migrations/
 !data/database/migrations/*.sql
 
+# Local editorial database
+data/editorial/editorial.sqlite*
+
 # Logs
 *.log
 *.log.*
