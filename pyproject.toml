@@ -9,6 +9,7 @@ description = "Read-only Python/FastAPI compatibility layer for MetricHit OS"
 requires-python = ">=3.13,<3.14"
 dependencies = [
   "fastapi==0.141.1",
+  "openai==3.0.0",
   "pydantic==2.13.4",
   "uvicorn==0.52.3",
 ]

@@ -43,21 +43,21 @@ def _migration_files(directory: Path) -> list[Path]:
     return sorted(path for path in directory.glob("*.sql") if path.stem.split("_", 1)[0].isdigit())
 
 
-def _expected_migrations(directory: Path) -> list[dict[str, object]]:
+def _expected_migrations(files: list[Path]) -> list[dict[str, object]]:
     return [
         {
             "version": int(path.stem.split("_", 1)[0]),
             "name": path.name,
             "checksum": hashlib.sha256(path.read_bytes()).hexdigest(),
         }
-        for path in _migration_files(directory)
+        for path in files
     ]
 
 
-def _expected_triggers(directory: Path) -> dict[str, str]:
+def _expected_triggers(files: list[Path]) -> dict[str, str]:
     database = sqlite3.connect(":memory:")
     try:
-        for path in _migration_files(directory):
+        for path in files:
             database.executescript(path.read_text(encoding="utf-8"))
         return {
             row[0]: normalize_sql(row[1])
@@ -75,9 +75,8 @@ def _check_database(
     required_tables: list[str],
     trigger_names: list[str],
     reject_unexpected_triggers: bool,
+    pending_migrations_path: Path | None = None,
 ) -> dict[str, object]:
-    expected_migrations = _expected_migrations(migrations_path)
-    expected_triggers = _expected_triggers(migrations_path)
     with read_only_database(database_path) as database:
         integrity = database.execute("PRAGMA integrity_check").fetchall()
         foreign_keys = database.execute("PRAGMA foreign_key_check").fetchall()
@@ -87,6 +86,16 @@ def _check_database(
         migrations = [dict(row) for row in database.execute(
             "SELECT version, name, checksum FROM schema_migrations ORDER BY version"
         )]
+        applied_versions = {int(item["version"]) for item in migrations}
+        migration_files = _migration_files(migrations_path)
+        if pending_migrations_path is not None:
+            migration_files.extend(
+                path for path in _migration_files(pending_migrations_path)
+                if int(path.stem.split("_", 1)[0]) in applied_versions
+            )
+        migration_files.sort(key=lambda path: int(path.stem.split("_", 1)[0]))
+        expected_migrations = _expected_migrations(migration_files)
+        expected_triggers = _expected_triggers(migration_files)
         triggers = {
             row[0]: normalize_sql(row[1])
             for row in database.execute(
@@ -121,4 +130,5 @@ def check_editorial_database(path: Path = EDITORIAL_DATABASE) -> dict[str, objec
     return _check_database(
         path, EDITORIAL_MIGRATIONS, EDITORIAL_TABLES,
         EDITORIAL_PROTECTIVE_TRIGGERS, False,
+        EDITORIAL_MIGRATIONS.parent / "pending-migrations",
     )

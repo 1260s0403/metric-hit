@@ -19,13 +19,16 @@ from .editorial_models import (
     CreateMaterialInput,
     CreateRunInput,
     CreateTopicProposalInput,
+    EditorialMvpRunInput,
     PreparePublicationJobInput,
     RecordApprovalDecisionInput,
     RequestApprovalInput,
 )
 from .editorial_store import WorkflowError, initialize_workflow_database
+from .editorial_mvp import run_editorial_mvp
 from .editorial_workflow import EditorialWorkflowService
 from .services import current_context, editorial_status, memory_summary
+from .text_providers import ProviderError
 
 
 COMMANDS: dict[str, Callable[[], dict[str, object]]] = {
@@ -64,6 +67,15 @@ def workflow_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
     initialize = subparsers.add_parser("init-editorial-db")
     initialize.add_argument("--db", required=True)
+    mvp = subparsers.add_parser("editorial-mvp-run")
+    mvp.add_argument("--db", required=True)
+    mvp.add_argument("--idempotency-key", required=True)
+    mvp.add_argument("--topic", required=True)
+    mvp.add_argument("--primary-query", required=True)
+    mvp.add_argument("--article-platform", required=True)
+    mvp.add_argument("--account-id", required=True)
+    mvp.add_argument("--provider", choices=("fake", "openai"), required=True)
+    mvp.add_argument("--simulation", action="store_true")
     for name in WRITE_COMMANDS:
         command = subparsers.add_parser(name)
         command.add_argument("--db", required=True)
@@ -81,6 +93,18 @@ def run_workflow_command(arguments_list: list[str]) -> int:
     database_path = Path(arguments.db)
     if arguments.command == "init-editorial-db":
         print_json(initialize_workflow_database(database_path))
+        return 0
+    if arguments.command == "editorial-mvp-run":
+        request = EditorialMvpRunInput(
+            idempotency_key=arguments.idempotency_key,
+            topic=arguments.topic,
+            primary_query=arguments.primary_query,
+            article_platform=arguments.article_platform,
+            account_id=arguments.account_id,
+            provider=arguments.provider,
+            simulation=arguments.simulation,
+        )
+        print_json(run_editorial_mvp(database_path, request))
         return 0
     service = EditorialWorkflowService(database_path)
     if arguments.command in WRITE_COMMANDS:
@@ -115,7 +139,7 @@ def main() -> int:
         return 0
     try:
         return run_workflow_command(sys.argv[1:])
-    except (WorkflowError, ValidationError, ValueError, sqlite3.Error) as error:
+    except (WorkflowError, ProviderError, ValidationError, ValueError, sqlite3.Error) as error:
         print_json({"error": type(error).__name__, "message": str(error)})
         return 2
 

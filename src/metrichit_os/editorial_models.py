@@ -177,6 +177,34 @@ class RecordApprovalDecisionInput(WorkflowInput):
     approval_id: NonEmpty
     decision: Literal["approved", "rejected"]
     actor_id: NonEmpty
+    actor_type: Literal["owner", "service"] = "owner"
+
+
+class RecordMaterialReviewInput(WorkflowInput):
+    run_id: NonEmpty
+    material_version_id: NonEmpty
+    subject_hash: Sha256
+    review_sha256: Sha256
+    provider: NonEmpty
+    model: NonEmpty
+    input_tokens: int = Field(ge=0)
+    output_tokens: int = Field(ge=0)
+    estimated_cost: float = Field(ge=0)
+
+
+class EditorialMvpRunInput(WorkflowInput):
+    topic: NonEmpty
+    primary_query: NonEmpty
+    article_platform: NonEmpty
+    account_id: NonEmpty
+    provider: Literal["fake", "openai"]
+    simulation: bool = False
+
+    @model_validator(mode="after")
+    def validate_simulation_provider(self):
+        if self.simulation and self.provider != "fake":
+            raise ValueError("simulation mode requires the deterministic fake provider")
+        return self
 
 
 class PreparePublicationJobInput(WorkflowInput):

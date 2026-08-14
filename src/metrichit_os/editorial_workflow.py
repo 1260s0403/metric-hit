@@ -17,6 +17,7 @@ from .editorial_models import (
     CreateTopicProposalInput,
     PreparePublicationJobInput,
     RecordApprovalDecisionInput,
+    RecordMaterialReviewInput,
     RequestApprovalInput,
 )
 from .editorial_store import (
@@ -31,8 +32,17 @@ from .editorial_store import (
 
 
 class EditorialWorkflowService:
-    def __init__(self, database_path: Path, *, clock=None):
-        self.store = EditorialStore(database_path, **({"clock": clock} if clock else {}))
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        clock=None,
+        capability: object | None = None,
+    ):
+        arguments = {"capability": capability}
+        if clock:
+            arguments["clock"] = clock
+        self.store = EditorialStore(database_path, **arguments)
 
     @staticmethod
     def _payload(model) -> dict[str, object]:
@@ -128,6 +138,48 @@ class EditorialWorkflowService:
         if not row or not row["run_id"]:
             raise WorkflowError("Approval is not attached to an editorial run")
         return row["run_id"]
+
+    @staticmethod
+    def _pending_content_approvals(connection: sqlite3.Connection, run_id: str) -> int:
+        return int(connection.execute(
+            """
+            SELECT count(*)
+            FROM approvals AS approval
+            JOIN material_versions AS version ON version.id=approval.material_version_id
+            JOIN materials AS material ON material.id=version.material_id
+            JOIN plan_items AS item ON item.id=material.plan_item_id
+            JOIN daily_plans AS plan ON plan.id=item.plan_id
+            WHERE plan.run_id=? AND approval.scope='content' AND approval.status='pending'
+            """,
+            (run_id,),
+        ).fetchone()[0])
+
+    @staticmethod
+    def _all_current_materials_content_approved(connection: sqlite3.Connection, run_id: str) -> bool:
+        missing = connection.execute(
+            """
+            SELECT count(*)
+            FROM materials AS material
+            JOIN plan_items AS item ON item.id=material.plan_item_id
+            JOIN daily_plans AS plan ON plan.id=item.plan_id
+            WHERE plan.run_id=? AND NOT EXISTS (
+                SELECT 1
+                FROM material_versions AS version
+                JOIN approvals AS approval ON approval.material_version_id=version.id
+                WHERE version.material_id=material.id
+                  AND version.id=(
+                      SELECT latest.id FROM material_versions AS latest
+                      WHERE latest.material_id=material.id
+                      ORDER BY latest.version DESC LIMIT 1
+                  )
+                  AND approval.scope='content'
+                  AND approval.status='approved'
+                  AND approval.subject_hash=version.sha256
+            )
+            """,
+            (run_id,),
+        ).fetchone()[0]
+        return int(missing) == 0
 
     @staticmethod
     def _plan_hash(connection: sqlite3.Connection, plan_id: str) -> str:
@@ -436,8 +488,8 @@ class EditorialWorkflowService:
                 if request.subject_hash != self._plan_hash(connection, plan["id"]):
                     raise WorkflowError("Plan approval hash does not match the exact plan")
             else:
-                expected_stage = "writing" if request.scope == "content" else "approval"
-                self._require_stage(connection, request.run_id, expected_stage)
+                expected_stages = ("writing", "review") if request.scope == "content" else ("approval",)
+                self._require_stage(connection, request.run_id, *expected_stages)
                 material, version = self._material_for_version(connection, request.material_version_id)
                 if self._material_run_id(connection, material["id"]) != request.run_id:
                     raise WorkflowError("Material version does not belong to this run")
@@ -508,7 +560,9 @@ class EditorialWorkflowService:
             )
             if request.scope == "content":
                 connection.execute("UPDATE materials SET status='in_review' WHERE id=?", (material["id"],))
-                self._advance(connection, request.run_id, "review")
+                run = self._run(connection, request.run_id)
+                if run["workflow_stage"] == "writing":
+                    self._advance(connection, request.run_id, "review")
             self.store.audit(
                 connection, run_id=request.run_id, actor_type="service", actor_id="editorial-workflow",
                 event_type=f"approval.{request.scope}.requested", entity_type="approval", entity_id=approval_id,
@@ -536,8 +590,14 @@ class EditorialWorkflowService:
             if approval["expires_at"] and utc_text(now) >= approval["expires_at"]:
                 raise InvalidTransitionError("Approval has expired")
             scope = approval["scope"]
-            required_stage = {"plan": "planning", "content": "review", "publish": "approval"}[scope]
-            self._require_stage(connection, request.run_id, required_stage)
+            run = self._run(connection, request.run_id)
+            if request.actor_type == "service" and scope != "plan":
+                raise WorkflowError("Service decisions are limited to the automated plan gate")
+            if scope == "content":
+                self._require_stage(connection, request.run_id, "review", "writing")
+            else:
+                required_stage = {"plan": "planning", "publish": "approval"}[scope]
+                self._require_stage(connection, request.run_id, required_stage)
             material = None
             if scope == "plan":
                 if approval["subject_hash"] != self._plan_hash(connection, approval["plan_id"]):
@@ -576,20 +636,90 @@ class EditorialWorkflowService:
             elif scope == "content":
                 if request.decision == "approved":
                     connection.execute("UPDATE materials SET status='approved' WHERE id=?", (material["id"],))
-                    self._advance(connection, request.run_id, "approval")
                 else:
                     connection.execute("UPDATE materials SET status='draft' WHERE id=?", (material["id"],))
-                    self._advance(connection, request.run_id, "writing")
+                if self._pending_content_approvals(connection, request.run_id) == 0:
+                    run = self._run(connection, request.run_id)
+                    if self._all_current_materials_content_approved(connection, request.run_id):
+                        if run["workflow_stage"] == "writing":
+                            self._advance(connection, request.run_id, "review")
+                        self._advance(connection, request.run_id, "approval")
+                    elif run["workflow_stage"] == "review":
+                        self._advance(connection, request.run_id, "writing")
             elif request.decision == "rejected":
                 self._advance(connection, request.run_id, "terminal", status="no_publish", finished_at=decided_at)
             self.store.audit(
-                connection, run_id=request.run_id, actor_type="owner", actor_id=request.actor_id,
+                connection, run_id=request.run_id, actor_type=request.actor_type, actor_id=request.actor_id,
                 event_type=f"approval.{scope}.{request.decision}", entity_type="approval", entity_id=approval["id"],
                 data={"scope": scope, "decision": request.decision, "subject_hash": approval["subject_hash"]},
             )
             return {"entity_type": "approval", "id": approval["id"], "scope": scope, "status": request.decision}
 
         return self.store.idempotent_write("approval.decision", request.idempotency_key, payload, operation)
+
+    def record_material_review(self, request: RecordMaterialReviewInput) -> dict[str, object]:
+        payload = self._payload(request)
+
+        def operation(connection, _key_id):
+            self._require_stage(connection, request.run_id, "writing", "review")
+            material, version = self._material_for_version(connection, request.material_version_id)
+            if self._material_run_id(connection, material["id"]) != request.run_id:
+                raise WorkflowError("Material version does not belong to this run")
+            latest = self._latest_version(connection, material["id"])
+            if latest["id"] != version["id"] or version["sha256"] != request.subject_hash:
+                raise WorkflowError("Review requires the exact current material version and hash")
+            generation = connection.execute(
+                """
+                SELECT id FROM audit_events
+                WHERE run_id=? AND event_type='model.generation.completed'
+                  AND actor_id=?
+                  AND json_extract(data_json, '$.task')='review'
+                  AND json_extract(data_json, '$.input_sha256')=?
+                  AND json_extract(data_json, '$.text_sha256')=?
+                  AND json_extract(data_json, '$.input_tokens')=?
+                  AND json_extract(data_json, '$.output_tokens')=?
+                  AND json_extract(data_json, '$.estimated_cost')=?
+                LIMIT 1
+                """,
+                (
+                    request.run_id, f"{request.provider}:{request.model}", request.subject_hash,
+                    request.review_sha256,
+                    request.input_tokens, request.output_tokens, request.estimated_cost,
+                ),
+            ).fetchone()
+            if not generation:
+                raise WorkflowError("Review record requires the exact audited generation result")
+            self.store.audit(
+                connection,
+                run_id=request.run_id,
+                actor_type="model",
+                actor_id=f"{request.provider}:{request.model}",
+                event_type="material.review.completed.v2",
+                entity_type="material_version",
+                entity_id=version["id"],
+                data={
+                    "subject_hash": request.subject_hash,
+                    "reviewed_input_sha256": request.subject_hash,
+                    "review_sha256": request.review_sha256,
+                    "provider": request.provider,
+                    "model": request.model,
+                    "usage": {
+                        "input_tokens": request.input_tokens,
+                        "output_tokens": request.output_tokens,
+                    },
+                    "estimated_cost": request.estimated_cost,
+                },
+            )
+            return {
+                "entity_type": "material_review",
+                "id": version["id"],
+                "material_version_id": version["id"],
+                "subject_hash": request.subject_hash,
+                "review_sha256": request.review_sha256,
+                "status": "completed",
+            }
+
+        return self.store.idempotent_write("material.review", request.idempotency_key, payload, operation)
 
     def prepare_publication_job(self, request: PreparePublicationJobInput) -> dict[str, object]:
         payload = self._payload(request)

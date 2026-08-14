@@ -8,6 +8,7 @@ import { migrationsFrom } from './init-editorial.mjs';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'editorial', 'editorial.sqlite');
 const defaultMigrationsPath = join(repositoryRoot, 'data', 'editorial', 'migrations');
+const defaultPendingMigrationsPath = join(repositoryRoot, 'data', 'editorial', 'pending-migrations');
 
 export const requiredTables = [
   'schema_migrations', 'editorial_runs', 'research_sources', 'research_items', 'topic_proposals',
@@ -36,15 +37,25 @@ function expectedProtectiveTriggers(migrations) {
 export function checkEditorialDatabase(databasePath = defaultDatabasePath, options = {}) {
   const migrationsPath = options.migrationsPath ?? defaultMigrationsPath;
   if (!existsSync(databasePath)) throw new Error(`Editorial database does not exist: ${databasePath}`);
-  const migrations = migrationsFrom(migrationsPath);
-  const expected = migrations.map(({ version, name, checksum }) => ({ version, name, checksum }));
-  const expectedTriggers = expectedProtectiveTriggers(migrations);
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
     database.exec('PRAGMA query_only = ON; PRAGMA foreign_keys = ON;');
     const integrity = database.prepare('PRAGMA integrity_check').all();
     const foreignKeyErrors = database.prepare('PRAGMA foreign_key_check').all();
     const applied = database.prepare('SELECT version, name, checksum FROM schema_migrations ORDER BY version').all();
+    const canonicalMigrations = migrationsFrom(migrationsPath);
+    const pendingMigrationsPath = options.pendingMigrationsPath
+      ?? (options.migrationsPath ? null : defaultPendingMigrationsPath);
+    const pendingMigrations = pendingMigrationsPath && existsSync(pendingMigrationsPath)
+      ? migrationsFrom(pendingMigrationsPath)
+      : [];
+    const appliedVersions = new Set(applied.map(({ version }) => version));
+    const migrations = [
+      ...canonicalMigrations,
+      ...pendingMigrations.filter(({ version }) => appliedVersions.has(version)),
+    ].sort((left, right) => left.version - right.version);
+    const expected = migrations.map(({ version, name, checksum }) => ({ version, name, checksum }));
+    const expectedTriggers = expectedProtectiveTriggers(migrations);
     const tables = database.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
     ).all().map(({ name }) => name);

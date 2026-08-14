@@ -1,0 +1,13 @@
+{
+  "currency": "USD",
+  "per_million_tokens": {
+    "fake": {
+      "gpt-5.6-luna": {"input": 0.0, "output": 0.0},
+      "gpt-5.6-terra": {"input": 0.0, "output": 0.0}
+    },
+    "openai": {
+      "gpt-5.6-luna": {"input": 1.0, "output": 6.0},
+      "gpt-5.6-terra": {"input": 2.5, "output": 15.0}
+    }
+  }
+}

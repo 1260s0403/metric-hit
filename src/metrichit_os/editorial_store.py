@@ -16,6 +16,7 @@ from .config import EDITORIAL_DATABASE, EDITORIAL_MIGRATIONS, MEMORY_DATABASE, r
 
 
 PENDING_EDITORIAL_MIGRATIONS = repository_path("data", "editorial", "pending-migrations")
+_WORKING_EDITORIAL_MVP_CAPABILITY = object()
 
 
 class WorkflowError(RuntimeError):
@@ -51,17 +52,23 @@ def payload_sha256(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
-def assert_writable_target(path: Path) -> Path:
+def assert_writable_target(path: Path, *, capability: object | None = None) -> Path:
     resolved = path.resolve()
-    protected = [EDITORIAL_DATABASE.resolve(), MEMORY_DATABASE.resolve()]
-    protected += [
-        database.with_name(database.name + suffix)
-        for database in protected
-        for suffix in ("-wal", "-shm", "-journal")
+    editorial = EDITORIAL_DATABASE.resolve()
+    protected_databases = [editorial, MEMORY_DATABASE.resolve()]
+    protected = [
+        candidate
+        for database in protected_databases
+        for candidate in (
+            database,
+            *(database.with_name(database.name + suffix) for suffix in ("-wal", "-shm", "-journal")),
+        )
     ]
     for candidate in protected:
         same_file = resolved.exists() and candidate.exists() and resolved.samefile(candidate)
         if resolved == candidate or same_file:
+            if capability is _WORKING_EDITORIAL_MVP_CAPABILITY and resolved == editorial and candidate == editorial:
+                continue
             raise WorkingDatabaseWriteError("Working SQLite databases and sidecars are read-only in this stage")
     if not resolved.parent.is_dir():
         raise WorkingDatabaseWriteError("Database parent directory must already exist")
@@ -108,9 +115,16 @@ def expected_schema_signature() -> str:
         connection.close()
 
 
-def initialize_workflow_database(path: Path) -> dict[str, object]:
-    database_path = assert_writable_target(path)
-    connection = sqlite3.connect(assert_writable_target(database_path))
+def initialize_workflow_database(
+    path: Path,
+    *,
+    capability: object | None = None,
+) -> dict[str, object]:
+    database_path = assert_writable_target(path, capability=capability)
+    connection = sqlite3.connect(assert_writable_target(
+        database_path,
+        capability=capability,
+    ))
     connection.row_factory = sqlite3.Row
     try:
         connection.execute("PRAGMA foreign_keys = ON")
@@ -156,8 +170,18 @@ def initialize_workflow_database(path: Path) -> dict[str, object]:
 
 
 class EditorialStore:
-    def __init__(self, path: Path, clock: Callable[[], datetime] = utc_now):
-        self.path = assert_writable_target(path)
+    def __init__(
+        self,
+        path: Path,
+        clock: Callable[[], datetime] = utc_now,
+        *,
+        capability: object | None = None,
+    ):
+        self._capability = capability
+        self.path = assert_writable_target(
+            path,
+            capability=capability,
+        )
         self.clock = clock
         self._assert_workflow_schema()
 
@@ -181,7 +205,10 @@ class EditorialStore:
             connection = sqlite3.connect(uri, uri=True)
             connection.execute("PRAGMA query_only = ON")
         else:
-            writable_path = assert_writable_target(self.path)
+            writable_path = assert_writable_target(
+                self.path,
+                capability=self._capability,
+            )
             connection = sqlite3.connect(writable_path, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
@@ -252,6 +279,104 @@ class EditorialStore:
                 ),
             )
             return stored_response
+
+    def idempotent_result(
+        self,
+        scope: str,
+        key: str,
+        payload: dict[str, object],
+    ) -> dict[str, object] | None:
+        request_hash = payload_sha256({"scope": scope, "payload": payload})
+        with self.read_connection() as connection:
+            existing = connection.execute(
+                "SELECT * FROM idempotency_keys WHERE scope=? AND key_value=?",
+                (scope, key),
+            ).fetchone()
+        if not existing:
+            return None
+        if existing["request_sha256"] != request_hash:
+            raise IdempotencyConflictError("Idempotency key was already used with different data")
+        if existing["status"] != "consumed" or not existing["response_json"]:
+            raise WorkflowError("Previous idempotent operation has no committed result")
+        response = json.loads(existing["response_json"])
+        response["idempotent_replay"] = True
+        return response
+
+    def reserve_idempotency(
+        self,
+        scope: str,
+        key: str,
+        payload: dict[str, object],
+    ) -> dict[str, object] | None:
+        request_hash = payload_sha256({"scope": scope, "payload": payload})
+        with self.transaction() as connection:
+            existing = connection.execute(
+                "SELECT * FROM idempotency_keys WHERE scope=? AND key_value=?",
+                (scope, key),
+            ).fetchone()
+            if existing:
+                if existing["request_sha256"] != request_hash:
+                    raise IdempotencyConflictError("Idempotency key was already used with different data")
+                if existing["status"] == "consumed" and existing["response_json"]:
+                    response = json.loads(existing["response_json"])
+                    response["idempotent_replay"] = True
+                    return response
+                raise WorkflowError("Equivalent idempotent operation is already in progress")
+            connection.execute(
+                """
+                INSERT INTO idempotency_keys (id, scope, key_value, status, request_sha256)
+                VALUES (?, ?, ?, 'active', ?)
+                """,
+                (str(uuid4()), scope, key, request_hash),
+            )
+        return None
+
+    def complete_reserved_idempotency(
+        self,
+        scope: str,
+        key: str,
+        payload: dict[str, object],
+        response: dict[str, object],
+        operation: Callable[[sqlite3.Connection], None],
+    ) -> dict[str, object]:
+        request_hash = payload_sha256({"scope": scope, "payload": payload})
+        with self.transaction() as connection:
+            existing = connection.execute(
+                "SELECT * FROM idempotency_keys WHERE scope=? AND key_value=?",
+                (scope, key),
+            ).fetchone()
+            if not existing or existing["request_sha256"] != request_hash or existing["status"] != "active":
+                raise WorkflowError("Reserved idempotent operation is missing or changed")
+            operation(connection)
+            stored_response = {**response, "idempotent_replay": False}
+            connection.execute(
+                """
+                UPDATE idempotency_keys
+                SET status='consumed', result_entity_type=?, result_entity_id=?, response_json=?
+                WHERE id=?
+                """,
+                (
+                    response.get("entity_type"), response.get("id"),
+                    canonical_json(stored_response), existing["id"],
+                ),
+            )
+            return stored_response
+
+    def abandon_reserved_idempotency(
+        self,
+        scope: str,
+        key: str,
+        payload: dict[str, object],
+    ) -> None:
+        request_hash = payload_sha256({"scope": scope, "payload": payload})
+        with self.transaction() as connection:
+            connection.execute(
+                """
+                DELETE FROM idempotency_keys
+                WHERE scope=? AND key_value=? AND status='active' AND request_sha256=?
+                """,
+                (scope, key, request_hash),
+            )
 
     def audit(
         self,

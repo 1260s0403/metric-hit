@@ -9,6 +9,7 @@ def test_dependency_groups_are_exact_and_separated():
     assert configuration["project"]["requires-python"] == ">=3.13,<3.14"
     assert configuration["project"]["dependencies"] == [
         "fastapi==0.141.1",
+        "openai==3.0.0",
         "pydantic==2.13.4",
         "uvicorn==0.52.3",
     ]
@@ -28,7 +29,7 @@ def test_lock_contains_unique_exact_versions():
     assert all("==" in requirement for requirement in requirements)
     assert "setuptools==82.0.1" in requirements
     for direct in (
-        "fastapi==0.141.1", "pydantic==2.13.4", "uvicorn==0.52.3",
+        "fastapi==0.141.1", "openai==3.0.0", "pydantic==2.13.4", "uvicorn==0.52.3",
         "httpx==0.28.1", "pytest==9.1.1",
     ):
         assert direct in requirements

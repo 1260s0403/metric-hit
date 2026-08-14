@@ -8,12 +8,13 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 import { checkEditorialDatabase, requiredTables } from '../scripts/check-editorial.mjs';
-import { initializeEditorialDatabase } from '../scripts/init-editorial.mjs';
+import { initializeEditorialDatabase, migrationsFrom } from '../scripts/init-editorial.mjs';
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const memoryDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const historicalMaterialPath = join(repositoryRoot, 'work', 'landing', 'index.html');
 const migrationsPath = join(repositoryRoot, 'data', 'editorial', 'migrations');
+const pendingMigrationsPath = join(repositoryRoot, 'data', 'editorial', 'pending-migrations');
 const hash = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
 const uuid = (value) => `00000000-0000-4000-8000-${String(value).padStart(12, '0')}`;
 const sha = 'a'.repeat(64);
@@ -37,6 +38,16 @@ test('editorial database initializes repeatably with the required schema', (t) =
     .map(({ name }) => name);
   database.close();
   for (const table of requiredTables) assert.ok(tables.includes(table), `missing ${table}`);
+
+  const pending = migrationsFrom(pendingMigrationsPath)[0];
+  const writable = new DatabaseSync(databasePath);
+  writable.exec('PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;');
+  writable.exec(pending.sql);
+  writable.prepare('INSERT INTO schema_migrations (version, name, checksum) VALUES (?, ?, ?)')
+    .run(pending.version, pending.name, pending.checksum);
+  writable.exec('COMMIT');
+  writable.close();
+  assert.equal(checkEditorialDatabase(databasePath).migrations, 2);
 });
 
 test('editorial status, foreign-key, path, and hash constraints are enforced', (t) => {
