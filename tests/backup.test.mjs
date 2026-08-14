@@ -15,7 +15,7 @@ const scripts = [
 ];
 
 function runPowerShell(source) {
-  const result = spawnSync(powershell, ['-NoProfile', '-Command', source], {
+  const result = spawnSync(powershell, ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', source], {
     cwd: repositoryRoot,
     encoding: 'utf8',
   });

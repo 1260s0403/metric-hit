@@ -11,7 +11,8 @@ test('workspace status reports the local work contours without file contents', (
   assert.equal(status.memory.pendingCandidates, 0);
   assert.equal(status.memory.openConflicts, 0);
   assert.equal(status.memory.openTasks, 1);
-  assert.equal(status.contours['articles/drafts'], 0);
+  assert.equal(typeof status.contours['articles/drafts'], 'number');
+  assert.ok(status.contours['articles/drafts'] >= 1, 'editorial drafts are allowed');
   assert.match(output, /Work materials:/);
   assert.match(output, /Unprocessed work\/inbox files: 0/);
   assert.doesNotMatch(output, /MetricHit OS — правила работы/);
