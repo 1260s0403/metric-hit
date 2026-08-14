@@ -27,6 +27,7 @@ from .editorial_models import (
 from .editorial_store import WorkflowError, initialize_workflow_database
 from .editorial_mvp import run_editorial_mvp
 from .editorial_workflow import EditorialWorkflowService
+from .knowledge_store import KnowledgeError, KnowledgeStore
 from .services import current_context, editorial_status, memory_summary
 from .text_providers import ProviderError
 
@@ -76,6 +77,20 @@ def workflow_parser() -> argparse.ArgumentParser:
     mvp.add_argument("--account-id", required=True)
     mvp.add_argument("--provider", choices=("fake", "openai"), required=True)
     mvp.add_argument("--simulation", action="store_true")
+    for name in ("knowledge-add", "knowledge-list", "knowledge-search"):
+        command = subparsers.add_parser(name)
+        command.add_argument("--db", required=True)
+        command.add_argument("--kind", choices=("artem", "idea"), required=True)
+        command.add_argument("--limit", type=int, default=20)
+        if name == "knowledge-add":
+            command.add_argument("--text", required=True)
+            command.add_argument("--topic", required=True)
+            command.add_argument("--tags")
+            command.add_argument("--author", default="owner")
+            command.add_argument("--source", default="manual")
+            command.add_argument("--status", choices=("active", "converted_to_task", "archived"), default="active")
+        if name == "knowledge-search":
+            command.add_argument("--query", required=True)
     for name in WRITE_COMMANDS:
         command = subparsers.add_parser(name)
         command.add_argument("--db", required=True)
@@ -105,6 +120,19 @@ def run_workflow_command(arguments_list: list[str]) -> int:
             simulation=arguments.simulation,
         )
         print_json(run_editorial_mvp(database_path, request))
+        return 0
+    if arguments.command.startswith("knowledge-"):
+        store = KnowledgeStore(database_path)
+        if arguments.command == "knowledge-add":
+            print_json(store.add(
+                kind=arguments.kind, text=arguments.text, topic=arguments.topic,
+                tags=arguments.tags, author=arguments.author, source=arguments.source,
+                status=arguments.status,
+            ))
+        elif arguments.command == "knowledge-list":
+            print_json(store.list(kind=arguments.kind, limit=arguments.limit))
+        else:
+            print_json(store.search(kind=arguments.kind, query=arguments.query, limit=arguments.limit))
         return 0
     service = EditorialWorkflowService(database_path)
     if arguments.command in WRITE_COMMANDS:
@@ -139,7 +167,7 @@ def main() -> int:
         return 0
     try:
         return run_workflow_command(sys.argv[1:])
-    except (WorkflowError, ProviderError, ValidationError, ValueError, sqlite3.Error) as error:
+    except (KnowledgeError, WorkflowError, ProviderError, ValidationError, ValueError, sqlite3.Error) as error:
         print_json({"error": type(error).__name__, "message": str(error)})
         return 2
 
