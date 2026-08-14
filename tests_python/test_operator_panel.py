@@ -36,6 +36,14 @@ def test_refuses_external_host(tmp_path):
         run_operator_panel(temporary_database(tmp_path), port=8765, host="0.0.0.0")
 
 
+def test_page_title_is_metrichit(tmp_path):
+    client, _, _ = panel(tmp_path)
+    page = client.get("/").text
+
+    assert "<title>MetricHit</title>" in page
+    assert "<h1>MetricHit</h1>" in page
+
+
 def test_lists_and_searches_by_current_kind(tmp_path):
     client, token, _ = panel(tmp_path)
     add(client, token, "artem", "SEO", "Проверить интент").raise_for_status()
@@ -43,6 +51,20 @@ def test_lists_and_searches_by_current_kind(tmp_path):
 
     assert [item["kind"] for item in client.get("/api/entries", params={"kind": "artem"}).json()] == ["artem_recommendation"]
     assert [item["kind"] for item in client.get("/api/entries", params={"kind": "idea", "query": "рубрику"}).json()] == ["owner_idea"]
+
+
+def test_summary_separates_kinds_and_respects_search(tmp_path):
+    client, token, _ = panel(tmp_path)
+    add(client, token, "artem", "SEO", "Найти это", "seo").raise_for_status()
+    add(client, token, "artem", "SEO", "Скрыть это").raise_for_status()
+    add(client, token, "idea", "Контент", "Идея владельца").raise_for_status()
+
+    artem = client.get("/api/summary", params={"kind": "artem", "query": "Найти"}).json()
+    idea = client.get("/api/summary", params={"kind": "idea"}).json()
+
+    assert artem["count"] == 1
+    assert "Найти это" in artem["markdown"] and "Скрыть это" not in artem["markdown"]
+    assert "Идея владельца" in idea["markdown"] and "Найти это" not in idea["markdown"]
 
 
 def test_adds_both_kinds_and_creates_idempotent_task(tmp_path):
@@ -104,6 +126,27 @@ def test_changes_open_task_to_cancelled_and_rejects_reverse_transition(tmp_path)
 
     assert rejected.status_code == 400
     assert rejected.json()["error"] == "operator_panel_error"
+
+
+def test_action_plan_groups_task_statuses_and_entries_without_task(tmp_path):
+    client, token, _ = panel(tmp_path)
+    open_entry = add(client, token, "artem", "Open", "Текст").json()
+    complete_entry = add(client, token, "artem", "Done", "Текст").json()
+    cancelled_entry = add(client, token, "artem", "Cancelled", "Текст").json()
+    missing = add(client, token, "artem", "Missing", "Текст").json()
+    open_task = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": open_entry["id"]}).json()
+    complete_task = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": complete_entry["id"]}).json()
+    cancelled_task = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": cancelled_entry["id"]}).json()
+    for task_id, status in ((complete_task["id"], "completed"), (cancelled_task["id"], "cancelled")):
+        client.post(f"/api/tasks/{task_id}/status", headers={"X-Operator-Token": token}, json={"status": status}).raise_for_status()
+
+    plan = client.get("/api/action-plan", params={"kind": "artem"}).json()
+
+    assert [item["id"] for item in plan["open"]] == [open_task["id"]]
+    assert [item["id"] for item in plan["completed"]] == [complete_task["id"]]
+    assert [item["id"] for item in plan["cancelled"]] == [cancelled_task["id"]]
+    assert [item["id"] for item in plan["without_task"]] == [missing["id"]]
+    assert missing["id"] in plan["markdown"] and open_task["id"] in plan["markdown"]
 
 
 def test_rejects_post_without_token_and_escapes_user_html(tmp_path):
