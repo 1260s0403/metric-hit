@@ -28,6 +28,7 @@ from .editorial_store import WorkflowError, initialize_workflow_database
 from .editorial_mvp import run_editorial_mvp
 from .editorial_workflow import EditorialWorkflowService
 from .knowledge_store import KnowledgeError, KnowledgeStore
+from .operator_panel import run_operator_panel
 from .services import current_context, editorial_status, memory_summary
 from .text_providers import ProviderError
 
@@ -77,6 +78,9 @@ def workflow_parser() -> argparse.ArgumentParser:
     mvp.add_argument("--account-id", required=True)
     mvp.add_argument("--provider", choices=("fake", "openai"), required=True)
     mvp.add_argument("--simulation", action="store_true")
+    panel = subparsers.add_parser("operator-panel")
+    panel.add_argument("--db", required=True)
+    panel.add_argument("--port", type=int, required=True)
     for name in ("knowledge-add", "knowledge-list", "knowledge-search", "knowledge-to-task"):
         command = subparsers.add_parser(name)
         command.add_argument("--db", required=True)
@@ -126,6 +130,9 @@ def run_workflow_command(arguments_list: list[str]) -> int:
             simulation=arguments.simulation,
         )
         print_json(run_editorial_mvp(database_path, request))
+        return 0
+    if arguments.command == "operator-panel":
+        run_operator_panel(database_path, port=arguments.port)
         return 0
     if arguments.command.startswith("knowledge-"):
         store = KnowledgeStore(database_path)
