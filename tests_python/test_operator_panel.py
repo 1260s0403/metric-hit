@@ -256,7 +256,7 @@ def test_task_card_uses_short_description_and_keeps_full_text_in_details(tmp_pat
 
     assert item["display_title"].startswith("Панель — ")
     assert item["description"] == text
-    assert "slice(0,160)" in page and "details.className='hidden'" in page
+    assert "slice(0,160)" not in page and "details.className='hidden'" in page
     assert created["id"] not in page.split("function renderTasks")[1].split("details.append")[0]
 
 
@@ -298,3 +298,20 @@ def test_rejects_post_without_token_and_escapes_user_html(tmp_path):
     assert "color-scheme:dark" in page
     created = task(client, token)
     assert client.post(f"/api/tasks/{created['id']}/status", json={"status": "completed"}).status_code == 403
+
+
+def test_tasks_focus_view_is_server_selected_and_task_actions_are_compact(tmp_path):
+    client, token, _ = panel(tmp_path)
+    entry = add(client, token, "idea", "Тема", "Полный исходный текст").json()
+    task = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
+
+    page = client.get(f"/?view=tasks&focus_task={task['id']}#task-{task['id']}").text
+    script = page.split("function renderTasks")[1]
+
+    assert 'data-view="tasks" class="active" aria-current="page"' in page
+    assert '<div id="knowledge" class="hidden">' in page
+    assert f'const focusTask="{task["id"]}"' in page
+    assert "task-focused" in script and "focusCard" in page
+    assert "box.append(title,meta,actions,details)" in script
+    assert "details.append(full,origin,date,uuid)" in script
+    assert "slice(0,160)" not in script
