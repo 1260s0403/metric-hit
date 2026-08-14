@@ -187,6 +187,68 @@ class KnowledgeStore:
                 "status": "pending", "author": entry["author"], "created_at": created_at,
             })
 
+    def list_tasks(self) -> list[dict[str, object]]:
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT id, type, title, content, data_json, status, author, created_at
+                FROM tasks
+                WHERE type='knowledge_task'
+                  AND json_extract(data_json, '$.knowledge_kind') IN ('artem_recommendation', 'owner_idea')
+                ORDER BY created_at DESC, id DESC
+                """
+            ).fetchall()
+        return [self._task(dict(row)) for row in rows]
+
+    def set_task_status(self, *, task_id: str, status: str) -> dict[str, object]:
+        if status not in {"completed", "cancelled"}:
+            raise KnowledgeError("status must be completed or cancelled")
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("BEGIN IMMEDIATE")
+            task = connection.execute(
+                """
+                SELECT id, type, title, content, data_json, status, author, created_at, updated_at, version
+                FROM tasks WHERE id=?
+                """,
+                (task_id,),
+            ).fetchone()
+            if task is None or task["type"] != "knowledge_task":
+                raise KnowledgeError("knowledge task was not found")
+            metadata = json.loads(task["data_json"])
+            if metadata.get("knowledge_kind") not in set(KNOWLEDGE_KINDS.values()):
+                raise KnowledgeError("knowledge task was not found")
+            if task["status"] == status:
+                return self._task(dict(task))
+            if task["status"] not in {"pending", "in_progress"}:
+                raise KnowledgeError("closed task cannot change status")
+            updated_at = _utc_text()
+            new_version = task["version"] + 1
+            connection.execute(
+                "UPDATE tasks SET status=?, updated_at=?, version=? WHERE id=?",
+                (status, updated_at, new_version, task_id),
+            )
+            connection.execute(
+                """
+                INSERT INTO audit_log
+                  (id, type, title, data_json, author, created_at, updated_at, access_level, version, entity_type, entity_id, action)
+                VALUES (?, 'task_change', 'Knowledge task status updated', ?, ?, ?, ?, 'restricted', 1, 'task', ?, 'update')
+                """,
+                (
+                    str(uuid4()),
+                    json.dumps({
+                        "new": {"status": status, "updated_at": updated_at, "version": new_version},
+                        "old": {"status": task["status"], "updated_at": task["updated_at"], "version": task["version"]},
+                    }, ensure_ascii=False, sort_keys=True),
+                    task["author"], updated_at, updated_at, task_id,
+                ),
+            )
+            changed = dict(task)
+            changed.update(status=status, updated_at=updated_at, version=new_version)
+            return self._task(changed)
+
     @staticmethod
     def _entry(row: dict[str, object]) -> dict[str, object]:
         metadata = json.loads(str(row["data_json"]))
@@ -214,7 +276,8 @@ class KnowledgeStore:
             "knowledge_kind": metadata["knowledge_kind"],
             "knowledge_tags": metadata["knowledge_tags"],
             "knowledge_topic": metadata["knowledge_topic"],
-            "status": row["status"],
+            "status": "open" if row["status"] in {"pending", "in_progress"} else row["status"],
+            "source": "Рекомендация Артёма" if metadata["knowledge_kind"] == "artem_recommendation" else "Моя идея",
             "title": row["title"],
             "type": row["type"],
         }
