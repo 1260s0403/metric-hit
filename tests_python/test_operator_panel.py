@@ -260,6 +260,20 @@ def test_task_card_uses_short_description_and_keeps_full_text_in_details(tmp_pat
     assert created["id"] not in page.split("function renderTasks")[1].split("details.append")[0]
 
 
+def test_focus_task_and_modal_markup_are_present(tmp_path):
+    client, token, _ = panel(tmp_path)
+    entry = add(client, token, "artem", "Тема", "Текст").json()
+    task = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
+
+    page = client.get("/", params={"view": "tasks", "focus_task": task["id"]}).text
+
+    assert f'const focusTask="{task["id"]}"' in page
+    assert "focus_task=${encodeURIComponent(result.id)}#task-${result.id}" in page
+    assert "task-focused" in page and "focus-label" in page
+    assert 'role="dialog"' in page and 'id="modal-close"' in page
+    assert "document.body.style.overflow='hidden'" in page and "Escape" in page
+
+
 def test_rejects_post_without_token_and_escapes_user_html(tmp_path):
     client, token, _ = panel(tmp_path)
     assert client.post("/api/entries", json={"kind": "idea", "topic": "Тема", "text": "Текст"}).status_code == 403
