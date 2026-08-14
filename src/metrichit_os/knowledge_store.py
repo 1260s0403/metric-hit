@@ -81,14 +81,14 @@ class KnowledgeStore:
                 VALUES (?, 'knowledge_entry', ?, ?, ?, ?, ?, ?, ?, 'internal', 1)
                 """,
                 (
-                    entry_id, topic.strip(), text.strip(), json.dumps(metadata, ensure_ascii=False, sort_keys=True),
+                    entry_id, topic.strip(), text, json.dumps(metadata, ensure_ascii=False, sort_keys=True),
                     document_status, author.strip(), created_at, created_at,
                 ),
             )
         return self._entry({
             "id": entry_id,
             "title": topic.strip(),
-            "content": text.strip(),
+            "content": text,
             "data_json": json.dumps(metadata, ensure_ascii=False, sort_keys=True),
             "author": author.strip(),
             "created_at": created_at,

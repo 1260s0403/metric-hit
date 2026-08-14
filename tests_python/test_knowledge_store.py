@@ -75,6 +75,39 @@ def test_cli_outputs_stable_utf8_json_and_rejects_invalid_kind(tmp_path):
     assert json.loads(rejected.stdout)["error"] == "ValueError"
 
 
+def test_cli_stdin_preserves_utf8_multiline_text_and_validates_input_mode(tmp_path):
+    database = temporary_database(tmp_path)
+    text = "Первая строка\n\nПоследняя строка\n"
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "metrichit_os", "knowledge-add", "--db", str(database),
+            "--kind", "idea", "--topic", "Многострочный ввод", "--stdin",
+        ],
+        input=text,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        check=True,
+    )
+    assert json.loads(result.stdout)["text"] == text
+
+    for arguments in (
+        ["knowledge-add", "--db", str(database), "--kind", "idea", "--topic", "Тема"],
+        [
+            "knowledge-add", "--db", str(database), "--kind", "idea", "--topic", "Тема",
+            "--text", "Текст", "--stdin",
+        ],
+    ):
+        rejected = subprocess.run(
+            [sys.executable, "-m", "metrichit_os", *arguments],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+        )
+        assert rejected.returncode == 2
+        assert json.loads(rejected.stdout)["error"] == "ValueError"
+
+
 def test_working_memory_database_is_not_changed_by_temp_database_tests(tmp_path):
     before = hashlib.sha256(MEMORY_DATABASE.read_bytes()).hexdigest()
     database = temporary_database(tmp_path)

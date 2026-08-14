@@ -83,7 +83,9 @@ def workflow_parser() -> argparse.ArgumentParser:
         command.add_argument("--kind", choices=("artem", "idea"), required=True)
         command.add_argument("--limit", type=int, default=20)
         if name == "knowledge-add":
-            command.add_argument("--text", required=True)
+            content = command.add_mutually_exclusive_group(required=True)
+            content.add_argument("--text")
+            content.add_argument("--stdin", action="store_true")
             command.add_argument("--topic", required=True)
             command.add_argument("--tags")
             command.add_argument("--author", default="owner")
@@ -125,7 +127,7 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         store = KnowledgeStore(database_path)
         if arguments.command == "knowledge-add":
             print_json(store.add(
-                kind=arguments.kind, text=arguments.text, topic=arguments.topic,
+                kind=arguments.kind, text=sys.stdin.read() if arguments.stdin else arguments.text, topic=arguments.topic,
                 tags=arguments.tags, author=arguments.author, source=arguments.source,
                 status=arguments.status,
             ))
@@ -151,6 +153,8 @@ def run_workflow_command(arguments_list: list[str]) -> int:
 
 
 def main() -> int:
+    if hasattr(sys.stdin, "reconfigure"):
+        sys.stdin.reconfigure(encoding="utf-8")
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     if len(sys.argv) > 1 and sys.argv[1] in {*COMMANDS, "context"}:
