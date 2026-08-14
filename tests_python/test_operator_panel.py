@@ -121,6 +121,19 @@ def test_summary_separates_kinds_and_respects_search(tmp_path):
     assert "Идея владельца" in idea["markdown"] and "Найти это" not in idea["markdown"]
 
 
+def test_summary_is_compact_and_deterministic(tmp_path):
+    client, token, _ = panel(tmp_path)
+    text = "Первое полезное предложение. Второе длинное предложение, которое не должно попасть в тезис."
+    add(client, token, "artem", "SEO", text).raise_for_status()
+
+    summary = client.get("/api/summary", params={"kind": "artem"}).json()["markdown"]
+
+    assert "## Ключевые тезисы" in summary and "## Основные темы" in summary
+    assert "Первое полезное предложение." in summary
+    assert "Второе длинное" not in summary
+    assert "UUID" not in summary
+
+
 def test_adds_both_kinds_and_creates_idempotent_task(tmp_path):
     client, token, database = panel(tmp_path)
     recommendation = add(client, token, "artem", "SEO", "Проверить кластер", "seo").json()
@@ -200,7 +213,24 @@ def test_action_plan_groups_task_statuses_and_entries_without_task(tmp_path):
     assert [item["id"] for item in plan["completed"]] == [complete_task["id"]]
     assert [item["id"] for item in plan["cancelled"]] == [cancelled_task["id"]]
     assert [item["id"] for item in plan["without_task"]] == [missing["id"]]
-    assert missing["id"] in plan["markdown"] and open_task["id"] in plan["markdown"]
+    assert "## Сделать сейчас" in plan["markdown"]
+    assert "## Уже в работе" in plan["markdown"]
+    assert "## Можно превратить в задачи" in plan["markdown"]
+    assert open_task["id"] not in plan["markdown"] and missing["id"] not in plan["markdown"]
+
+
+def test_task_confirmation_and_details_are_local(tmp_path):
+    client, token, _ = panel(tmp_path)
+    entry = add(client, token, "artem", "Тема", "Полное описание исходной рекомендации").json()
+
+    first = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
+    second = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
+    task_item = client.get("/api/tasks").json()[0]
+    page = client.get("/").text
+
+    assert first["created"] is True and second["created"] is False and first["id"] == second["id"]
+    assert task_item["description"] == "Полное описание исходной рекомендации"
+    assert "taskFeedback" in page and "Открыть задачу" in page and "Подробнее" in page
 
 
 def test_rejects_post_without_token_and_escapes_user_html(tmp_path):

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import secrets
 from pathlib import Path
 
@@ -26,16 +27,28 @@ def _entries(store: KnowledgeStore, kind: str, query: str) -> list[dict[str, obj
 
 
 def _summary(items: list[dict[str, object]]) -> dict[str, object]:
-    topics: dict[str, list[dict[str, object]]] = {}
+    topics: dict[str, int] = {}
+    theses: list[str] = []
+    seen: set[str] = set()
     for item in items:
-        topics.setdefault(str(item["topic"]), []).append(item)
-    lines = ["# Выжимка", f"Найдено записей: {len(items)}"]
-    for topic, topic_items in topics.items():
-        lines.extend(("", f"## {topic}"))
-        for item in topic_items:
-            tags = ", ".join(item["tags"]) or "—"
-            lines.extend((f"- {item['created_at']} — {item['topic']}", f"  - Теги: {tags}", "  - Текст:", f"    {item['text']}"))
-    return {"count": len(items), "markdown": "\n".join(lines), "topics": topics}
+        topic = str(item["topic"])
+        topics[topic] = topics.get(topic, 0) + 1
+        thesis = _short_text(str(item["text"])) or topic
+        key = thesis.casefold()
+        if key not in seen and len(theses) < 10:
+            seen.add(key)
+            theses.append(thesis)
+    lines = ["# Выжимка", f"Записей: {len(items)}", "", "## Ключевые тезисы"]
+    lines.extend(f"- {thesis}" for thesis in theses) or lines.append("- Нет")
+    lines.extend(("", "## Основные темы"))
+    lines.extend(f"- {topic} — {count}" for topic, count in sorted(topics.items(), key=lambda pair: (-pair[1], pair[0]))) or lines.append("- Нет")
+    return {"count": len(items), "markdown": "\n".join(lines), "topics": topics, "theses": theses}
+
+
+def _short_text(text: str, limit: int = 220) -> str:
+    normalized = " ".join(text.split())
+    sentence = re.split(r"(?<=[.!?])\s+", normalized, maxsplit=1)[0]
+    return sentence if len(sentence) <= limit else sentence[: limit - 1].rstrip() + "…"
 
 
 def _action_plan(items: list[dict[str, object]], tasks: list[dict[str, object]]) -> dict[str, object]:
@@ -45,18 +58,23 @@ def _action_plan(items: list[dict[str, object]], tasks: list[dict[str, object]])
     groups = {status: [task for task in related if task["status"] == status] for status in ("open", "completed", "cancelled")}
     without_task = [item for item in items if item["id"] not in task_ids]
     labels = {"open": "Открытые связанные задачи", "completed": "Выполненные связанные задачи", "cancelled": "Отменённые связанные задачи"}
-    lines = ["# План действий"]
-    for status in ("open", "completed", "cancelled"):
-        lines.extend(("", f"## {labels[status]}"))
-        if groups[status]:
-            lines.extend(f"- {task['created_at']} — {task['title']} ({task['id']})" for task in groups[status])
-        else:
-            lines.append("- Нет")
-    lines.extend(("", "## Записи без задачи"))
-    if without_task:
-        lines.extend(f"- {item['created_at']} — {item['topic']} ({item['id']})" for item in without_task)
+    lines = ["# План действий", "", "## Сделать сейчас"]
+    if groups["open"]:
+        for number, task in enumerate(groups["open"], 1):
+            lines.extend((f"{number}. {task['title']}", f"   {_short_text(str(task['description']))}"))
+    else:
+        lines.append("- Нет открытых задач")
+    lines.extend(("", "## Уже в работе"))
+    if groups["open"]:
+        lines.extend(f"- {task['title']} — {_short_text(str(task['description']))}" for task in groups["open"])
     else:
         lines.append("- Нет")
+    lines.extend(("", "## Можно превратить в задачи"))
+    if without_task:
+        lines.extend(f"- {item['topic']} — {_short_text(str(item['text']))}" for item in without_task)
+    else:
+        lines.append("- Нет")
+    lines.extend(("", "## Завершено", f"- {len(groups['completed'])} задач", "", "## Отменено", f"- {len(groups['cancelled'])} задач"))
     return {**groups, "markdown": "\n".join(lines), "without_task": without_task}
 
 
@@ -100,9 +118,9 @@ def _page(token: str) -> str:
 <div id="knowledge"><form id="add"><label>Тема<br><input name="topic" required></label><br><label>Текст<br><textarea name="text" required></textarea></label><br><label>Теги через запятую<br><input name="tags"></label><br><button>Добавить</button></form><div class="row"><input id="search" placeholder="Поиск по текущему разделу"><button id="find">Искать</button><button id="summary">Выжимка</button><button id="plan">План действий</button></div></div><section id="memory" class="hidden"><div class="tabs"><button data-memory="context" class="active">Текущий контекст</button><button data-memory="facts">Факты</button><button data-memory="decisions">Решения</button></div><div class="row" id="memory-search-row"><input id="memory-search" placeholder="Поиск"><button id="memory-find">Искать</button></div><div class="actions"><button id="memory-copy">Скопировать Markdown</button></div><pre id="memory-context"></pre><section id="memory-items"></section></section><div id="message" role="status"></div><section id="entries"></section><section id="output" class="hidden"><div class="actions"><button id="copy">Скопировать</button></div><pre id="markdown"></pre><div id="plan-items"></div></section>
 <script>const token=""" + json.dumps(token) + """;let view='artem';const message=document.querySelector('#message'),entries=document.querySelector('#entries'),knowledge=document.querySelector('#knowledge');
 async function api(path,options={}){const headers=Object.assign({},options.headers||{});if(options.method==='POST')headers['X-Operator-Token']=token;const r=await fetch(path,Object.assign({},options,{headers}));const body=await r.json();if(!r.ok)throw new Error(body.message);return body}function show(text,error=false){message.className=error?'error':'result';message.textContent=text}
-function createTask(id){return api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})}function renderKnowledge(items){entries.replaceChildren();for(const item of items){const box=document.createElement('article');box.className='entry';const title=document.createElement('strong');title.textContent=item.topic;const meta=document.createElement('div');meta.className='meta';meta.textContent=`${item.created_at} · ${item.id}`;const text=document.createElement('p');text.textContent=item.text;const tags=document.createElement('div');tags.className='meta';tags.textContent=item.tags.join(', ');const task=document.createElement('button');task.textContent='Создать задачу';task.onclick=async()=>{try{const result=await createTask(item.id);show(`Задача: ${result.id}`)}catch(e){show(e.message,true)}};box.append(title,meta,text,tags,task);entries.append(box)}}
-async function changeTask(id,status){try{await api(`/api/tasks/${encodeURIComponent(id)}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});show('Статус задачи обновлён');load()}catch(e){show(e.message,true)}}function renderTasks(items){entries.replaceChildren();for(const item of items){const box=document.createElement('article');box.className='entry';const title=document.createElement('strong');title.textContent=item.title;const meta=document.createElement('div');meta.className='meta';meta.textContent=`${item.status} · ${item.created_at} · ${item.id}`;const source=document.createElement('div');source.textContent=`${item.source}: ${item.knowledge_topic}`;box.append(title,meta,source);if(item.status==='open'){const actions=document.createElement('div');actions.className='actions';for(const [label,status,className] of [['Выполнено','completed','complete'],['Отменить','cancelled','cancel']]){const button=document.createElement('button');button.textContent=label;button.className=className;button.onclick=()=>changeTask(item.id,status);actions.append(button)}box.append(actions)}entries.append(box)}}
-const output=document.querySelector('#output'),markdown=document.querySelector('#markdown'),planItems=document.querySelector('#plan-items'),memory=document.querySelector('#memory'),memoryContext=document.querySelector('#memory-context'),memoryItems=document.querySelector('#memory-items'),memorySearch=document.querySelector('#memory-search'),memorySearchRow=document.querySelector('#memory-search-row');let memoryView='context';async function report(type){try{const q=document.querySelector('#search').value;const result=await api(`/api/${type}?kind=${encodeURIComponent(view)}&query=${encodeURIComponent(q)}`);markdown.textContent=result.markdown;planItems.replaceChildren();if(type==='action-plan'){for(const item of result.without_task){const button=document.createElement('button');button.textContent=`Создать задачу: ${item.topic}`;button.onclick=async()=>{try{const task=await createTask(item.id);show(`Задача: ${task.id}`);report(type)}catch(e){show(e.message,true)}};planItems.append(button)}}output.classList.remove('hidden')}catch(e){show(e.message,true)}}function renderMemory(items){memoryItems.replaceChildren();for(const item of items){const box=document.createElement('article');box.className='entry';const title=document.createElement('strong');title.textContent=item.title;const meta=document.createElement('div');meta.className='meta';meta.textContent=`${item.updated_at} · версия ${item.version}`;const content=document.createElement('p');content.textContent=item.content;box.append(title,meta,content);if(item.semantic_key){const key=document.createElement('div');key.className='meta';key.textContent=item.semantic_key;box.prepend(key)}memoryItems.append(box)}}async function loadMemory(){try{memoryContext.classList.toggle('hidden',memoryView!=='context');memoryItems.replaceChildren();memorySearchRow.classList.toggle('hidden',memoryView==='context');if(memoryView==='context'){const result=await api('/api/memory/context');memoryContext.textContent=result.content;return}const result=await api(`/api/memory/${memoryView}?query=${encodeURIComponent(memorySearch.value)}`);renderMemory(result)}catch(e){show(e.message,true)}}async function load(){try{if(view==='memory'){await loadMemory();return}if(view==='tasks'){renderTasks(await api('/api/tasks'));return}const q=document.querySelector('#search').value;renderKnowledge(await api(`/api/entries?kind=${encodeURIComponent(view)}&query=${encodeURIComponent(q)}`))}catch(e){show(e.message,true)}}document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{view=button.dataset.view;knowledge.classList.toggle('hidden',view==='tasks'||view==='memory');memory.classList.toggle('hidden',view!=='memory');entries.classList.toggle('hidden',view==='memory');output.classList.add('hidden');document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x===button));document.querySelector('#search').value='';load()});document.querySelectorAll('[data-memory]').forEach(button=>button.onclick=()=>{memoryView=button.dataset.memory;document.querySelectorAll('[data-memory]').forEach(x=>x.classList.toggle('active',x===button));memorySearch.value='';loadMemory()});document.querySelector('#find').onclick=load;document.querySelector('#memory-find').onclick=loadMemory;document.querySelector('#summary').onclick=()=>report('summary');document.querySelector('#plan').onclick=()=>report('action-plan');document.querySelector('#copy').onclick=async()=>{try{await navigator.clipboard.writeText(markdown.textContent);show('Скопировано')}catch(e){show('Не удалось скопировать',true)}};document.querySelector('#memory-copy').onclick=async()=>{try{await navigator.clipboard.writeText(memoryContext.textContent);show('Скопировано')}catch(e){show('Не удалось скопировать',true)}};document.querySelector('#add').onsubmit=async event=>{event.preventDefault();const form=new FormData(event.target);try{await api('/api/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:view,topic:form.get('topic'),text:form.get('text'),tags:form.get('tags')})});event.target.reset();show('Запись добавлена');load()}catch(e){show(e.message,true)}};load();</script></body></html>"""
+function createTask(id){return api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})})}function openTask(id){view='tasks';knowledge.classList.add('hidden');entries.classList.remove('hidden');memory.classList.add('hidden');load().then(()=>document.querySelector(`#task-${id}`)?.scrollIntoView({block:'center'}))}function taskFeedback(holder,result){holder.replaceChildren();const text=document.createElement('span');text.className='result';text.textContent=result.created?'Задача создана':'Задача уже существует';const open=document.createElement('button');open.textContent='Открыть задачу';open.onclick=()=>openTask(result.id);holder.append(text,open)}function renderKnowledge(items){entries.replaceChildren();for(const item of items){const box=document.createElement('article');box.className='entry';const title=document.createElement('strong');title.textContent=item.topic;const meta=document.createElement('div');meta.className='meta';meta.textContent=`${item.created_at} · ${item.id}`;const text=document.createElement('p');text.textContent=item.text;const tags=document.createElement('div');tags.className='meta';tags.textContent=item.tags.join(', ');const holder=document.createElement('div');holder.className='actions';const task=document.createElement('button');task.textContent='Создать задачу';task.onclick=async()=>{task.disabled=true;try{taskFeedback(holder,await createTask(item.id))}catch(e){task.disabled=false;const error=document.createElement('span');error.className='error';error.textContent=e.message;holder.append(error)}};holder.append(task);box.append(title,meta,text,tags,holder);entries.append(box)}}
+async function changeTask(id,status){try{await api(`/api/tasks/${encodeURIComponent(id)}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});load()}catch(e){show(e.message,true)}}function renderTasks(items){entries.replaceChildren();for(const item of items){const box=document.createElement('article');box.id=`task-${item.id}`;box.className='entry';const title=document.createElement('strong');title.textContent=item.title;const meta=document.createElement('div');meta.className='meta';meta.textContent=`${item.status} · ${item.created_at}`;const description=document.createElement('p');description.textContent=item.description.slice(0,220)+(item.description.length>220?'…':'');const source=document.createElement('div');source.textContent=`${item.source}: ${item.knowledge_topic}`;const details=document.createElement('div');details.className='hidden';const full=document.createElement('p');full.textContent=item.description;const uuid=document.createElement('div');uuid.className='meta';uuid.textContent=item.id;details.append(full,uuid);const toggle=document.createElement('button');toggle.textContent='Подробнее';toggle.onclick=()=>details.classList.toggle('hidden');box.append(title,meta,description,source,toggle,details);if(item.status==='open'){const actions=document.createElement('div');actions.className='actions';for(const [label,status,className] of [['Выполнено','completed','complete'],['Отменить','cancelled','cancel']]){const button=document.createElement('button');button.textContent=label;button.className=className;button.onclick=()=>changeTask(item.id,status);actions.append(button)}details.append(actions)}entries.append(box)}}
+const output=document.querySelector('#output'),markdown=document.querySelector('#markdown'),planItems=document.querySelector('#plan-items'),memory=document.querySelector('#memory'),memoryContext=document.querySelector('#memory-context'),memoryItems=document.querySelector('#memory-items'),memorySearch=document.querySelector('#memory-search'),memorySearchRow=document.querySelector('#memory-search-row');let memoryView='context';async function report(type){try{const q=document.querySelector('#search').value;const result=await api(`/api/${type}?kind=${encodeURIComponent(view)}&query=${encodeURIComponent(q)}`);markdown.textContent=result.markdown;planItems.replaceChildren();if(type==='action-plan'){for(const item of result.without_task){const button=document.createElement('button');button.textContent=`Создать задачу: ${item.topic}`;button.onclick=async()=>{try{const task=await createTask(item.id);button.disabled=true;button.textContent=task.created?'Задача создана':'Задача уже существует';const open=document.createElement('button');open.textContent='Открыть задачу';open.onclick=()=>openTask(task.id);button.after(open)}catch(e){const error=document.createElement('span');error.className='error';error.textContent=e.message;button.after(error)}};planItems.append(button)}}output.classList.remove('hidden')}catch(e){show(e.message,true)}}function renderMemory(items){memoryItems.replaceChildren();for(const item of items){const box=document.createElement('article');box.className='entry';const title=document.createElement('strong');title.textContent=item.title;const meta=document.createElement('div');meta.className='meta';meta.textContent=`${item.updated_at} · версия ${item.version}`;const content=document.createElement('p');content.textContent=item.content;box.append(title,meta,content);if(item.semantic_key){const key=document.createElement('div');key.className='meta';key.textContent=item.semantic_key;box.prepend(key)}memoryItems.append(box)}}async function loadMemory(){try{memoryContext.classList.toggle('hidden',memoryView!=='context');memoryItems.replaceChildren();memorySearchRow.classList.toggle('hidden',memoryView==='context');if(memoryView==='context'){const result=await api('/api/memory/context');memoryContext.textContent=result.content;return}const result=await api(`/api/memory/${memoryView}?query=${encodeURIComponent(memorySearch.value)}`);renderMemory(result)}catch(e){show(e.message,true)}}async function load(){try{if(view==='memory'){await loadMemory();return}if(view==='tasks'){renderTasks(await api('/api/tasks'));return}const q=document.querySelector('#search').value;renderKnowledge(await api(`/api/entries?kind=${encodeURIComponent(view)}&query=${encodeURIComponent(q)}`))}catch(e){show(e.message,true)}}document.querySelectorAll('[data-view]').forEach(button=>button.onclick=()=>{view=button.dataset.view;knowledge.classList.toggle('hidden',view==='tasks'||view==='memory');memory.classList.toggle('hidden',view!=='memory');entries.classList.toggle('hidden',view==='memory');output.classList.add('hidden');document.querySelectorAll('[data-view]').forEach(x=>x.classList.toggle('active',x===button));document.querySelector('#search').value='';load()});document.querySelectorAll('[data-memory]').forEach(button=>button.onclick=()=>{memoryView=button.dataset.memory;document.querySelectorAll('[data-memory]').forEach(x=>x.classList.toggle('active',x===button));memorySearch.value='';loadMemory()});document.querySelector('#find').onclick=load;document.querySelector('#memory-find').onclick=loadMemory;document.querySelector('#summary').onclick=()=>report('summary');document.querySelector('#plan').onclick=()=>report('action-plan');document.querySelector('#copy').onclick=async()=>{try{await navigator.clipboard.writeText(markdown.textContent);show('Скопировано')}catch(e){show('Не удалось скопировать',true)}};document.querySelector('#memory-copy').onclick=async()=>{try{await navigator.clipboard.writeText(memoryContext.textContent);show('Скопировано')}catch(e){show('Не удалось скопировать',true)}};document.querySelector('#add').onsubmit=async event=>{event.preventDefault();const form=new FormData(event.target);try{await api('/api/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:view,topic:form.get('topic'),text:form.get('text'),tags:form.get('tags')})});event.target.reset();show('Запись добавлена');load()}catch(e){show(e.message,true)}};load();</script></body></html>"""
 
 
 def create_operator_app(database_path: Path) -> FastAPI:
@@ -167,7 +185,10 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error("missing or invalid startup token", 403)
         try:
             payload = await request.json()
-            item = store.to_task(entry_id=_text(payload, "id"), title=_optional_text(payload, "title"))
+            entry_id = _text(payload, "id")
+            existing = store.task_for_entry(entry_id)
+            item = existing or store.to_task(entry_id=entry_id, title=_optional_text(payload, "title"))
+            item["created"] = existing is None
             return JSONResponse(item)
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error:
             return _error(str(error), 400)

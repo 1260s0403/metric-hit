@@ -192,14 +192,18 @@ class KnowledgeStore:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
                 """
-                SELECT id, type, title, content, data_json, status, author, created_at
-                FROM tasks
-                WHERE type='knowledge_task'
-                  AND json_extract(data_json, '$.knowledge_kind') IN ('artem_recommendation', 'owner_idea')
-                ORDER BY created_at DESC, id DESC
+                SELECT tasks.id, tasks.type, tasks.title, tasks.content, tasks.data_json, tasks.status,
+                       tasks.author, tasks.created_at, documents.content AS source_text
+                FROM tasks JOIN documents ON documents.id=json_extract(tasks.data_json, '$.knowledge_entry_id')
+                WHERE tasks.type='knowledge_task'
+                  AND json_extract(tasks.data_json, '$.knowledge_kind') IN ('artem_recommendation', 'owner_idea')
+                ORDER BY tasks.created_at DESC, tasks.id DESC
                 """
             ).fetchall()
         return [self._task(dict(row)) for row in rows]
+
+    def task_for_entry(self, entry_id: str) -> dict[str, object] | None:
+        return next((task for task in self.list_tasks() if task["knowledge_entry_id"] == entry_id), None)
 
     def set_task_status(self, *, task_id: str, status: str) -> dict[str, object]:
         if status not in {"completed", "cancelled"}:
@@ -270,6 +274,7 @@ class KnowledgeStore:
         return {
             "author": row["author"],
             "content": row["content"],
+            "description": row.get("source_text") or row["content"],
             "created_at": row["created_at"],
             "id": row["id"],
             "knowledge_entry_id": metadata["knowledge_entry_id"],
