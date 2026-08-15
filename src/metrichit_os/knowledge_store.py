@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
@@ -173,6 +173,8 @@ class KnowledgeStore:
                 "knowledge_kind": kind,
                 "knowledge_tags": metadata.get("tags", []),
                 "knowledge_topic": metadata.get("topic", entry["title"]),
+                "priority": "normal",
+                "due_date": None,
             }
             task_title = title.strip() if title and title.strip() else _task_title(entry["content"])
             connection.execute(
@@ -193,20 +195,74 @@ class KnowledgeStore:
                 "status": "pending", "author": entry["author"], "created_at": created_at,
             })
 
-    def list_tasks(self) -> list[dict[str, object]]:
+    def list_tasks(self, *, query: str = "", status: str = "all", priority: str = "all", due: str = "all", sort: str = "recommended") -> list[dict[str, object]]:
+        if status not in {"all", "open", "completed", "cancelled"} or priority not in {"all", "high", "normal", "low"} or due not in {"all", "overdue", "today", "week", "none"} or sort not in {"recommended", "due", "priority", "newest", "oldest"}:
+            raise KnowledgeError("invalid task filter")
         with sqlite3.connect(self.path) as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
                 """
                 SELECT tasks.id, tasks.type, tasks.title, tasks.content, tasks.data_json, tasks.status,
-                       tasks.author, tasks.created_at, documents.content AS source_text
+                       tasks.author, tasks.created_at, tasks.updated_at, documents.content AS source_text
                 FROM tasks JOIN documents ON documents.id=json_extract(tasks.data_json, '$.knowledge_entry_id')
                 WHERE tasks.type='knowledge_task'
                   AND json_extract(tasks.data_json, '$.knowledge_kind') IN ('artem_recommendation', 'owner_idea')
                 ORDER BY tasks.created_at DESC, tasks.id DESC
                 """
             ).fetchall()
-        return [self._task(dict(row)) for row in rows]
+        tasks = [self._task(dict(row)) for row in rows]
+        today = date.today()
+        def match(item):
+            if query.casefold() not in (str(item["title"]) + " " + str(item["description"])).casefold(): return False
+            if status != "all" and item["status"] != status: return False
+            if priority != "all" and item["priority"] != priority: return False
+            value = item["due_date"]
+            if due == "none" and value is not None: return False
+            if due == "overdue" and not (value and date.fromisoformat(str(value)) < today): return False
+            if due == "today" and value != today.isoformat(): return False
+            if due == "week" and not (value and today <= date.fromisoformat(str(value)) <= date.fromordinal(today.toordinal() + 7)): return False
+            return True
+        tasks = [item for item in tasks if match(item)]
+        rank = {"high": 0, "normal": 1, "low": 2}
+        def recommended(item):
+            value = item["due_date"]
+            if item["status"] != "open": return (7, "", -str(item.get("updated_at", "")).__len__())
+            if value:
+                due_date = date.fromisoformat(str(value))
+                return (0 if due_date < today else 1 if due_date == today else 2, value, "")
+            return (3 + rank[item["priority"]], "", "")
+        if sort == "recommended": tasks.sort(key=recommended)
+        elif sort == "due": tasks.sort(key=lambda item: (item["due_date"] is None, item["due_date"] or "9999-12-31"))
+        elif sort == "priority": tasks.sort(key=lambda item: rank[item["priority"]])
+        elif sort == "newest": tasks.sort(key=lambda item: str(item["created_at"]), reverse=True)
+        elif sort == "oldest": tasks.sort(key=lambda item: str(item["created_at"]))
+        return tasks
+
+    def today_tasks(self) -> list[dict[str, object]]:
+        current = date.today()
+        tasks = self.list_tasks(status="open")
+        urgent = [item for item in tasks if item["due_date"] and date.fromisoformat(str(item["due_date"])) <= current]
+        high = [item for item in tasks if item["due_date"] is None and item["priority"] == "high"][:5]
+        return urgent + high
+
+    def edit_task(self, *, task_id: str, title: str, description: str, priority: str, due_date: str | None) -> dict[str, object]:
+        if not title.strip(): raise KnowledgeError("title must not be empty")
+        if priority not in {"high", "normal", "low"}: raise KnowledgeError("priority must be high, normal, or low")
+        if due_date:
+            try: date.fromisoformat(due_date)
+            except ValueError as error: raise KnowledgeError("due_date must be YYYY-MM-DD") from error
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row; connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute("SELECT * FROM tasks WHERE id=? AND type='knowledge_task'", (task_id,)).fetchone()
+            if row is None: raise KnowledgeError("knowledge task was not found")
+            metadata = json.loads(row["data_json"])
+            if metadata.get("knowledge_kind") not in set(KNOWLEDGE_KINDS.values()): raise KnowledgeError("knowledge task was not found")
+            old = self._task(dict(row)); metadata.update(priority=priority, due_date=due_date)
+            now = _utc_text(); version = row["version"] + 1
+            connection.execute("UPDATE tasks SET title=?, content=?, data_json=?, updated_at=?, version=? WHERE id=?", (title.strip(), description, json.dumps(metadata, ensure_ascii=False, sort_keys=True), now, version, task_id))
+            connection.execute("INSERT INTO audit_log (id,type,title,data_json,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES (?, 'task_change','Knowledge task edited',?,?,?,?,'restricted',1,'task',?,'update')", (str(uuid4()), json.dumps({"old": {key: old[key] for key in ("title","description","priority","due_date")}, "new": {"title": title.strip(), "description": description, "priority": priority, "due_date": due_date}}, ensure_ascii=False, sort_keys=True), row["author"], now, now, task_id))
+            changed = dict(row); changed.update(title=title.strip(), content=description, data_json=json.dumps(metadata), updated_at=now, version=version)
+            return self._task(changed)
 
     def task_for_entry(self, entry_id: str) -> dict[str, object] | None:
         return next((task for task in self.list_tasks() if task["knowledge_entry_id"] == entry_id), None)
@@ -286,6 +342,8 @@ class KnowledgeStore:
             "content": row["content"],
             "description": description,
             "display_title": display_title,
+            "priority": metadata.get("priority", "normal"),
+            "due_date": metadata.get("due_date"),
             "created_at": row["created_at"],
             "id": row["id"],
             "knowledge_entry_id": metadata["knowledge_entry_id"],
@@ -296,4 +354,5 @@ class KnowledgeStore:
             "source": "Рекомендация Артёма" if metadata["knowledge_kind"] == "artem_recommendation" else "Моя идея",
             "title": row["title"],
             "type": row["type"],
+            "updated_at": row.get("updated_at", row["created_at"]),
         }
