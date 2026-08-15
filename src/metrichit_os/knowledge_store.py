@@ -141,14 +141,16 @@ class KnowledgeStore:
             ).fetchall()
         return [self._entry(dict(row)) for row in rows]
 
-    def to_task(
+    def _to_task(
         self, *, entry_id: str, title: str | None = None, description: str | None = None,
         priority: str = "normal", due_date: str | None = None,
     ) -> dict[str, object]:
+        due_date = self._normalize_due_date(due_date)
         self._validate_task_fields(title=title or "x", priority=priority, due_date=due_date)
         with sqlite3.connect(self.path) as connection:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("BEGIN IMMEDIATE")
             entry = connection.execute(
                 "SELECT id, type, title, content, data_json, author FROM documents WHERE id=?",
                 (entry_id,),
@@ -169,7 +171,7 @@ class KnowledgeStore:
                 (entry_id,),
             ).fetchone()
             if existing is not None:
-                return self._task(dict(existing))
+                return self._task(dict(existing)), False
             task_id = str(uuid4())
             created_at = _utc_text()
             task_description = description if description is not None else entry["content"]
@@ -194,16 +196,35 @@ class KnowledgeStore:
                     entry["author"], created_at, created_at,
                 ),
             )
-            return self._task({
+            task = self._task({
                 "id": task_id, "type": "knowledge_task", "title": task_title,
                 "content": task_description, "data_json": json.dumps(task_metadata, ensure_ascii=False, sort_keys=True),
                 "status": "pending", "author": entry["author"], "created_at": created_at,
             })
+            return task, True
+
+    def to_task(
+        self, *, entry_id: str, title: str | None = None, description: str | None = None,
+        priority: str = "normal", due_date: str | None = None,
+    ) -> dict[str, object]:
+        task, _ = self._to_task(
+            entry_id=entry_id, title=title, description=description, priority=priority, due_date=due_date,
+        )
+        return task
+
+    def to_task_with_created(
+        self, *, entry_id: str, title: str | None = None, description: str | None = None,
+        priority: str = "normal", due_date: str | None = None,
+    ) -> tuple[dict[str, object], bool]:
+        return self._to_task(
+            entry_id=entry_id, title=title, description=description, priority=priority, due_date=due_date,
+        )
 
     def create_task(
         self, *, title: str, description: str, priority: str = "normal", due_date: str | None = None,
         author: str = "owner",
     ) -> dict[str, object]:
+        due_date = self._normalize_due_date(due_date)
         self._validate_task_fields(title=title, priority=priority, due_date=due_date)
         task_id = str(uuid4())
         created_at = _utc_text()
@@ -271,6 +292,7 @@ class KnowledgeStore:
         return urgent + high
 
     def edit_task(self, *, task_id: str, title: str, description: str, priority: str, due_date: str | None) -> dict[str, object]:
+        due_date = self._normalize_due_date(due_date)
         self._validate_task_fields(title=title, priority=priority, due_date=due_date)
         with sqlite3.connect(self.path) as connection:
             connection.row_factory = sqlite3.Row; connection.execute("BEGIN IMMEDIATE")
@@ -389,3 +411,7 @@ class KnowledgeStore:
                 date.fromisoformat(due_date)
             except ValueError as error:
                 raise KnowledgeError("due_date must be YYYY-MM-DD") from error
+
+    @staticmethod
+    def _normalize_due_date(value: str | None) -> str | None:
+        return None if value is None or not value.strip() else value

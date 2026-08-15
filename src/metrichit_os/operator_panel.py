@@ -288,14 +288,13 @@ def create_operator_app(database_path: Path) -> FastAPI:
             payload = await request.json()
             entry_id = _optional_text(payload, "id")
             if entry_id:
-                existing = store.task_for_entry(entry_id)
-                item = existing or store.to_task(
+                item, created = store.to_task_with_created(
                     entry_id=entry_id, title=_optional_text(payload, "title"),
                     description=_optional_text(payload, "description"),
                     priority=_optional_text(payload, "priority") or "normal",
                     due_date=_optional_text(payload, "due_date"),
                 )
-                item["created"] = existing is None
+                item["created"] = created
             else:
                 item = store.create_task(
                     title=_text(payload, "title"), description=_text(payload, "description"),

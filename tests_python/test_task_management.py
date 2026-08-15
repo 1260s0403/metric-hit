@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import sqlite3
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -163,3 +165,37 @@ def test_today_tasks_include_overdue_today_and_at_most_five_high_without_due_dat
     assert overdue["id"] in ids and today["id"] in ids
     assert len([item for item in today_items if item["id"] in high_ids]) == 5
     assert closed["id"] not in ids
+
+
+def test_concurrent_knowledge_to_task_creates_one_task(tmp_path: Path) -> None:
+    store = KnowledgeStore(temporary_database(tmp_path))
+    entry = store.add(kind="idea", topic="Concurrent", text="One task only")
+    barrier = Barrier(2)
+
+    def create() -> tuple[dict[str, object], bool]:
+        barrier.wait()
+        return store.to_task_with_created(entry_id=str(entry["id"]))
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first, second = list(executor.map(lambda _: create(), range(2)))
+
+    assert first[0]["id"] == second[0]["id"]
+    assert sorted((first[1], second[1])) == [False, True]
+    with sqlite3.connect(store.path) as connection:
+        count = connection.execute(
+            "SELECT count(*) FROM tasks WHERE json_extract(data_json, '$.knowledge_entry_id')=?", (entry["id"],)
+        ).fetchone()[0]
+    assert count == 1
+
+
+def test_blank_due_date_is_normalized_to_none_for_filters_and_today(tmp_path: Path) -> None:
+    store = KnowledgeStore(temporary_database(tmp_path))
+    task = create_task(store, topic="Blank due", text="Should be due-less")
+    changed = store.edit_task(
+        task_id=str(task["id"]), title=str(task["title"]), description=str(task["description"]),
+        priority="high", due_date="",
+    )
+
+    assert changed["due_date"] is None
+    assert [item["id"] for item in store.list_tasks(due="none")] == [task["id"]]
+    assert [item["id"] for item in store.today_tasks()] == [task["id"]]
