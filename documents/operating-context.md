@@ -12,7 +12,7 @@ MetricHit OS — центральное операционное ядро биз
 
 Контур решений — часть центрального ядра, а не отдел или автономный агент. Только явно утверждённые владельцем решения могут быть approved; предложения и непринятые варианты остаются pending candidates и никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Значимые approved-решения входят в current context; технические мелкие правки решениями не считаются.
 
-Минимальный repo-side workflow принимает явно утверждённый короткий decision delta, валидирует его обычным Python-кодом и атомарно сохраняет approved candidate вместе со связанной standalone engineering task в существующем task-контуре. Strategy завершает работу после `handoff-create`; он не запускает engineering. Только по явной команде владельца Developer читает ready handoff через `handoff-next`, переводит его в `in_progress` командой `handoff-claim` с идентификатором developer и завершает `handoff-complete` с hash коммита и тем же идентификатором. Одновременно допускается один developer handoff; lifecycle ограничен `ready` → `in_progress` → `completed`. Постоянный контекст читается по startup protocol. Отдельный LLM-вызов, агент, UI, daemon и scheduler не используются. Будущий UI должен войти в управление кандидатами памяти и стать основой «Центра решений владельца».
+Канонический workflow engineering: `Strategy → native Codex task-thread → commit/result`. Strategy — постоянный поток: он фиксирует явно утверждённый короткий decision/task context в repo-side handoff, запускает для каждой engineering-задачи отдельный native Codex task-thread и не меняет код. Постоянный developer-чат не требуется. Repo-side handoff хранит решение, контекст задачи и известный итог/commit hash для audit; он не конкурирует с native task-thread как очередь исполнения. Существующие `handoff-next`, `handoff-claim` и `handoff-complete` и lifecycle `ready` → `in_progress` → `completed` остаются совместимым внутренним механизмом, но не обязательны для startup или пользовательского процесса. Постоянный контекст читается по startup protocol. UI, daemon, scheduler, OpenAI API и интеграция внутреннего API Codex не реализуются.
 
 ## Автономные отделы
 
@@ -26,7 +26,7 @@ MetricHit OS — центральное операционное ядро биз
 
 ## Текущий фокус
 
-Завершены защищённая память, рекомендации и идеи, knowledge → task, управление задачами, обзор, глобальный поиск, активность/audit, backup/restore, проекты и минимальный strategy → developer handoff. Ближайший этап — единый входящий поток текста, ссылок и файлов; голос преобразуется в текст, аудио не хранится. После него — UI управления памятью.
+Завершены защищённая память, рекомендации и идеи, knowledge → task, управление задачами, обзор, глобальный поиск, активность/audit, backup/restore, проекты и минимальная запись/audit для Strategy → native Codex task-thread. Ближайший этап — единый входящий поток текста, ссылок и файлов; голос преобразуется в текст, аудио не хранится. После него — UI управления памятью.
 
 На паузе: серверный перенос, editorial OpenAI API, автоматические публикации и production-развитие редакции.
 

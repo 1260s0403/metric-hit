@@ -10,7 +10,7 @@
 6. Штатным read-only путём извлечь только относящиеся к задаче записи памяти.
 7. Только затем планировать изменения.
 
-Strategy-поток создаёт approved handoff только явной командой `handoff-create` и на этом останавливается: он не вызывает `handoff-next` и не выполняет engineering. Developer-поток только после явной команды владельца читает `handoff-next`, затем берёт указанный ready handoff через `handoff-claim --id <ID> --developer <developer-id>` и завершает его через `handoff-complete --id <ID> --commit <hash> --developer <developer-id>`. Одновременно допускается только один `in_progress` developer handoff; постоянный архитектурный контекст брать из startup protocol, не копировать его в task.
+Strategy — постоянный поток. После утверждённого решения он фиксирует короткий decision/task context в repo-side handoff и запускает отдельный native Codex task-thread для engineering; Strategy не меняет код. Постоянный developer-чат не является частью целевого workflow. Repo-side handoff — каноническая запись решения, контекста задачи и известного результата/commit для audit, а не очередь исполнения: `handoff-next`, `handoff-claim` и `handoff-complete` остаются совместимыми внутренними командами, но не обязательны на startup или в пользовательском процессе. Постоянный архитектурный контекст брать из startup protocol, не копировать его в task.
 
 Утверждённая память выше предположений модели. Расхождения кода, памяти и документов нужно выяснять, а не угадывать. Semantic-дубли запрещены; записи в память выполняются только штатным идемпотентным workflow.
 

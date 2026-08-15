@@ -2,7 +2,7 @@
 
 - Дата решения: 15.08.2026.
 - Источник: прямое утверждение владельца MetricHit.
-- Статус: архитектурное решение; 15.08.2026 дополнено утверждённым минимальным strategy → developer handoff с явным lifecycle.
+- Статус: архитектурное решение; 15.08.2026 дополнено минимальной repo-side записью/audit для native Codex task-thread.
 
 ## Место в архитектуре
 
@@ -22,7 +22,9 @@
 
 ## Исполнение и будущий интерфейс
 
-Реализованный минимальный repo-side workflow не требует отдельного LLM-вызова или агента: стратегический поток передаёт явно утверждённый короткий `decision delta`, обычный Python-код валидирует его и атомарно сохраняет approved candidate вместе со связанной engineering task в существующем task-контуре. Strategy завершает работу после `handoff-create` и не вызывает `handoff-next`. Только явная команда владельца разрешает Developer прочитать ready handoff через `handoff-next`, взять его `handoff-claim` и завершить `handoff-complete` с hash коммита. Lifecycle ограничен `ready` → `in_progress` → `completed`; одновременно допускается один developer handoff, а claim и complete идемпотентны. Целевая дополнительная нагрузка обычной задачи — не более нескольких процентов.
+Канонический workflow engineering: `Strategy → native Codex task-thread → commit/result`. Strategy — постоянный поток: он передаёт явно утверждённый короткий `decision/task context`, фиксирует его обычным Python-кодом как approved candidate вместе со связанной engineering task и запускает для каждой engineering-задачи отдельный native Codex task-thread. Strategy не выполняет engineering; постоянный developer-чат не входит в целевой workflow.
+
+Repo-side handoff — только каноническая запись решения, контекста задачи и известного результата/commit hash для audit. Он не конкурирует с native task-thread как очередь исполнения и не требует `handoff-next`, `handoff-claim` или `handoff-complete` на startup либо в пользовательском процессе. Эти команды и lifecycle `ready` → `in_progress` → `completed` сохраняются как совместимый внутренний механизм; claim и complete остаются идемпотентными. Отдельные UI, daemon, scheduler, OpenAI API и интеграция внутреннего API Codex не реализуются.
 
 Workflow переиспользует существующие `sources`, `documents`, `document_versions`, `memory_candidates` и `tasks`; отдельная система задач не создаётся. UI, daemon, scheduler, OpenAI API и отдельный LLM-вызов не реализуются.
 

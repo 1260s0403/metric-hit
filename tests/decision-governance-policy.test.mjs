@@ -29,16 +29,21 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.deepEqual(data.pre_save_checks, ['semantic_duplicate', 'evolution', 'conflicts']);
       assert.equal(data.execution.separate_llm_call_required, false);
       assert.equal(data.execution.target_overhead, 'few_percent_or_less');
-      assert.equal(data.execution.implementation, 'repo_side_cli');
+      assert.equal(data.execution.implementation, 'native_codex_task_thread');
+      assert.deepEqual(data.execution.canonical_path, ['strategy', 'native_codex_task_thread', 'commit_result']);
       assert.equal(data.handoff.create_command, 'handoff-create');
       assert.equal(data.handoff.next_command, 'handoff-next');
       assert.equal(data.handoff.claim_command, 'handoff-claim');
       assert.equal(data.handoff.complete_command, 'handoff-complete');
       assert.equal(data.handoff.atomic_decision_task_link, true);
+      assert.equal(data.handoff.native_task_thread, 'execution_mechanism');
+      assert.equal(data.handoff.repo_side_role, 'decision_task_context_and_result_audit');
+      assert.equal(data.handoff.repo_side_is_execution_queue, false);
+      assert.equal(data.handoff.permanent_developer_chat_required, false);
+      assert.equal(data.handoff.user_workflow_requires_lifecycle_commands, false);
       assert.deepEqual(data.handoff.lifecycle, ['ready', 'in_progress', 'completed']);
-      assert.equal(data.handoff.strategy_stops_after_create, true);
-      assert.equal(data.handoff.one_active_developer_handoff, true);
-      assert.equal(data.revision, 4);
+      assert.equal(data.handoff.claim_complete_idempotent, true);
+      assert.equal(data.revision, 7);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();

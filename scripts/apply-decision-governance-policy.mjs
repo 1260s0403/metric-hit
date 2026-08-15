@@ -8,9 +8,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabase = join(root, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/decision-governance-policy-2026-08-15.md';
 const semanticKey = 'architecture.decision_governance_policy';
-const reviewedAt = '2026-08-15T17:00:00.000Z';
+const reviewedAt = '2026-08-15T19:00:00.000Z';
 const owner = 'owner';
-const revision = 4;
+const revision = 7;
 
 function uuid(key) {
   const hex = createHash('sha256').update(`metrichit-decision-governance:${key}`).digest('hex');
@@ -30,8 +30,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   if (decision.includes('\uFFFD')) throw new Error('Decision contains U+FFFD');
 
   const title = 'Политика контура решений MetricHit OS';
-  let content = 'Контур решений относится к центральному ядру, а не к отделу или автономному агенту. Явно утверждённые владельцем решения могут сохраняться как approved; предложения, выводы и непринятые варианты остаются pending candidates, а потенциальные решения никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Решения могут связываться с проектом, задачей, источником и при необходимости Git-коммитом. В current context включаются только значимые approved-решения; технические мелкие правки решениями не считаются. Контур охватывает архитектуру, продукт, приоритеты, правила, бюджеты, сроки, права, ограничения и направления проектов. Реализован минимальный repo-side strategy → developer handoff: стратегический поток передаёт явно утверждённый короткий decision delta, обычный Python-код валидирует его и атомарно сохраняет approved candidate вместе со связанной standalone engineering task в существующем task-контуре; developer-поток получает следующую задачу read-only CLI-командой. Отдельный LLM-вызов, агент, UI, daemon и scheduler не используются. Будущий UI входит в управление кандидатами памяти и должен стать основой «Центра решений владельца».';
-  content += ' Strategy останавливается после handoff-create; только явная команда владельца разрешает Developer прочитать и claim ready handoff. Lifecycle ограничен ready → in_progress → completed, одновременно активен один developer handoff, а completion хранит hash коммита; claim и complete идемпотентны.';
+  let content = 'Контур решений относится к центральному ядру, а не к отделу или автономному агенту. Явно утверждённые владельцем решения могут сохраняться как approved; предложения, выводы и непринятые варианты остаются pending candidates, а потенциальные решения никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Решения могут связываться с проектом, задачей, источником и при необходимости Git-коммитом. В current context включаются только значимые approved-решения; технические мелкие правки решениями не считаются. Контур охватывает архитектуру, продукт, приоритеты, правила, бюджеты, сроки, права, ограничения и направления проектов. Канонический workflow engineering: Strategy → native Codex task-thread → commit/result. Strategy — постоянный поток: он фиксирует явно утверждённый короткий decision/task context в repo-side handoff, запускает для каждой engineering-задачи отдельный native Codex task-thread и не меняет код. Постоянный developer-чат не требуется. Repo-side handoff хранит решение, контекст задачи и известный итог/commit hash для audit; он не конкурирует с native task-thread как очередь исполнения. Существующие handoff-next, handoff-claim и handoff-complete и lifecycle ready → in_progress → completed остаются совместимым внутренним механизмом, но не обязательны для startup или пользовательского процесса. UI, daemon, scheduler, OpenAI API и интеграция внутреннего API Codex не реализуются. Будущий UI входит в управление кандидатами памяти и должен стать основой «Центра решений владельца».';
   const policyData = JSON.stringify({
     belongs_to: 'central_core',
     is_department: false,
@@ -44,10 +43,10 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     current_context: 'significant_approved_only',
     excludes: ['minor_technical_changes'],
     scopes: ['architecture', 'product', 'priorities', 'rules', 'budgets', 'deadlines', 'rights', 'constraints', 'project_directions'],
-    execution: { separate_llm_call_required: false, separate_agent_required: false, output: 'short_decision_delta', persistence: 'validated_by_regular_code', target_overhead: 'few_percent_or_less', implementation: 'repo_side_cli' },
-    handoff: { create_command: 'handoff-create', next_command: 'handoff-next', claim_command: 'handoff-claim', complete_command: 'handoff-complete', task_type: 'standalone_task', atomic_decision_task_link: true, read_only_next: true, strategy_stops_after_create: true, developer_requires_explicit_owner_command: true, lifecycle: ['ready', 'in_progress', 'completed'], one_active_developer_handoff: true, claim_complete_idempotent: true, completion_links_commit_hash: true },
+    execution: { separate_llm_call_required: false, separate_agent_required: false, output: 'short_decision_delta', persistence: 'validated_by_regular_code', target_overhead: 'few_percent_or_less', implementation: 'native_codex_task_thread', canonical_path: ['strategy', 'native_codex_task_thread', 'commit_result'] },
+    handoff: { create_command: 'handoff-create', next_command: 'handoff-next', claim_command: 'handoff-claim', complete_command: 'handoff-complete', task_type: 'standalone_task', atomic_decision_task_link: true, native_task_thread: 'execution_mechanism', repo_side_role: 'decision_task_context_and_result_audit', repo_side_is_execution_queue: false, permanent_developer_chat_required: false, user_workflow_requires_lifecycle_commands: false, lifecycle: ['ready', 'in_progress', 'completed'], claim_complete_idempotent: true, completion_links_commit_hash: true },
     future_ui: ['memory_candidate_management', 'owner_decision_center'],
-    functionality_implemented: 'minimal_cli_handoff_only',
+    functionality_implemented: 'repo_side_record_audit_with_native_task_thread_execution',
     revision,
     supersedes_semantic_revision: revision - 1,
     evidence: { path: decisionPath },
