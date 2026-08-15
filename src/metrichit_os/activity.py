@@ -35,7 +35,7 @@ def _human_field(key: str, value: object) -> str:
 def _changes(payload: dict[str, Any]) -> list[dict[str, str]]:
     old, new = payload.get("old"), payload.get("new")
     if not isinstance(old, dict) or not isinstance(new, dict): return []
-    names = {"title": "Название", "description": "Описание", "content": "Описание", "priority": "Приоритет", "due_date": "Срок", "status": "Статус"}
+    names = {"title": "Название", "name": "Название", "description": "Описание", "content": "Описание", "priority": "Приоритет", "due_date": "Срок", "status": "Статус", "project_id": "Проект"}
     result = []
     for key in names:
         before, after = old.get(key), new.get(key)
@@ -50,6 +50,7 @@ def list_activity(database_path: Path, *, period: str = "all", item_type: str = 
     if period != "all": cutoff = (datetime.now(timezone.utc) - timedelta(days=0 if period == "today" else int(period))).strftime("%Y-%m-%dT00:00:00.000Z")
     items: list[dict[str, object]] = []
     with read_only_database(database_path) as db:
+        project_names = {str(row["id"]): str(row["title"]) for row in db.execute("SELECT id,title FROM documents WHERE type='project'")}
         rows = db.execute("SELECT id,type,title,data_json,entity_type,entity_id,action,created_at FROM audit_log ORDER BY created_at DESC, id DESC").fetchall()
         for row in rows:
             if cutoff and str(row["created_at"]) < cutoff: continue
@@ -66,7 +67,14 @@ def list_activity(database_path: Path, *, period: str = "all", item_type: str = 
             elif entity == "memory_item":
                 target_type = "memory"
                 current = db.execute("SELECT title FROM memory_items WHERE id=?", (target_id,)).fetchone(); title = str(current["title"]) if current else title
+            elif entity == "project":
+                target_type, target_view = "project", "projects"
+                current = db.execute("SELECT title FROM documents WHERE id=? AND type='project'", (target_id,)).fetchone(); title = str(current["title"]) if current else title
             changes = _changes(payload)
+            for change in changes:
+                if change["field"] == "Проект":
+                    change["old"] = project_names.get(change["old"], "Без проекта" if change["old"] == "—" else "Недоступен")
+                    change["new"] = project_names.get(change["new"], "Без проекта" if change["new"] == "—" else "Недоступен")
             event_action = "create" if str(row["action"]) == "create" else "update"
             if target_type == "task" and changes:
                 status = next((change["new"] for change in changes if change["field"] == "Статус"), None)

@@ -29,6 +29,14 @@ def _tags(data_json: str) -> list[str]:
     return [str(tag) for tag in value] if isinstance(value, list) else []
 
 
+def _data(data_json: object) -> dict[str, object]:
+    try:
+        value = json.loads(str(data_json))
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
 def _snippet(text: str, query: str, limit: int = 180) -> str:
     match = re.search(r"\s+".join(re.escape(part) for part in normalize(query).split()), text.casefold().replace("ё", "е"))
     if match is None:
@@ -40,10 +48,11 @@ def _snippet(text: str, query: str, limit: int = 180) -> str:
     return ("…" if start else "") + value + ("…" if end < len(text) else "")
 
 
-def _record(*, item_type: str, row: Any, title: str, text: str, tags: list[str], status: str, date: str) -> dict[str, object]:
+def _record(*, item_type: str, row: Any, title: str, text: str, tags: list[str], status: str, date: str, project_id: str | None = None, project_name: str | None = None) -> dict[str, object]:
     return {
         "id": str(row["id"]), "type": item_type, "title": title, "text": text,
         "tags": tags, "status": status, "date": date,
+        "project_id": project_id, "project_name": project_name,
     }
 
 
@@ -55,6 +64,7 @@ def search(database_path: Path, *, query: str, item_type: str = "all", status: s
         return []
     records: list[dict[str, object]] = []
     with read_only_database(database_path) as database:
+        projects = {str(row["id"]): str(row["title"]) for row in database.execute("SELECT id,title FROM documents WHERE type='project'")}
         for row in database.execute("SELECT id,title,content,data_json,status,created_at,updated_at FROM documents WHERE type='knowledge_entry'"):
             try:
                 data = json.loads(row["data_json"])
@@ -62,10 +72,13 @@ def search(database_path: Path, *, query: str, item_type: str = "all", status: s
                 data = {}
             kind = "artem" if data.get("kind") == "artem_recommendation" else "idea" if data.get("kind") == "owner_idea" else None
             if kind:
-                records.append(_record(item_type=kind, row=row, title=str(row["title"]), text=str(row["content"]), tags=_tags(row["data_json"]), status=str(data.get("knowledge_status", row["status"])), date=str(row["updated_at"] or row["created_at"])))
+                project_id = data.get("project_id")
+                records.append(_record(item_type=kind, row=row, title=str(row["title"]), text=str(row["content"]), tags=_tags(row["data_json"]), status=str(data.get("knowledge_status", row["status"])), date=str(row["updated_at"] or row["created_at"]), project_id=str(project_id) if project_id else None, project_name=projects.get(str(project_id))))
         for row in database.execute("SELECT id,title,content,data_json,status,created_at,updated_at FROM tasks WHERE type IN ('knowledge_task','standalone_task')"):
             task_status = "open" if row["status"] in {"pending", "in_progress"} else str(row["status"])
-            records.append(_record(item_type="task", row=row, title=str(row["title"]), text=str(row["content"]), tags=_tags(row["data_json"]), status=task_status, date=str(row["updated_at"] or row["created_at"])))
+            metadata = _data(row["data_json"])
+            project_id = metadata.get("project_id")
+            records.append(_record(item_type="task", row=row, title=str(row["title"]), text=str(row["content"]), tags=_tags(row["data_json"]), status=task_status, date=str(row["updated_at"] or row["created_at"]), project_id=str(project_id) if project_id else None, project_name=projects.get(str(project_id))))
         for row in database.execute("SELECT id,semantic_key,title,content,status,updated_at FROM memory_items WHERE status='active'"):
             records.append(_record(item_type="fact", row=row, title=str(row["title"]), text=f"{row['semantic_key']}\n{row['content']}", tags=[], status="active", date=str(row["updated_at"])))
         for row in database.execute("SELECT id,title,content,status,updated_at FROM decisions WHERE status='active'"):

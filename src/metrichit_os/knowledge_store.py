@@ -252,7 +252,7 @@ class KnowledgeStore:
                            "data_json": json.dumps(metadata), "status": "pending", "author": author, "created_at": created_at,
                            "updated_at": created_at})
 
-    def list_tasks(self, *, query: str = "", status: str = "all", priority: str = "all", due: str = "all", sort: str = "recommended") -> list[dict[str, object]]:
+    def list_tasks(self, *, query: str = "", status: str = "all", priority: str = "all", due: str = "all", sort: str = "recommended", project: str = "all") -> list[dict[str, object]]:
         if status not in {"all", "open", "completed", "cancelled"} or priority not in {"all", "high", "normal", "low"} or due not in {"all", "overdue", "today", "week", "none"} or sort not in {"recommended", "due", "priority", "newest", "oldest"}:
             raise KnowledgeError("invalid task filter")
         with sqlite3.connect(self.path) as connection:
@@ -274,6 +274,8 @@ class KnowledgeStore:
             if query.casefold() not in (str(item["title"]) + " " + str(item["description"])).casefold(): return False
             if status != "all" and item["status"] != status: return False
             if priority != "all" and item["priority"] != priority: return False
+            if project == "none" and item.get("project_id"): return False
+            if project not in {"all", "none"} and item.get("project_id") != project: return False
             value = item["due_date"]
             if due == "none" and value is not None: return False
             if due == "overdue" and not (value and date.fromisoformat(str(value)) < today): return False
@@ -398,6 +400,7 @@ class KnowledgeStore:
             "description": description,
             "display_title": display_title,
             "priority": metadata.get("priority", "normal"),
+            "project_id": metadata.get("project_id"),
             "due_date": metadata.get("due_date"),
             "created_at": row["created_at"],
             "id": row["id"],

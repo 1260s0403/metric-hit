@@ -16,6 +16,7 @@ from .activity import list_activity
 from .database import read_only_database
 from .global_search import search as global_search
 from .knowledge_store import KnowledgeError, KnowledgeStore
+from .project_store import ProjectStore
 
 
 LOCAL_HOST = "127.0.0.1"
@@ -137,6 +138,11 @@ def _dashboard(store: KnowledgeStore, database_path: Path) -> dict[str, object]:
     result: dict[str, object] = {}
     try:
         open_tasks = store.list_tasks(status="open", sort="recommended")
+        with read_only_database(database_path) as connection:
+            project_names = {str(row["id"]): str(row["title"]) for row in connection.execute("SELECT id,title FROM documents WHERE type='project'")}
+        for task in open_tasks:
+            project_id = task.get("project_id")
+            task["project_name"] = project_names.get(str(project_id)) if project_id else None
         today = date.today().isoformat()
         important = open_tasks[:5]
         result["tasks"] = {
@@ -192,8 +198,22 @@ const output=document.querySelector('#output'),markdown=document.querySelector('
 
 
 def _page(token: str, focus_task: str | None, view: str) -> str:
-    selected = view if view in {"overview", "search", "activity", "artem", "idea", "tasks", "memory"} else "overview"
+    selected = view if view in {"overview", "search", "activity", "projects", "artem", "idea", "tasks", "memory"} else "overview"
     page = _page_raw(token, focus_task)
+    page = page.replace(
+        "due_date:form.elements.due_date.value||null};try{",
+        "due_date:form.elements.due_date.value||null,project_id:form.elements.project_id?.value||null};try{",
+    )
+    page = page.replace(
+        "form.elements.due_date.value=item?.due_date||'';taskModal",
+        "form.elements.due_date.value=item?.due_date||'';form.elements.project_id.dataset.current=item?.project_id||entry?.project_id||'';taskModal",
+    )
+    page = page.replace(
+        "sort:p.get('sort')||'recommended'}",
+        "sort:p.get('sort')||'recommended',project:p.get('project')||'all'}",
+    )
+    page = page.replace('<button data-view="artem"', '<button data-view="projects" data-testid="tab-projects">Проекты</button><button data-view="artem"', 1)
+    page = page.replace('<section id="overview" data-testid="overview-screen">', '<section id="projects" data-testid="projects-screen" class="hidden"></section><section id="overview" data-testid="overview-screen">', 1)
     page = page.replace(
         '<button data-view="artem"',
         '<button data-view="activity" data-testid="tab-activity">Активность</button><button data-view="artem"',
@@ -213,7 +233,7 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
         '<section id="overview" data-testid="overview-screen">',
     )
     page = re.sub(
-        r'(<button data-view="(?:overview|search|activity|artem|idea|tasks|memory)"[^>]*) class="active"(?: aria-current="page")?',
+        r'(<button data-view="(?:overview|search|activity|projects|artem|idea|tasks|memory)"[^>]*) class="active"(?: aria-current="page")?',
         r'\1',
         page,
     )
@@ -224,7 +244,7 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
         count=1,
     )
     page = page.replace("let view=focusTask?'tasks':'artem'", f"let view={json.dumps(selected)}")
-    page = page.replace("async function load(){try{", "async function load(){try{if(view==='overview'||view==='search'||view==='activity')return;")
+    page = page.replace("async function load(){try{", "async function load(){try{if(view==='overview'||view==='search'||view==='activity'||view==='projects')return;")
     page = page.replace(
         "knowledge.classList.toggle('hidden',view==='tasks'||view==='memory')",
         "knowledge.classList.toggle('hidden',view==='tasks'||view==='memory'||view==='overview'||view==='search')",
@@ -232,9 +252,9 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
     page = page.replace("entries.classList.toggle('hidden',view==='memory')", "entries.classList.toggle('hidden',view==='memory'||view==='overview'||view==='search')")
     # The base script eagerly loads tasks before the task UI can replace its renderer.
     # Task mode is loaded once by the guarded MVP layer below.
-    if selected in {"tasks", "activity"}:
-        page = page.replace(";load();</script></body>", ";if(view!=='tasks'&&view!=='activity')load();</script></body>")
-    if selected in {"tasks", "memory", "overview", "search", "activity"}:
+    if selected in {"tasks", "activity", "projects"}:
+        page = page.replace(";load();</script></body>", ";if(view!=='tasks'&&view!=='activity'&&view!=='projects')load();</script></body>")
+    if selected in {"tasks", "memory", "overview", "search", "activity", "projects"}:
         page = page.replace(
             '<div id="knowledge" data-testid="knowledge-screen">',
             '<div id="knowledge" data-testid="knowledge-screen" class="hidden">',
@@ -244,13 +264,16 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
             '<section id="memory" data-testid="memory-screen" class="hidden">',
             '<section id="memory" data-testid="memory-screen">',
         )
-    if selected in {"overview", "search", "activity"}:
+    if selected in {"overview", "search", "activity", "projects"}:
         page = page.replace('<section id="entries" data-testid="entries">', '<section id="entries" data-testid="entries" class="hidden">')
     if selected != "overview":
         page = page.replace('<section id="overview" data-testid="overview-screen">', '<section id="overview" data-testid="overview-screen" class="hidden">')
     task_blocks = """for(const [key,label] of [['overdue','Просроченные'],['today','На сегодня'],['high','Высокий приоритет']]){const compact=node('section',undefined,'overview-compact');compact.dataset.testid=`overview-${key}-tasks`;compact.append(node('strong',label));const items=data[`${key}_items`]||[];if(!items.length)compact.append(node('p','Нет задач.','overview-empty'));else for(const item of items)compact.append(taskRow(item));box.append(compact)}"""
     dashboard_ui = _dashboard_ui().replace("function memory(data)", "function memoryState(data)").replace(
         ",memory(data.memory),", ",memoryState(data.memory),"
+    ).replace(
+        "${task.display_title} · ${task.priority}",
+        "${task.display_title}${task.project_name?` · ${task.project_name}`:''} · ${task.priority}",
     ).replace("box.append(counts);if(!data.items.length)", f"box.append(counts);{task_blocks}if(!data.items.length)").replace(
         "for(const item of data.items)box.append(taskRow(item));return box", "return box"
     )
@@ -258,7 +281,10 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
         "oldKnowledge(items);if(entryId)",
         "oldKnowledge(items);for(const [index,item] of items.entries()){const card=document.querySelectorAll('#entries>.entry')[index];if(card)card.id=`knowledge-${item.id}`}if(entryId)",
     )
-    return page.replace("</body>", _task_mvp_ui() + dashboard_ui + _search_ui() + _activity_ui() + focus_ui + _focus_navigation_reload_ui() + _dashboard_quick_action_guard() + "</body>")
+    task_ui = _task_mvp_ui().replace("due_date:form.elements.due_date.value||null};try{", "due_date:form.elements.due_date.value||null,project_id:form.elements.project_id.value||null};try{").replace("form.elements.due_date.value=item?.due_date||'';taskModal", "form.elements.due_date.value=item?.due_date||'';form.elements.project_id.dataset.current=item?.project_id||entry?.project_id||'';window.metricHitRefreshProjects?.(form,item?.project_id||entry?.project_id||'');taskModal").replace("sort:p.get('sort')||'recommended'}", "sort:p.get('sort')||'recommended',project:p.get('project')||'all'}").replace("sort:sort.value});load()", "sort:sort.value,project:new URLSearchParams(location.search).get('project')||'all'});load()")
+    search_ui = _search_ui().replace("${item.date} · ${item.status}", "${item.date} · ${item.status}${item.project_name?` · ${item.project_name}`:''}")
+    activity_ui = _activity_ui().replace(":item.object_type==='memory'?", ":item.object_type==='project'?`/?view=projects&project_id=${encodeURIComponent(item.target_id)}#project-${item.target_id}`:item.object_type==='memory'?")
+    return page.replace("</body>", task_ui + dashboard_ui + search_ui + activity_ui + _projects_ui() + _project_assignment_ui() + _project_modal_refresh() + _project_experience_ui() + _project_assignment_controls() + _project_task_filter_ui() + focus_ui + _focus_navigation_reload_ui() + _dashboard_quick_action_guard() + "</body>")
 
 
 def _e2e_markers() -> str:
@@ -302,7 +328,7 @@ const originalLoad=load;
 for(const [name,testid] of [['topic','add-topic'],['text','add-text'],['tags','add-tags']]){const field=document.querySelector(`#add [name="${name}"]`);if(field)field.dataset.testid=testid}
 const taskModal=document.createElement('section');
 taskModal.className='task-modal hidden'; taskModal.dataset.testid='task-modal'; taskModal.setAttribute('role','dialog'); taskModal.setAttribute('aria-modal','true');
-taskModal.innerHTML='<form data-testid="task-form"><h2 data-testid="task-modal-title"></h2><label>Название<input name="title" required data-testid="task-title"></label><label>Описание<textarea name="description" required data-testid="task-description"></textarea></label><label>Приоритет<select name="priority" data-testid="task-priority"><option value="high">Высокий</option><option value="normal">Обычный</option><option value="low">Низкий</option></select></label><label>Срок<input name="due_date" type="date" data-testid="task-due-date"></label><div class="task-actions"><button data-testid="task-save">Сохранить</button><button type="button" data-testid="task-cancel">Отмена</button></div><div class="error" data-testid="task-form-error"></div></form>';
+taskModal.innerHTML='<form data-testid="task-form"><h2 data-testid="task-modal-title"></h2><label>Название<input name="title" required data-testid="task-title"></label><label>Описание<textarea name="description" required data-testid="task-description"></textarea></label><label>Приоритет<select name="priority" data-testid="task-priority"><option value="high">Высокий</option><option value="normal">Обычный</option><option value="low">Низкий</option></select></label><label>Срок<input name="due_date" type="date" data-testid="task-due-date"></label><label>Проект<select name="project_id" data-testid="task-project"><option value="">Без проекта</option></select></label><div class="task-actions"><button data-testid="task-save">Сохранить</button><button type="button" data-testid="task-cancel">Отмена</button></div><div class="error" data-testid="task-form-error"></div></form>';
 document.body.append(taskModal);
 const form=taskModal.querySelector('form'), formError=taskModal.querySelector('[data-testid="task-form-error"]'); let modalState=null;
 const closeModal=()=>{taskModal.classList.add('hidden');modalState=null;}; taskModal.querySelector('[data-testid="task-cancel"]').onclick=closeModal; taskModal.onclick=e=>{if(e.target===taskModal)closeModal};
@@ -351,8 +377,33 @@ def _focus_navigation_reload_ui() -> str:
     return """<script>const focusParams=new URLSearchParams(location.search),focusView=focusParams.get('view');if(['artem','idea'].includes(focusView)){view=focusView;setTimeout(()=>api(`/api/entries?kind=${focusView}&query=`).then(renderKnowledge).catch(error=>show(error.message,true)),50)}if(focusView==='memory'){memoryView=focusParams.get('memory_tab')||'context';if(memoryView!=='context')setTimeout(()=>api(`/api/memory/${memoryView}?query=`).then(renderMemory).catch(error=>show(error.message,true)),50)}</script>"""
 
 
+def _projects_ui() -> str:
+    return r"""<script>(()=>{const screen=document.querySelector('#projects'),node=(tag,text,id)=>{const el=document.createElement(tag);el.textContent=text;if(id)el.dataset.testid=id;return el};let modal;function form(item){modal?.remove();modal=document.createElement('div');modal.className='task-modal';modal.dataset.testid='project-modal';const box=document.createElement('form'),name=document.createElement('input'),description=document.createElement('textarea'),save=node('button','Сохранить','project-save'),cancel=node('button','Отмена','project-cancel'),error=node('div','project-feedback');name.dataset.testid='project-title';description.dataset.testid='project-description';name.value=item?.name||'';description.value=item?.description||'';box.append(node('h2',item?'Редактировать проект':'Новый проект'),name,description,save,cancel,error);modal.append(box);document.body.append(modal);name.focus();cancel.onclick=()=>modal.remove();box.onsubmit=async e=>{e.preventDefault();try{const url=item?`/api/projects/${item.id}/edit`:'/api/projects';await api(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name.value,description:description.value})});modal.remove();load()}catch(x){error.className='error';error.textContent=x.message}}}async function render(){if(view!=='projects')return;screen.classList.remove('hidden');screen.replaceChildren();knowledge.classList.add('hidden');memory.classList.add('hidden');entries.classList.add('hidden');const add=node('button','Новый проект','projects-new');add.onclick=()=>form();screen.append(add);const items=await api('/api/projects');for(const item of items){const card=node('article',undefined,`project-card-${item.id}`);card.className='entry';card.append(node('strong',item.name),node('p',item.description),node('div',`${item.status} · открытых задач: ${item.open_tasks} · рекомендаций: ${item.artem} · идей: ${item.ideas}`,'meta'));if(item.id!=='unassigned'){const actions=node('div');actions.className='actions';const edit=node('button','Редактировать',`project-edit-${item.id}`);edit.onclick=()=>form(item);actions.append(edit);if(item.status==='active'){const archive=node('button','Архивировать',`project-archive-${item.id}`);archive.onclick=async()=>{archive.disabled=true;try{await api(`/api/projects/${item.id}/archive`,{method:'POST'});load()}catch(x){archive.disabled=false;show(x.message,true)}};actions.append(archive)}card.append(actions)}card.id=`project-${item.id}`;screen.append(card)}}const oldLoad=load;load=async()=>{if(view==='projects'){await render();return}screen.classList.add('hidden');await oldLoad()};for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',()=>{if(tab.dataset.view==='projects')setTimeout(load,0);else screen.classList.add('hidden')});setTimeout(()=>{if(view==='projects')load()},0)})();</script>"""
+
+
+def _project_assignment_ui() -> str:
+    return r"""<script>(()=>{async function active(){return (await api('/api/projects')).filter(x=>x.status==='active')}async function selectFor(form,current=''){let select=form.querySelector('[name="project_id"]');if(!select){const label=document.createElement('label');label.textContent='Проект';select=document.createElement('select');select.name='project_id';select.dataset.testid='knowledge-project';label.append(select);form.insertBefore(label,form.querySelector('button'))}select.replaceChildren(new Option('Без проекта',''));for(const p of await active())select.append(new Option(p.name,p.id));select.value=current||select.dataset.current||''}const add=document.querySelector('#add');if(add){selectFor(add).catch(()=>{});add.onsubmit=async event=>{event.preventDefault();const form=new FormData(add);try{await api('/api/entries',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind:view,topic:form.get('topic'),text:form.get('text'),tags:form.get('tags'),project_id:form.get('project_id')||null})});add.reset();await selectFor(add);show('Запись добавлена');load()}catch(error){show(error.message,true)}}}const seed=()=>{const form=document.querySelector('[data-testid="task-form"]');if(form&&form.dataset.projects!=='1'){form.dataset.projects='1';selectFor(form).catch(()=>{})}};seed();new MutationObserver(seed).observe(document.body,{childList:true,subtree:true});})();</script>"""
+
+
+def _project_experience_ui() -> str:
+    return r"""<script>(()=>{const projectUrl=id=>`/?view=projects&project_id=${encodeURIComponent(id)}#project-${id}`;const objectUrl=(kind,id)=>kind==='task'?`/?view=tasks&focus_task=${encodeURIComponent(id)}#task-${id}`:`/?view=${kind}&focus_entry=${encodeURIComponent(id)}#knowledge-${id}`;const text=(tag,value)=>{const el=document.createElement(tag);el.textContent=value;return el};async function names(){return Object.fromEntries((await api('/api/projects')).filter(x=>x.id!=='unassigned').map(x=>[x.id,x.name]))}function link(card,id,name){if(!id||card.querySelector('[data-testid^="project-link-"]'))return;const a=document.createElement('a');a.href=projectUrl(id);a.dataset.testid=`project-link-${id}`;a.textContent=`Проект: ${name||'Архивный проект'}`;card.append(a)}const oldTasks=renderTasks;renderTasks=items=>{oldTasks(items);names().then(map=>items.forEach(item=>link(document.getElementById(`task-${item.id}`),item.project_id,map[item.project_id]))).catch(()=>{})};const oldKnowledge=renderKnowledge;renderKnowledge=items=>{oldKnowledge(items);names().then(map=>items.forEach(item=>{const card=document.getElementById(`knowledge-${item.id}`)||document.querySelector(`[data-testid="knowledge-entry-${item.id}"]`);link(card,item.project_id,map[item.project_id]);if(!card||card.querySelector('[data-testid^="assign-project-"]'))return;const button=text('button','Назначить проект');button.dataset.testid=`assign-project-${item.id}`;button.onclick=async()=>{const value=prompt('ID проекта (пусто — снять назначение)',item.project_id||'');try{await api('/api/projects/assign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({object_id:item.id,project_id:value||null})});load()}catch(error){show(error.message,true)}};card.append(button)})).catch(()=>{})};const prior=load;load=async()=>{const p=new URLSearchParams(location.search);if(view==='projects'&&p.get('project_id')){const screen=document.querySelector('#projects');screen.classList.remove('hidden');screen.replaceChildren();try{const data=await api(`/api/projects/${encodeURIComponent(p.get('project_id'))}`),project=data.project;const card=text('section','');card.id=`project-${project.id}`;card.className='entry';card.append(text('h2',project.name),text('p',project.description||'Без описания'),text('div',project.status==='archived'?'Архивный':'Активный'));for(const [key,label,kind] of [['tasks','Открытые задачи','task'],['artem','Рекомендации Артёма','artem'],['ideas','Мои идеи','idea']]){const section=document.createElement('section');section.append(text('h3',label));if(!data[key].length)section.append(text('p','Записей нет.'));for(const item of data[key]){const line=document.createElement('a');line.href=objectUrl(kind,item.id);line.textContent=item.title;line.dataset.testid=`project-open-${kind}-${item.id}`;section.append(line)}card.append(section)}screen.append(card)}catch(error){screen.append(text('p',error.message))}return}await prior()};new MutationObserver(()=>{for(const card of document.querySelectorAll('[data-testid^="project-card-"]')){if(card.querySelector('[data-testid^="project-open-"]'))continue;const id=card.dataset.testid.slice('project-card-'.length);const open=text('a','Открыть');open.href=projectUrl(id);open.dataset.testid=`project-open-${id}`;card.querySelector('.actions')?.prepend(open)}}).observe(document.body,{childList:true,subtree:true});})();</script>"""
+
+
+def _project_assignment_controls() -> str:
+    return r"""<script>(()=>{async function enhance(){const projects=(await api('/api/projects')).filter(x=>x.status==='active');for(const button of document.querySelectorAll('[data-testid^="assign-project-"]')){if(button.dataset.ready)continue;button.dataset.ready='1';const id=button.dataset.testid.slice('assign-project-'.length),select=document.createElement('select'),save=document.createElement('button');select.dataset.testid=`project-select-${id}`;select.append(new Option('Без проекта',''));for(const p of projects)select.append(new Option(p.name,p.id));save.textContent='Сохранить проект';save.onclick=async()=>{try{await api('/api/projects/assign',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({object_id:id,project_id:select.value||null})});load()}catch(error){show(error.message,true)}};button.replaceWith(select,save)}}enhance().catch(()=>{});new MutationObserver(()=>enhance().catch(()=>{})).observe(document.body,{childList:true,subtree:true});})();</script>"""
+
+
+def _project_modal_refresh() -> str:
+    return r"""<script>window.metricHitRefreshProjects=async(form,current)=>{const select=form?.elements?.project_id;if(!select)return;try{const projects=await api('/api/projects');select.replaceChildren(new Option('Без проекта',''));for(const p of projects)if(p.status==='active')select.append(new Option(p.name,p.id));select.value=current||''}catch(error){show(error.message,true)}}</script>"""
+
+
+def _project_task_filter_ui() -> str:
+    return r"""<script>(()=>{async function add(){if(view!=='tasks')return;const bar=document.querySelector('#task-controls');if(!bar||bar.querySelector('[data-testid="task-project-filter"]'))return;const select=document.createElement('select');select.dataset.testid='task-project-filter';select.append(new Option('Все проекты','all'),new Option('Без проекта','none'));for(const p of await api('/api/projects'))if(p.id!=='unassigned')select.append(new Option(p.name,p.id));const params=new URLSearchParams(location.search);select.value=params.get('project')||'all';select.onchange=()=>{params.set('view','tasks');params.set('project',select.value);history.replaceState(null,'',`/?${params}`);load()};bar.append(select)}new MutationObserver(()=>add().catch(()=>{})).observe(document.body,{childList:true,subtree:true});add().catch(()=>{})})();</script>"""
+
+
 def create_operator_app(database_path: Path) -> FastAPI:
     store = KnowledgeStore(database_path)
+    projects = ProjectStore(database_path)
     token = secrets.token_urlsafe(32)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -377,6 +428,45 @@ def create_operator_app(database_path: Path) -> FastAPI:
     @app.get("/api/dashboard")
     def dashboard() -> JSONResponse:
         return JSONResponse(_dashboard(store, database_path))
+
+    @app.get("/api/projects")
+    def project_list() -> JSONResponse:
+        return JSONResponse(projects.list())
+
+    @app.get("/api/projects/{project_id}")
+    def project_detail(project_id: str) -> JSONResponse:
+        try:
+            return JSONResponse(projects.detail(project_id))
+        except KnowledgeError as error:
+            return _error(str(error), 404)
+
+    @app.post("/api/projects")
+    async def project_create(request: Request) -> JSONResponse:
+        if request.headers.get(TOKEN_HEADER) != token: return _error("missing or invalid startup token", 403)
+        try:
+            payload = await request.json(); item, created = projects.create(name=_text(payload, "name"), description=_optional_text(payload, "description") or ""); item["created"] = created
+            return JSONResponse(item)
+        except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error: return _error(str(error), 400)
+
+    @app.post("/api/projects/{project_id}/edit")
+    async def project_edit(project_id: str, request: Request) -> JSONResponse:
+        if request.headers.get(TOKEN_HEADER) != token: return _error("missing or invalid startup token", 403)
+        try:
+            payload = await request.json(); return JSONResponse(projects.edit(project_id=project_id, name=_text(payload, "name"), description=_optional_text(payload, "description") or ""))
+        except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error: return _error(str(error), 400)
+
+    @app.post("/api/projects/{project_id}/archive")
+    async def project_archive(project_id: str, request: Request) -> JSONResponse:
+        if request.headers.get(TOKEN_HEADER) != token: return _error("missing or invalid startup token", 403)
+        try: return JSONResponse(projects.archive(project_id))
+        except KnowledgeError as error: return _error(str(error), 400)
+
+    @app.post("/api/projects/assign")
+    async def project_assign(request: Request) -> JSONResponse:
+        if request.headers.get(TOKEN_HEADER) != token: return _error("missing or invalid startup token", 403)
+        try:
+            payload = await request.json(); projects.assign(object_id=_text(payload, "object_id"), project_id=_optional_text(payload, "project_id")); return JSONResponse({"ok": True})
+        except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error: return _error(str(error), 400)
 
     @app.get("/api/search")
     def search(query: str = "", item_type: str = "all", status: str = "all") -> JSONResponse:
@@ -428,10 +518,12 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error("missing or invalid startup token", 403)
         try:
             payload = await request.json()
+            projects.validate_assignment(_optional_text(payload, "project_id"))
             item = store.add(
                 kind=_text(payload, "kind"), topic=_text(payload, "topic"), text=_text(payload, "text"),
                 tags=_optional_text(payload, "tags"),
             )
+            projects.assign(object_id=str(item["id"]), project_id=_optional_text(payload, "project_id"))
             return JSONResponse(item, status_code=201)
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error:
             return _error(str(error), 400)
@@ -442,6 +534,7 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error("missing or invalid startup token", 403)
         try:
             payload = await request.json()
+            projects.validate_assignment(_optional_text(payload, "project_id"))
             entry_id = _optional_text(payload, "id")
             if entry_id:
                 item, created = store.to_task_with_created(
@@ -457,14 +550,15 @@ def create_operator_app(database_path: Path) -> FastAPI:
                     priority=_optional_text(payload, "priority") or "normal", due_date=_optional_text(payload, "due_date"),
                 )
                 item["created"] = True
+            projects.assign(object_id=str(item["id"]), project_id=_optional_text(payload, "project_id"))
             return JSONResponse(item)
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error:
             return _error(str(error), 400)
 
     @app.get("/api/tasks")
-    def tasks(query: str = "", status: str = "all", priority: str = "all", due: str = "all", sort: str = "recommended") -> JSONResponse:
+    def tasks(query: str = "", status: str = "all", priority: str = "all", due: str = "all", sort: str = "recommended", project: str = "all") -> JSONResponse:
         try:
-            return JSONResponse(store.list_tasks(query=query, status=status, priority=priority, due=due, sort=sort))
+            return JSONResponse(store.list_tasks(query=query, status=status, priority=priority, due=due, sort=sort, project=project))
         except KnowledgeError as error:
             return _error(str(error), 400)
 
@@ -478,10 +572,13 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error("missing or invalid startup token", 403)
         try:
             payload = await request.json()
-            return JSONResponse(store.edit_task(
+            projects.validate_assignment(_optional_text(payload, "project_id"))
+            item = store.edit_task(
                 task_id=task_id, title=_text(payload, "title"), description=_text(payload, "description"),
                 priority=_text(payload, "priority"), due_date=_optional_text(payload, "due_date"),
-            ))
+            )
+            projects.assign(object_id=task_id, project_id=_optional_text(payload, "project_id"))
+            return JSONResponse(item)
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error:
             return _error(str(error), 400)
 
