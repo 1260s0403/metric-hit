@@ -70,6 +70,20 @@ def test_page_title_is_metrichit(tmp_path):
     assert "<h1>MetricHit</h1>" in page
 
 
+def test_dashboard_is_default_and_keeps_view_separate_from_kind(tmp_path):
+    client, token, _ = panel(tmp_path)
+    add(client, token, "artem", "Рекомендация", "Текст рекомендации").raise_for_status()
+
+    page = client.get("/")
+    dashboard = client.get("/api/dashboard")
+
+    assert 'data-view="overview"' in page.text
+    assert re.search(r'data-view="overview"[^>]*class="active"[^>]*aria-current="page"', page.text)
+    assert dashboard.status_code == 200
+    assert len(dashboard.json()["artem"]["items"]) == 1
+    assert dashboard.json()["tasks"]["open"] == 0
+
+
 def test_memory_context_uses_allowed_path_only(tmp_path):
     client, _, _ = panel(tmp_path)
 

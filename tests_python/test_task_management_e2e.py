@@ -245,3 +245,49 @@ def test_edit_can_clear_due_date_and_all_views_are_error_free(page: Page, panel:
     for view in ("artem", "idea", "tasks", "memory"):
         page.goto(f"{base_url}/?view={view}")
         expect(page.get_by_test_id(f"tab-{view}")).to_have_attribute("aria-current", "page")
+
+
+def test_overview_is_default_shows_counts_and_uses_existing_actions(page: Page, panel: tuple[str, KnowledgeStore]) -> None:
+    base_url, store = panel
+    overdue = _seed_task(store, topic="Overdue", text="urgent", priority="high", due_date=(date.today() - timedelta(days=1)).isoformat())
+    _seed_task(store, topic="Today", text="today", due_date=date.today().isoformat())
+    _seed_task(store, topic="High", text="important", priority="high")
+    store.add(kind="idea", topic="Recent idea", text="Short idea")
+
+    page.goto(base_url)
+    expect(page.get_by_test_id("tab-overview")).to_have_attribute("aria-current", "page")
+    assert page.locator('[data-view].active').count() == 1
+    expect(page.get_by_test_id("overview-screen")).to_be_visible()
+    expect(page.get_by_test_id("knowledge-screen")).to_be_hidden()
+    expect(page.get_by_test_id("overview-open-count")).to_have_text("Открытых: 3")
+    expect(page.get_by_test_id("overview-overdue-count")).to_have_text("Просрочено: 1")
+    expect(page.get_by_test_id("overview-today-count")).to_have_text("На сегодня: 1")
+    expect(page.get_by_test_id("overview-high-count")).to_have_text("Высокий приоритет: 2")
+    expect(page.get_by_test_id("overview-overdue-tasks")).to_contain_text("urgent")
+    expect(page.get_by_test_id("overview-today-tasks")).to_contain_text("today")
+    expect(page.get_by_test_id("overview-high-tasks")).to_contain_text("important")
+    assert page.locator('[data-testid^="overview-task-"]').count() <= 5
+
+    page.get_by_test_id(f"overview-open-{overdue['id']}").click()
+    expect(page).to_have_url(re.compile(rf"view=tasks.*focus_task={overdue['id']}"))
+    card = page.get_by_test_id(f"task-card-{overdue['id']}")
+    expect(card).to_be_in_viewport()
+    expect(card).to_have_class(re.compile(r"\btask-focused\b"))
+
+    page.goto(base_url)
+    page.get_by_test_id("overview-new-task").click()
+    expect(page.get_by_test_id("task-modal")).to_be_visible()
+    page.get_by_test_id("task-cancel").click()
+    page.goto(base_url)
+    page.get_by_test_id("overview-add-idea").click()
+    expect(page.get_by_test_id("tab-idea")).to_have_attribute("aria-current", "page")
+    expect(page.get_by_test_id("knowledge-screen")).to_be_visible()
+
+
+def test_overview_empty_state_and_mobile_layout(page: Page, panel: tuple[str, KnowledgeStore]) -> None:
+    base_url, _ = panel
+    page.set_viewport_size({"width": 390, "height": 844})
+    page.goto(base_url)
+    expect(page.get_by_test_id("overview-empty-tasks")).to_have_text("Открытых задач нет.")
+    expect(page.get_by_test_id("overview-open-count")).to_have_text("Открытых: 0")
+    assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
