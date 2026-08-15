@@ -208,3 +208,29 @@ def test_task_statuses_persist_after_reload(page: Page, panel: str) -> None:
     _open_tasks(page, cancelled_id)
     page.get_by_test_id(f"task-cancelled-{cancelled_id}").click()
     expect(page.get_by_test_id(f"task-card-{cancelled_id}")).to_contain_text("cancelled")
+
+
+def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(page: Page, panel: str) -> None:
+    page.goto(panel)
+    page.get_by_test_id("tab-artem").click()
+
+    page.get_by_test_id("intake-text").click()
+    page.get_by_test_id("add-text").fill("Текст из входящего потока")
+    page.get_by_test_id("add-entry").click()
+    expect(page.get_by_test_id("entries")).to_contain_text("Текст из входящего потока")
+
+    page.get_by_test_id("intake-url").click()
+    expect(page.get_by_test_id("intake-url")).to_have_attribute("aria-pressed", "true")
+    page.locator("#intake-url").fill("not-a-url")
+    page.get_by_test_id("add-entry").click()
+    expect(page.locator("#message")).to_contain_text("Введите корректную ссылку")
+    expect(page.locator("#intake-url")).to_have_value("not-a-url")
+    page.locator("#intake-url").fill("https://example.com/source")
+    page.get_by_test_id("add-entry").click()
+    expect(page.get_by_test_id("entries")).to_contain_text("https://example.com/source")
+
+    page.get_by_test_id("intake-file").click()
+    page.locator("#intake-file").set_input_files({"name": "brief.md", "mimeType": "text/markdown", "buffer": b"# Brief\nFile input"})
+    page.get_by_test_id("add-entry").click()
+    expect(page.get_by_test_id("entries")).to_contain_text("brief")
+    expect(page.get_by_test_id("entries")).to_contain_text("File input")
