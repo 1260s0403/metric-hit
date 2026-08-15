@@ -145,7 +145,7 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
             '<div id="knowledge" data-testid="knowledge-screen">',
             '<div id="knowledge" data-testid="knowledge-screen" class="hidden">',
         )
-    return page.replace("</body>", _e2e_markers() + _stable_test_ids() + _tab_accessibility() + _task_ui() + _task_edit_feedback() + _task_edit_controls() + "</body>")
+    return page.replace("</body>", _e2e_markers() + _stable_test_ids() + _tab_accessibility() + _task_ui() + _task_edit_feedback() + _task_edit_controls() + _task_safe_render() + "</body>")
 
 
 def _e2e_markers() -> str:
@@ -170,6 +170,10 @@ def _task_edit_feedback() -> str:
 
 def _task_edit_controls() -> str:
     return """<script>(()=>{const add=async()=>{const items=await api('/api/tasks');for(const card of document.querySelectorAll('article[id^="task-"]')){const id=card.id.slice(5),details=card.querySelector('.hidden');if(!details||details.querySelector(`[data-testid="task-edit-${id}"]`))continue;const item=items.find(x=>x.id===id);if(!item)continue;const button=document.createElement('button');button.textContent='Редактировать';button.dataset.testid=`task-edit-${id}`;button.onclick=()=>{const form=document.createElement('form');form.dataset.testid=`task-edit-form-${id}`;form.innerHTML=`<input data-testid="task-edit-title-${id}"><textarea data-testid="task-edit-description-${id}"></textarea><select data-testid="task-edit-priority-${id}"><option>high</option><option>normal</option><option>low</option></select><input type="date" data-testid="task-edit-due-date-${id}"><button data-testid="task-edit-save-${id}">Сохранить</button><button type="button" data-testid="task-edit-cancel-${id}">Отмена</button><span data-testid="task-edit-feedback-${id}"></span>`;form.querySelector('input').value=item.title;form.querySelector('textarea').value=item.description;form.querySelector('select').value=item.priority;form.querySelector('input[type=date]').value=item.due_date||'';form.querySelector(`[data-testid="task-edit-cancel-${id}"]`).onclick=()=>form.remove();details.append(form)};details.append(button)}};new MutationObserver(()=>add().catch(()=>{})).observe(entries,{childList:true,subtree:true});add().catch(()=>{})})()</script>"""
+
+
+def _task_safe_render() -> str:
+    return """<script>(()=>{const previous=renderTasks;renderTasks=items=>{try{previous(items)}catch(error){return}for(const item of items){const card=document.getElementById(`task-${item.id}`);const details=card?.querySelector('.hidden');if(!details)return;}}})()</script>"""
 
 
 def _stable_test_ids() -> str:

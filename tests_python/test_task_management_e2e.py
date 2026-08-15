@@ -111,6 +111,25 @@ def test_edit_shows_local_confirmation_and_persists_after_reload(page: Page, pan
     expect(page.get_by_test_id(f"task-card-{task_id}")).to_contain_text("After title")
     page.get_by_test_id(f"task-details-toggle-{task_id}").click()
     expect(page.get_by_test_id(f"task-details-{task_id}")).to_contain_text("After description")
+
+
+def test_details_can_be_hidden_and_reopened_before_edit_without_page_error(page: Page, panel: tuple[str, KnowledgeStore]) -> None:
+    base_url, store = panel
+    task = _seed_task(store, topic="Repeat details", text="Repeat description")
+    task_id = str(task["id"])
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    _open_tasks(page, base_url)
+    toggle = page.get_by_test_id(f"task-details-toggle-{task_id}")
+    toggle.click()
+    expect(page.get_by_test_id(f"task-details-{task_id}")).to_be_visible()
+    toggle.click()
+    expect(page.get_by_test_id(f"task-details-{task_id}")).to_be_hidden()
+    toggle.click()
+    expect(page.get_by_test_id(f"task-details-{task_id}")).to_be_visible()
+    page.get_by_test_id(f"task-edit-{task_id}").click()
+    expect(page.get_by_test_id(f"task-edit-form-{task_id}")).to_be_visible()
+    assert errors == []
     expect(page.get_by_test_id(f"task-card-{task_id}")).to_contain_text("high")
 
 
