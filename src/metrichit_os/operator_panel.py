@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from .config import CURRENT_CONTEXT
+from .activity import list_activity
 from .database import read_only_database
 from .global_search import search as global_search
 from .knowledge_store import KnowledgeError, KnowledgeStore
@@ -191,8 +192,17 @@ const output=document.querySelector('#output'),markdown=document.querySelector('
 
 
 def _page(token: str, focus_task: str | None, view: str) -> str:
-    selected = view if view in {"overview", "search", "artem", "idea", "tasks", "memory"} else "overview"
+    selected = view if view in {"overview", "search", "activity", "artem", "idea", "tasks", "memory"} else "overview"
     page = _page_raw(token, focus_task)
+    page = page.replace(
+        '<button data-view="artem"',
+        '<button data-view="activity" data-testid="tab-activity">Активность</button><button data-view="artem"',
+        1,
+    ).replace(
+        '<section id="overview" data-testid="overview-screen">',
+        '<section id="activity" data-testid="activity-screen" class="hidden"></section><section id="overview" data-testid="overview-screen">',
+        1,
+    )
     page = page.replace(
         '<button data-view="overview" data-testid="tab-overview" class="active">Обзор</button>',
         '<button data-view="overview" data-testid="tab-overview" class="active">Обзор</button>'
@@ -203,7 +213,7 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
         '<section id="overview" data-testid="overview-screen">',
     )
     page = re.sub(
-        r'(<button data-view="(?:overview|search|artem|idea|tasks|memory)"[^>]*) class="active"(?: aria-current="page")?',
+        r'(<button data-view="(?:overview|search|activity|artem|idea|tasks|memory)"[^>]*) class="active"(?: aria-current="page")?',
         r'\1',
         page,
     )
@@ -214,7 +224,7 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
         count=1,
     )
     page = page.replace("let view=focusTask?'tasks':'artem'", f"let view={json.dumps(selected)}")
-    page = page.replace("async function load(){try{", "async function load(){try{if(view==='overview'||view==='search')return;")
+    page = page.replace("async function load(){try{", "async function load(){try{if(view==='overview'||view==='search'||view==='activity')return;")
     page = page.replace(
         "knowledge.classList.toggle('hidden',view==='tasks'||view==='memory')",
         "knowledge.classList.toggle('hidden',view==='tasks'||view==='memory'||view==='overview'||view==='search')",
@@ -222,9 +232,9 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
     page = page.replace("entries.classList.toggle('hidden',view==='memory')", "entries.classList.toggle('hidden',view==='memory'||view==='overview'||view==='search')")
     # The base script eagerly loads tasks before the task UI can replace its renderer.
     # Task mode is loaded once by the guarded MVP layer below.
-    if selected == "tasks":
-        page = page.replace(";load();</script></body>", ";if(view!=='tasks')load();</script></body>")
-    if selected in {"tasks", "memory", "overview", "search"}:
+    if selected in {"tasks", "activity"}:
+        page = page.replace(";load();</script></body>", ";if(view!=='tasks'&&view!=='activity')load();</script></body>")
+    if selected in {"tasks", "memory", "overview", "search", "activity"}:
         page = page.replace(
             '<div id="knowledge" data-testid="knowledge-screen">',
             '<div id="knowledge" data-testid="knowledge-screen" class="hidden">',
@@ -234,7 +244,7 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
             '<section id="memory" data-testid="memory-screen" class="hidden">',
             '<section id="memory" data-testid="memory-screen">',
         )
-    if selected in {"overview", "search"}:
+    if selected in {"overview", "search", "activity"}:
         page = page.replace('<section id="entries" data-testid="entries">', '<section id="entries" data-testid="entries" class="hidden">')
     if selected != "overview":
         page = page.replace('<section id="overview" data-testid="overview-screen">', '<section id="overview" data-testid="overview-screen" class="hidden">')
@@ -248,7 +258,7 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
         "oldKnowledge(items);if(entryId)",
         "oldKnowledge(items);for(const [index,item] of items.entries()){const card=document.querySelectorAll('#entries>.entry')[index];if(card)card.id=`knowledge-${item.id}`}if(entryId)",
     )
-    return page.replace("</body>", _task_mvp_ui() + dashboard_ui + _search_ui() + focus_ui + _focus_navigation_reload_ui() + _dashboard_quick_action_guard() + "</body>")
+    return page.replace("</body>", _task_mvp_ui() + dashboard_ui + _search_ui() + _activity_ui() + focus_ui + _focus_navigation_reload_ui() + _dashboard_quick_action_guard() + "</body>")
 
 
 def _e2e_markers() -> str:
@@ -329,6 +339,10 @@ def _search_ui() -> str:
     return """<script>(()=>{const screen=document.querySelector('#search');const types=[['all','Все'],['artem','Рекомендации Артёма'],['idea','Мои идеи'],['task','Задачи'],['fact','Факты'],['decision','Решения'],['document','Документы']];const statuses=[['all','Все статусы'],['open','Открытые'],['completed','Выполненные'],['cancelled','Отменённые'],['active','Активные']];const params=()=>new URLSearchParams(location.search);const make=(tag,text,testid)=>{const el=document.createElement(tag);el.textContent=text;el.dataset.testid=testid;return el};const target=item=>{const state=params();const query=new URLSearchParams({view:'search',q:state.get('q')||'',type:state.get('type')||'all',status:state.get('status')||'all'}).toString();if(item.type==='task')return `/?view=tasks&focus_task=${encodeURIComponent(item.id)}#task-${item.id}`;if(item.type==='artem'||item.type==='idea')return `/?view=${item.type}&focus_entry=${encodeURIComponent(item.id)}#knowledge-${item.id}`;const tab=item.type==='fact'?'facts':item.type==='decision'?'decisions':'documents';return `/?view=memory&memory_tab=${tab}&focus_memory=${encodeURIComponent(item.id)}#memory-${item.type}-${item.id}`};async function render(){if(view!=='search')return;screen.classList.remove('hidden');screen.replaceChildren();knowledge.classList.add('hidden');memory.classList.add('hidden');entries.classList.add('hidden');document.querySelector('#task-controls')?.remove();document.querySelector('#today-tasks')?.remove();const row=document.createElement('div');row.className='row';const input=document.createElement('input');input.placeholder='Поиск по данным MetricHit';input.value=params().get('q')||'';input.dataset.testid='global-search-query';const type=document.createElement('select');type.dataset.testid='global-search-type';for(const [value,label] of types)type.append(new Option(label,value));type.value=params().get('type')||'all';const status=document.createElement('select');status.dataset.testid='global-search-status';for(const [value,label] of statuses)status.append(new Option(label,value));status.value=params().get('status')||'all';const submit=make('button','Найти','global-search-submit');row.append(input,type,status,submit);const count=make('div','Введите запрос для поиска.','global-search-count');screen.append(row,count);const execute=async(push)=>{const q=input.value.trim();const next=new URLSearchParams({view:'search',q,type:type.value,status:status.value});if(push)history.pushState(null,'',`/?${next}`);if(!q){count.textContent='Введите запрос для поиска.';return}const result=await api(`/api/search?query=${encodeURIComponent(q)}&item_type=${encodeURIComponent(type.value)}&status=${encodeURIComponent(status.value)}`);count.textContent=`Найдено: ${result.results.length}`;const list=document.createElement('section');list.dataset.testid='global-search-results';if(!result.results.length){const empty=make('p','Ничего не найдено.','search-empty');list.append(empty)}for(const item of result.results){const card=document.createElement('article');card.className='entry';card.dataset.testid=`search-result-${item.type}-${item.id}`;const title=make('strong',`${item.type}: ${item.title}`);const snippet=make('p',item.snippet);const meta=make('div',`${item.date} · ${item.status}`,'meta');const open=make('a','Открыть',`search-open-${item.type}-${item.id}`);open.href=target(item);card.append(title,snippet,meta,open);list.append(card)}screen.querySelector('[data-testid="global-search-results"]')?.remove();screen.append(list)};submit.onclick=()=>execute(true);input.onkeydown=event=>{if(event.key==='Enter'){event.preventDefault();execute(true)}};if(input.value)execute(false)}const previousLoad=load;load=async()=>{if(view==='search'){await render();return}screen.classList.add('hidden');await previousLoad()};for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',()=>{if(tab.dataset.view==='search')setTimeout(load,0);else screen.classList.add('hidden')});window.addEventListener('popstate',()=>{if(new URLSearchParams(location.search).get('view')==='search'){view='search';document.querySelectorAll('[data-view]').forEach(tab=>{const active=tab.dataset.view==='search';tab.classList.toggle('active',active);tab.toggleAttribute('aria-current',active)});load()}});setTimeout(()=>{if(view==='search')load()},0)})();</script>"""
 
 
+def _activity_ui() -> str:
+    return r"""<script>(()=>{const screen=document.querySelector('#activity'),params=()=>new URLSearchParams(location.search),node=(tag,text,id)=>{const el=document.createElement(tag);el.textContent=text;if(id)el.dataset.testid=id;return el};const target=item=>item.object_type==='task'?`/?view=tasks&focus_task=${encodeURIComponent(item.target_id)}#task-${item.target_id}`:item.object_type==='artem'||item.object_type==='idea'?`/?view=${item.object_type}&focus_entry=${encodeURIComponent(item.target_id)}#knowledge-${item.target_id}`:item.object_type==='memory'?`/?view=memory&memory_tab=facts&focus_memory=${encodeURIComponent(item.target_id)}#memory-fact-${item.target_id}`:null;async function render(){if(view!=='activity')return;screen.classList.remove('hidden');screen.replaceChildren();knowledge.classList.add('hidden');memory.classList.add('hidden');entries.classList.add('hidden');const row=document.createElement('div');row.className='row';const controls=[['period',[['today','Сегодня'],['7','7 дней'],['30','30 дней'],['all','Всё']]],['type',[['all','Все'],['task','Задачи'],['artem','Рекомендации'],['idea','Идеи'],['memory','Память']]],['action',[['all','Все действия'],['create','Создание'],['update','Изменение'],['completed','Выполнение'],['cancelled','Отмена']]]];const selects={};for(const [name,options] of controls){const select=document.createElement('select');select.dataset.testid=`activity-${name}`;for(const [value,label] of options)select.append(new Option(label,value));select.value=params().get(name)||'all';selects[name]=select;row.append(select)}const apply=node('button','Применить','activity-apply');row.append(apply);screen.append(row);const list=document.createElement('section');list.dataset.testid='activity-list';screen.append(list);const load=async(offset=0,push=false)=>{if(push)history.pushState(null,'',`/?${new URLSearchParams({view:'activity',period:selects.period.value,type:selects.type.value,action:selects.action.value})}`);const data=await api(`/api/activity?period=${selects.period.value}&item_type=${selects.type.value}&action=${selects.action.value}&offset=${offset}`);if(!offset)list.replaceChildren();if(!data.items.length&&!offset){list.append(node('p','Событий пока нет.','activity-empty'));return}for(const item of data.items){const card=node('article',undefined,`activity-event-${item.id}`);card.className='entry';card.append(node('strong',item.label),node('div',`${item.title} · ${item.date}`,'meta'));const brief=node('p',item.changes.length?item.changes.map(x=>x.field).join(', '):'Без дополнительных деталей');card.append(brief);const actions=node('div');actions.className='actions';if(item.available&&target(item)){const open=node('a','Открыть',`activity-open-${item.id}`);open.href=target(item);actions.append(open)}else actions.append(node('span','Запись недоступна'));const detail=node('button','Подробнее',`activity-details-${item.id}`);detail.onclick=()=>{markdown.textContent=item.changes.length?item.changes.map(x=>`${x.field}\nБыло: ${x.old}\nСтало: ${x.new}`).join('\n\n'):'Подробные изменения не зафиксированы.';document.querySelector('#modal-title').textContent=item.label;output.classList.remove('hidden');document.body.style.overflow='hidden'};actions.append(detail);card.append(actions);list.append(card)}if(data.has_more){const more=node('button','Показать ещё','activity-more');more.onclick=()=>load(data.next_offset);list.append(more)}};apply.onclick=()=>load(0,true);load(0)}const oldLoad=load;load=async()=>{if(view==='activity'){await render();return}screen.classList.add('hidden');await oldLoad()};for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',()=>{if(tab.dataset.view==='activity')setTimeout(load,0);else screen.classList.add('hidden')});window.addEventListener('popstate',()=>{if(params().get('view')==='activity'){view='activity';document.querySelectorAll('[data-view]').forEach(tab=>{const active=tab.dataset.view==='activity';tab.classList.toggle('active',active);tab.toggleAttribute('aria-current',active)});render()}});setTimeout(()=>{if(view==='activity')load()},0)})();</script>"""
+
+
 def _focus_navigation_ui() -> str:
     return """<style>.entry-focused{border:3px solid #38c7d4!important;background:#123745!important;box-shadow:0 0 0 4px #1a6474}.entry-focused .focus-label{color:#8ee0ff}</style><script>(()=>{const p=new URLSearchParams(location.search),entryId=p.get('focus_entry'),memoryId=p.get('focus_memory'),memoryTab=p.get('memory_tab');const focus=card=>{if(!card)return;card.classList.add('entry-focused');if(!card.querySelector('.focus-label')){const label=document.createElement('div');label.className='focus-label';label.textContent='Открытая запись';card.prepend(label)}card.scrollIntoView({behavior:'smooth',block:'center'})};const oldKnowledge=renderKnowledge;renderKnowledge=items=>{oldKnowledge(items);if(entryId)focus(document.getElementById(`knowledge-${entryId}`)||document.querySelector(`[data-testid="knowledge-entry-${entryId}"]`))};const oldMemory=renderMemory;renderMemory=items=>{oldMemory(items);for(const [index,item] of items.entries()){const card=document.querySelectorAll('#memory-items>.entry')[index];if(!card)continue;const itemType=memoryView==='facts'?'fact':memoryView==='decisions'?'decision':'document';card.id=`memory-${itemType}-${item.id}`;card.dataset.testid=`memory-${itemType}-${item.id}`}if(memoryId){const itemType=memoryView==='facts'?'fact':memoryView==='decisions'?'decision':'document';focus(document.getElementById(`memory-${itemType}-${memoryId}`))}};const tabs=document.querySelector('#memory .tabs');if(tabs&&!tabs.querySelector('[data-memory="documents"]')){const docs=document.createElement('button');docs.dataset.memory='documents';docs.textContent='Документы';docs.onclick=()=>{memoryView='documents';document.querySelectorAll('[data-memory]').forEach(tab=>tab.classList.toggle('active',tab===docs));loadMemory()};tabs.append(docs)}if(view==='memory'&&memoryTab&&['facts','decisions','documents'].includes(memoryTab)){memoryView=memoryTab;setTimeout(loadMemory,0)}})();</script>"""
 
@@ -368,6 +382,13 @@ def create_operator_app(database_path: Path) -> FastAPI:
     def search(query: str = "", item_type: str = "all", status: str = "all") -> JSONResponse:
         try:
             return JSONResponse({"query": query, "results": global_search(database_path, query=query, item_type=item_type, status=status)})
+        except ValueError as error:
+            return _error(str(error), 400)
+
+    @app.get("/api/activity")
+    def activity(period: str = "all", item_type: str = "all", action: str = "all", offset: int = 0) -> JSONResponse:
+        try:
+            return JSONResponse(list_activity(database_path, period=period, item_type=item_type, action=action, offset=offset))
         except ValueError as error:
             return _error(str(error), 400)
 

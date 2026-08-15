@@ -91,6 +91,10 @@ class KnowledgeStore:
                     document_status, author.strip(), created_at, created_at,
                 ),
             )
+            connection.execute(
+                "INSERT INTO audit_log (id,type,title,data_json,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES (?, 'knowledge_entry_change','Knowledge entry created',?,?,?,?,'restricted',1,'knowledge_entry',?,'create')",
+                (str(uuid4()), json.dumps({"new": {**metadata, "id": entry_id, "title": topic.strip(), "content": text}}, ensure_ascii=False, sort_keys=True), author.strip(), created_at, created_at, entry_id),
+            )
         return self._entry({
             "id": entry_id,
             "title": topic.strip(),
@@ -196,6 +200,10 @@ class KnowledgeStore:
                     entry["author"], created_at, created_at,
                 ),
             )
+            connection.execute(
+                "INSERT INTO audit_log (id,type,title,data_json,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES (?, 'task_change','Knowledge task created',?,?,?,?,'restricted',1,'task',?,'create')",
+                (str(uuid4()), json.dumps({"new": {"title": task_title, "description": task_description, "priority": priority, "due_date": due_date}}, ensure_ascii=False, sort_keys=True), entry["author"], created_at, created_at, task_id),
+            )
             task = self._task({
                 "id": task_id, "type": "knowledge_task", "title": task_title,
                 "content": task_description, "data_json": json.dumps(task_metadata, ensure_ascii=False, sort_keys=True),
@@ -235,6 +243,10 @@ class KnowledgeStore:
                    (id, type, title, content, data_json, status, author, created_at, updated_at, access_level, version)
                    VALUES (?, 'standalone_task', ?, ?, ?, 'pending', ?, ?, ?, 'internal', 1)""",
                 (task_id, title.strip(), description, json.dumps(metadata, ensure_ascii=False, sort_keys=True), author, created_at, created_at),
+            )
+            connection.execute(
+                "INSERT INTO audit_log (id,type,title,data_json,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES (?, 'task_change','Knowledge task created',?,?,?,?,'restricted',1,'task',?,'create')",
+                (str(uuid4()), json.dumps({"new": {"title": title.strip(), "description": description, "priority": priority, "due_date": due_date}}, ensure_ascii=False, sort_keys=True), author, created_at, created_at, task_id),
             )
         return self._task({"id": task_id, "type": "standalone_task", "title": title.strip(), "content": description,
                            "data_json": json.dumps(metadata), "status": "pending", "author": author, "created_at": created_at,

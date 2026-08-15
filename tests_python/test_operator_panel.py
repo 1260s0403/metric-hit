@@ -194,7 +194,7 @@ def test_changes_open_task_to_completed_and_is_idempotent(tmp_path):
 
     assert first.json()["status"] == second.json()["status"] == "completed"
     with sqlite3.connect(database) as connection:
-        assert connection.execute("SELECT count(*) FROM audit_log WHERE entity_id=?", (created["id"],)).fetchone()[0] == 1
+        assert connection.execute("SELECT count(*) FROM audit_log WHERE entity_id=? AND action='update'", (created["id"],)).fetchone()[0] == 1
 
 
 def test_changes_open_task_to_cancelled_and_rejects_reverse_transition(tmp_path):
