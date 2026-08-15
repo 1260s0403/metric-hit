@@ -274,29 +274,72 @@ class HandoffStore:
 
     def next(self) -> dict[str, Any] | None:
         with read_only_database(self.path) as connection:
-            rows = connection.execute(
-                """SELECT id,title,content,data_json,status,source_id,created_at
-                   FROM tasks
-                   WHERE type='standalone_task' AND status='pending'
-                   ORDER BY created_at,id"""
-            ).fetchall()
-            parsed_rows = []
-            for row in rows:
-                metadata = self._object(row["data_json"])
-                priority = metadata.get("priority", "normal")
-                priority_rank = {"high": 0, "normal": 1, "low": 2}.get(priority, 2) if isinstance(priority, str) else 2
-                parsed_rows.append((priority_rank, row, metadata))
-            parsed_rows.sort(key=lambda item: (item[0], item[1]["created_at"], item[1]["id"]))
-            for _, row, metadata in parsed_rows:
-                handoff = metadata.get("handoff")
-                if isinstance(handoff, dict) and handoff.get("kind") == "codex_engineering":
-                    try:
-                        result = self._attested_result(connection, dict(row), metadata, handoff)
-                        if result["status"] == "ready":
-                            return result
-                    except HandoffError:
-                        continue
+            return self._next_ready(connection)
         return None
+
+    def dispatcher_next(self) -> dict[str, Any] | None:
+        """Return the next ready task without reserving it for a Dispatcher."""
+        return self.next()
+
+    def dispatcher_claim_next(self, dispatcher_id: str) -> dict[str, Any] | None:
+        """Atomically reserve one ready task before native thread creation.
+
+        A ``dispatching`` task deliberately cannot be selected again.  The
+        returned payload is the only input a separate Dispatcher-agent needs;
+        native Codex thread creation remains outside this repository.
+        """
+        dispatcher_id = self._developer_id(dispatcher_id)
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            active = self._active_handoff_id(connection)
+            if active is not None:
+                return None
+            ready = self._next_ready(connection)
+            if ready is None:
+                return None
+            row = self._handoff_row(connection, ready["handoff_id"])
+            metadata = self._object(row["data_json"])
+            handoff = metadata["handoff"]
+            now = _utc_text()
+            handoff["lifecycle"].update({"status": "dispatching", "claimed_at": now, "claimed_by": dispatcher_id})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "pending", now, "dispatch-claimed")
+            result = self._load_task(connection, ready["handoff_id"])
+            result["dispatch_payload"] = self._dispatch_payload(result)
+            return result
+
+    def dispatcher_record_thread(self, handoff_id: str, thread_id: str, dispatcher_id: str) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        dispatcher_id = self._developer_id(dispatcher_id)
+        thread_id = self._thread_id(thread_id)
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            result = self._attested_result(connection, dict(row), metadata, handoff)
+            lifecycle = handoff["lifecycle"]
+            if lifecycle.get("claimed_by") != dispatcher_id:
+                raise HandoffError("handoff is claimed by another dispatcher")
+            existing = lifecycle.get("executor_thread_id")
+            if existing is not None:
+                if existing != thread_id:
+                    raise HandoffError("handoff is already linked to a different executor thread")
+                return result
+            if result["status"] != "dispatching":
+                raise HandoffError("handoff must be dispatching before recording an executor thread")
+            now = _utc_text()
+            lifecycle.update({"status": "in_progress", "executor_thread_id": thread_id, "started_at": now})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "in_progress", now, "executor-thread-recorded")
+            return self._load_task(connection, handoff_id)
+
+    def dispatcher_complete(self, handoff_id: str, commit_hash: str, result: str, dispatcher_id: str) -> dict[str, Any]:
+        return self._complete(handoff_id, commit_hash, result, dispatcher_id, require_thread=True)
 
     def claim(self, handoff_id: str, developer_id: str) -> dict[str, Any]:
         handoff_id = self._handoff_id(handoff_id)
@@ -326,6 +369,9 @@ class HandoffStore:
             return self._load_task(connection, handoff_id)
 
     def complete(self, handoff_id: str, commit_hash: str, developer_id: str) -> dict[str, Any]:
+        return self._complete(handoff_id, commit_hash, "Legacy handoff completion.", developer_id, require_thread=False)
+
+    def _complete(self, handoff_id: str, commit_hash: str, result_text: str, developer_id: str, *, require_thread: bool) -> dict[str, Any]:
         handoff_id = self._handoff_id(handoff_id)
         developer_id = self._developer_id(developer_id)
         if not isinstance(commit_hash, str):
@@ -333,6 +379,7 @@ class HandoffStore:
         commit_hash = commit_hash.strip().lower()
         if not re.fullmatch(r"[0-9a-f]{7,64}", commit_hash):
             raise HandoffError("commit_hash must be a 7-64 character hexadecimal Git commit hash")
+        result_text = _required_text({"result": result_text}, "result")
         with sqlite3.connect(self.path) as connection:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys=ON")
@@ -343,15 +390,18 @@ class HandoffStore:
             result = self._attested_result(connection, dict(row), metadata, handoff)
             lifecycle = handoff["lifecycle"]
             if result["status"] == "completed":
-                if lifecycle.get("commit_hash") != commit_hash or lifecycle.get("claimed_by") != developer_id:
-                    raise HandoffError("completed handoff is already linked to a different commit hash")
+                if (lifecycle.get("commit_hash") != commit_hash or lifecycle.get("claimed_by") != developer_id
+                        or lifecycle.get("result") != result_text):
+                    raise HandoffError("completed handoff is already linked to a different result")
                 return result
             if result["status"] != "in_progress":
                 raise HandoffError("handoff must be claimed before completion")
             if lifecycle.get("claimed_by") != developer_id:
                 raise HandoffError("handoff is claimed by another developer")
+            if require_thread and not lifecycle.get("executor_thread_id"):
+                raise HandoffError("dispatcher completion requires an executor thread")
             now = _utc_text()
-            lifecycle.update({"status": "completed", "completed_at": now, "commit_hash": commit_hash})
+            lifecycle.update({"status": "completed", "completed_at": now, "commit_hash": commit_hash, "result": result_text})
             metadata["handoff"] = handoff
             self._update_lifecycle(connection, row, metadata, "completed", now, "completed", commit_hash)
             return self._load_task(connection, handoff_id)
@@ -368,6 +418,43 @@ class HandoffStore:
             raise HandoffError("developer_id must be a 1-64 character identifier")
         return value
 
+    @staticmethod
+    def _thread_id(value: str) -> str:
+        if not isinstance(value, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}", value):
+            raise HandoffError("thread_id must be a 1-128 character identifier")
+        return value
+
+    def _next_ready(self, connection: sqlite3.Connection) -> dict[str, Any] | None:
+        rows = connection.execute(
+            """SELECT id,title,content,data_json,status,source_id,created_at
+               FROM tasks WHERE type='standalone_task' AND status='pending' ORDER BY created_at,id"""
+        ).fetchall()
+        parsed_rows = []
+        for row in rows:
+            metadata = self._object(row["data_json"])
+            priority = metadata.get("priority", "normal")
+            priority_rank = {"high": 0, "normal": 1, "low": 2}.get(priority, 2) if isinstance(priority, str) else 2
+            parsed_rows.append((priority_rank, row, metadata))
+        for _, row, metadata in sorted(parsed_rows, key=lambda item: (item[0], item[1]["created_at"], item[1]["id"])):
+            handoff = metadata.get("handoff")
+            if isinstance(handoff, dict) and handoff.get("kind") == "codex_engineering":
+                try:
+                    result = self._attested_result(connection, dict(row), metadata, handoff)
+                    if result["status"] == "ready":
+                        return result
+                except HandoffError:
+                    continue
+        return None
+
+    @staticmethod
+    def _dispatch_payload(result: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "idempotency_key": result["lifecycle"]["idempotency_key"],
+            "task_id": result["task_id"],
+            "goal": result["goal"], "scope": result["scope"],
+            "constraints": result["constraints"], "acceptance": result["acceptance"],
+        }
+
     def _handoff_row(self, connection: sqlite3.Connection, handoff_id: str) -> sqlite3.Row:
         row = connection.execute(
             "SELECT id,title,content,data_json,status,source_id,author,created_at,updated_at,version FROM tasks WHERE id=? AND type='standalone_task'",
@@ -379,7 +466,7 @@ class HandoffStore:
 
     def _active_handoff_id(self, connection: sqlite3.Connection) -> str | None:
         rows = connection.execute(
-            "SELECT id,data_json,status,source_id,created_at FROM tasks WHERE type='standalone_task' AND status='in_progress' ORDER BY created_at,id",
+            "SELECT id,data_json,status,source_id,created_at FROM tasks WHERE type='standalone_task' AND status IN ('pending','in_progress') ORDER BY created_at,id",
         ).fetchall()
         for row in rows:
             metadata = self._object(row["data_json"])
@@ -387,7 +474,7 @@ class HandoffStore:
             if not isinstance(handoff, dict) or handoff.get("kind") != "codex_engineering":
                 continue
             try:
-                if self._attested_result(connection, dict(row), metadata, handoff)["status"] == "in_progress":
+                if self._attested_result(connection, dict(row), metadata, handoff)["status"] in {"dispatching", "in_progress"}:
                     return str(row["id"])
             except HandoffError:
                 continue
@@ -486,20 +573,24 @@ class HandoffStore:
         if project_id is not None and (not isinstance(project_id, str) or not project_id.strip()):
             raise HandoffError("engineering task has invalid handoff metadata")
         lifecycle = handoff.get("lifecycle")
-        if not isinstance(lifecycle, dict) or lifecycle.get("status") not in {"ready", "in_progress", "completed"}:
+        if not isinstance(lifecycle, dict) or lifecycle.get("status") not in {"ready", "dispatching", "in_progress", "completed"}:
             raise HandoffError("engineering task has invalid handoff lifecycle")
         status = lifecycle["status"]
-        expected_task_status = {"ready": "pending", "in_progress": "in_progress", "completed": "completed"}[status]
+        expected_task_status = {"ready": "pending", "dispatching": "pending", "in_progress": "in_progress", "completed": "completed"}[status]
         if row.get("status") != expected_task_status:
             raise HandoffError("engineering task lifecycle is inconsistent with task status")
         commit_hash = lifecycle.get("commit_hash")
         if status == "completed":
             if not isinstance(commit_hash, str) or not re.fullmatch(r"[0-9a-f]{7,64}", commit_hash):
                 raise HandoffError("completed handoff has an invalid commit hash")
+            if lifecycle.get("result") is not None and (not isinstance(lifecycle["result"], str) or not lifecycle["result"].strip()):
+                raise HandoffError("completed handoff has an invalid result")
         elif commit_hash is not None:
             raise HandoffError("open handoff cannot have a commit hash")
-        if status in {"in_progress", "completed"} and not isinstance(lifecycle.get("claimed_by"), str):
+        if status in {"dispatching", "in_progress", "completed"} and not isinstance(lifecycle.get("claimed_by"), str):
             raise HandoffError("claimed handoff has an invalid developer identifier")
+        if status in {"in_progress", "completed"} and lifecycle.get("executor_thread_id") is not None and not isinstance(lifecycle["executor_thread_id"], str):
+            raise HandoffError("engineering task has an invalid executor thread")
         return {
             "acceptance": list(handoff["acceptance"]),
             "constraints": list(handoff["constraints"]),
@@ -513,7 +604,7 @@ class HandoffStore:
             "project_id": project_id,
             "scope": list(handoff["scope"]),
             "handoff_id": row["id"],
-            "lifecycle": dict(lifecycle),
+            "lifecycle": {**lifecycle, "idempotency_key": handoff["idempotency_key"]},
             "status": status,
             "task_id": row["id"],
         }

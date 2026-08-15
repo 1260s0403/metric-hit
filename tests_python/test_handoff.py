@@ -212,6 +212,37 @@ def test_lifecycle_is_idempotent_and_allows_only_one_active_developer_handoff(tm
     assert store.next()["handoff_id"] == second["handoff_id"]
 
 
+def test_dispatcher_claims_once_records_thread_and_completes_idempotently(tmp_path):
+    production_before = hashlib.sha256(MEMORY_DATABASE.read_bytes()).hexdigest()
+    database = temporary_database(tmp_path)
+    store = HandoffStore(database)
+    created = store.create_approved(payload(idempotency_key="dispatcher-once-v1", semantic_key="architecture.dispatcher_once"))
+
+    assert store.dispatcher_next()["task_id"] == created["task_id"]
+    claimed = store.dispatcher_claim_next("dispatcher-a")
+    assert claimed is not None
+    assert claimed["task_id"] == created["task_id"]
+    assert claimed["status"] == "dispatching"
+    assert claimed["dispatch_payload"]["idempotency_key"] == "dispatcher-once-v1"
+    assert store.dispatcher_claim_next("dispatcher-a") is None
+    assert store.dispatcher_next() is None
+
+    started = store.dispatcher_record_thread(created["handoff_id"], "01a00703-dispatcher-test", "dispatcher-a")
+    assert started["status"] == "in_progress"
+    assert started["lifecycle"]["executor_thread_id"] == "01a00703-dispatcher-test"
+    assert store.dispatcher_record_thread(created["handoff_id"], "01a00703-dispatcher-test", "dispatcher-a") == started
+    with pytest.raises(HandoffError, match="different executor thread"):
+        store.dispatcher_record_thread(created["handoff_id"], "01a00703-other", "dispatcher-a")
+
+    completed = store.dispatcher_complete(created["handoff_id"], "e" * 40, "Dispatcher test completed.", "dispatcher-a")
+    assert completed["status"] == "completed"
+    assert completed["lifecycle"]["commit_hash"] == "e" * 40
+    assert completed["lifecycle"]["result"] == "Dispatcher test completed."
+    assert store.dispatcher_complete(created["handoff_id"], "e" * 40, "Dispatcher test completed.", "dispatcher-a") == completed
+    assert store.dispatcher_claim_next("dispatcher-a") is None
+    assert hashlib.sha256(MEMORY_DATABASE.read_bytes()).hexdigest() == production_before
+
+
 def test_focused_workflow_never_writes_working_database(tmp_path):
     before = hashlib.sha256(MEMORY_DATABASE.read_bytes()).hexdigest()
     database = temporary_database(tmp_path)

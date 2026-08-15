@@ -99,6 +99,22 @@ def workflow_parser() -> argparse.ArgumentParser:
     handoff_complete.add_argument("--id", required=True)
     handoff_complete.add_argument("--commit", required=True)
     handoff_complete.add_argument("--developer", required=True)
+    dispatch_next = subparsers.add_parser("dispatcher-next")
+    dispatch_next.add_argument("--db", required=True)
+    dispatch_claim = subparsers.add_parser("dispatcher-claim-next")
+    dispatch_claim.add_argument("--db", required=True)
+    dispatch_claim.add_argument("--dispatcher", required=True)
+    dispatch_thread = subparsers.add_parser("dispatcher-record-thread")
+    dispatch_thread.add_argument("--db", required=True)
+    dispatch_thread.add_argument("--id", required=True)
+    dispatch_thread.add_argument("--thread-id", required=True)
+    dispatch_thread.add_argument("--dispatcher", required=True)
+    dispatch_complete = subparsers.add_parser("dispatcher-complete")
+    dispatch_complete.add_argument("--db", required=True)
+    dispatch_complete.add_argument("--id", required=True)
+    dispatch_complete.add_argument("--commit", required=True)
+    dispatch_complete.add_argument("--result", required=True)
+    dispatch_complete.add_argument("--dispatcher", required=True)
     for name in ("knowledge-add", "knowledge-list", "knowledge-search", "knowledge-to-task"):
         command = subparsers.add_parser(name)
         command.add_argument("--db", required=True)
@@ -169,6 +185,18 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         return 0
     if arguments.command == "handoff-complete":
         print_json(HandoffStore(database_path).complete(arguments.id, arguments.commit, arguments.developer))
+        return 0
+    if arguments.command == "dispatcher-next":
+        print_json({"handoff": HandoffStore(database_path).dispatcher_next()})
+        return 0
+    if arguments.command == "dispatcher-claim-next":
+        print_json({"handoff": HandoffStore(database_path).dispatcher_claim_next(arguments.dispatcher)})
+        return 0
+    if arguments.command == "dispatcher-record-thread":
+        print_json(HandoffStore(database_path).dispatcher_record_thread(arguments.id, arguments.thread_id, arguments.dispatcher))
+        return 0
+    if arguments.command == "dispatcher-complete":
+        print_json(HandoffStore(database_path).dispatcher_complete(arguments.id, arguments.commit, arguments.result, arguments.dispatcher))
         return 0
     if arguments.command.startswith("knowledge-"):
         store = KnowledgeStore(database_path)
