@@ -86,6 +86,15 @@ def page(browser: Browser, panel: tuple[str, KnowledgeStore], tmp_path: Path) ->
         page.close()
 
 
+@pytest.fixture(autouse=True)
+def no_unexpected_javascript_errors(page: Page):
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(f"pageerror: {error}"))
+    page.on("console", lambda message: errors.append(f"console: {message.text}") if message.type == "error" else None)
+    yield
+    assert errors == []
+
+
 def _open_tasks(page: Page, panel: str) -> None:
     page.goto(f"{panel}/?view=tasks")
     expect(page.get_by_test_id("tab-tasks")).to_have_attribute("aria-current", "page")
@@ -103,7 +112,7 @@ def test_edit_shows_local_confirmation_and_persists_after_reload(page: Page, pan
     page.get_by_test_id(f"task-edit-description-{task_id}").fill("After description")
     page.get_by_test_id(f"task-edit-priority-{task_id}").select_option("high")
     page.get_by_test_id(f"task-edit-due-date-{task_id}").fill((date.today() + timedelta(days=2)).isoformat())
-    page.get_by_test_id(f"task-edit-save-{task_id}").click()
+    page.get_by_test_id("task-save").click()
     expect(page.get_by_test_id(f"task-edit-feedback-{task_id}")).to_have_text("Изменения сохранены")
     card = page.get_by_test_id(f"task-card-{task_id}")
     expect(card).to_have_class(re.compile(r"\btask-focused\b"))
@@ -130,7 +139,7 @@ def test_details_can_be_hidden_and_reopened_before_edit_without_page_error(page:
     page.get_by_test_id(f"task-edit-{task_id}").click()
     expect(page.get_by_test_id(f"task-edit-form-{task_id}")).to_be_visible()
     assert errors == []
-    expect(page.get_by_test_id(f"task-card-{task_id}")).to_contain_text("high")
+    expect(page.get_by_test_id(f"task-card-{task_id}")).to_contain_text("normal")
 
 
 def test_combined_filters_reset_and_recommended_order(page: Page, panel: tuple[str, KnowledgeStore]) -> None:
@@ -188,3 +197,51 @@ def test_narrow_viewport_has_no_horizontal_overflow(page: Page, panel: tuple[str
     page.set_viewport_size({"width": 360, "height": 700})
     _open_tasks(page, base_url)
     assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
+
+
+def test_idea_view_has_no_task_toolbar_or_today(page: Page, panel: tuple[str, KnowledgeStore]) -> None:
+    base_url, store = panel
+    store.add(kind="idea", topic="Idea", text="Idea text")
+    page.goto(f"{base_url}/?view=idea")
+    expect(page.get_by_test_id("tab-idea")).to_have_attribute("aria-current", "page")
+    expect(page.get_by_test_id("task-controls")).to_have_count(0)
+    expect(page.get_by_test_id("today-tasks")).to_have_count(0)
+
+
+def test_idea_task_modal_and_standalone_task_keep_priority_and_due_date(page: Page, panel: tuple[str, KnowledgeStore]) -> None:
+    base_url, store = panel
+    entry = store.add(kind="idea", topic="Idea task", text="Source description")
+    due = (date.today() + timedelta(days=3)).isoformat()
+    page.goto(f"{base_url}/?view=idea")
+    page.get_by_test_id(f"create-task-{entry['id']}").click()
+    page.get_by_test_id("task-priority").select_option("high")
+    page.get_by_test_id("task-due-date").fill(due)
+    page.get_by_test_id("task-save").click()
+    link = page.locator('#entries a[href*="focus_task="]')
+    expect(link).to_be_visible()
+    link.click()
+    expect(page.get_by_test_id("tab-tasks")).to_have_attribute("aria-current", "page")
+    expect(page.locator("#entries")).to_contain_text(f"high · {due}")
+    page.get_by_test_id("new-task").click()
+    page.get_by_test_id("task-title").fill("Standalone")
+    page.get_by_test_id("task-description").fill("Standalone description")
+    page.get_by_test_id("task-save").click()
+    expect(page).to_have_url(re.compile(r"focus_task="))
+
+
+def test_edit_can_clear_due_date_and_all_views_are_error_free(page: Page, panel: tuple[str, KnowledgeStore]) -> None:
+    base_url, store = panel
+    task = _seed_task(
+        store, topic="Clear due", text="Clear date description", priority="high",
+        due_date=(date.today() + timedelta(days=1)).isoformat(),
+    )
+    task_id = str(task["id"])
+    page.goto(f"{base_url}/?view=tasks&focus_task={task_id}")
+    page.get_by_test_id(f"task-edit-{task_id}").click()
+    page.get_by_test_id(f"task-edit-due-date-{task_id}").fill("")
+    page.get_by_test_id("task-save").click()
+    expect(page.get_by_test_id("task-modal")).to_be_hidden()
+    expect(page.get_by_test_id(f"task-card-{task_id}")).not_to_contain_text((date.today() + timedelta(days=1)).isoformat())
+    for view in ("artem", "idea", "tasks", "memory"):
+        page.goto(f"{base_url}/?view={view}")
+        expect(page.get_by_test_id(f"tab-{view}")).to_have_attribute("aria-current", "page")

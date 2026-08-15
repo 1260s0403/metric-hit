@@ -90,6 +90,8 @@ def _add_entry(page: Page, topic: str, text: str) -> str:
 def _create_task(page: Page, topic: str, text: str) -> str:
     entry_id = _add_entry(page, topic, text)
     page.get_by_test_id(f"create-task-{entry_id}").click()
+    expect(page.get_by_test_id("task-modal")).to_be_visible()
+    page.get_by_test_id("task-save").click()
     link = page.get_by_test_id(f"knowledge-entry-{entry_id}").locator('[data-testid^="open-task-"]')
     expect(link).to_be_visible()
     return str(link.get_attribute("href")).split("focus_task=")[1].split("#")[0]

@@ -141,7 +141,11 @@ class KnowledgeStore:
             ).fetchall()
         return [self._entry(dict(row)) for row in rows]
 
-    def to_task(self, *, entry_id: str, title: str | None = None) -> dict[str, object]:
+    def to_task(
+        self, *, entry_id: str, title: str | None = None, description: str | None = None,
+        priority: str = "normal", due_date: str | None = None,
+    ) -> dict[str, object]:
+        self._validate_task_fields(title=title or "x", priority=priority, due_date=due_date)
         with sqlite3.connect(self.path) as connection:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
@@ -168,15 +172,16 @@ class KnowledgeStore:
                 return self._task(dict(existing))
             task_id = str(uuid4())
             created_at = _utc_text()
+            task_description = description if description is not None else entry["content"]
             task_metadata = {
                 "knowledge_entry_id": entry_id,
                 "knowledge_kind": kind,
                 "knowledge_tags": metadata.get("tags", []),
                 "knowledge_topic": metadata.get("topic", entry["title"]),
-                "priority": "normal",
-                "due_date": None,
+                "priority": priority,
+                "due_date": due_date,
             }
-            task_title = title.strip() if title and title.strip() else _task_title(entry["content"])
+            task_title = title.strip() if title and title.strip() else _task_title(task_description)
             connection.execute(
                 """
                 INSERT INTO tasks
@@ -184,16 +189,35 @@ class KnowledgeStore:
                 VALUES (?, 'knowledge_task', ?, ?, ?, 'pending', ?, ?, ?, 'internal', 1)
                 """,
                 (
-                    task_id, task_title, entry["content"],
+                    task_id, task_title, task_description,
                     json.dumps(task_metadata, ensure_ascii=False, sort_keys=True),
                     entry["author"], created_at, created_at,
                 ),
             )
             return self._task({
                 "id": task_id, "type": "knowledge_task", "title": task_title,
-                "content": entry["content"], "data_json": json.dumps(task_metadata, ensure_ascii=False, sort_keys=True),
+                "content": task_description, "data_json": json.dumps(task_metadata, ensure_ascii=False, sort_keys=True),
                 "status": "pending", "author": entry["author"], "created_at": created_at,
             })
+
+    def create_task(
+        self, *, title: str, description: str, priority: str = "normal", due_date: str | None = None,
+        author: str = "owner",
+    ) -> dict[str, object]:
+        self._validate_task_fields(title=title, priority=priority, due_date=due_date)
+        task_id = str(uuid4())
+        created_at = _utc_text()
+        metadata = {"priority": priority, "due_date": due_date, "standalone": True}
+        with sqlite3.connect(self.path) as connection:
+            connection.execute(
+                """INSERT INTO tasks
+                   (id, type, title, content, data_json, status, author, created_at, updated_at, access_level, version)
+                   VALUES (?, 'standalone_task', ?, ?, ?, 'pending', ?, ?, ?, 'internal', 1)""",
+                (task_id, title.strip(), description, json.dumps(metadata, ensure_ascii=False, sort_keys=True), author, created_at, created_at),
+            )
+        return self._task({"id": task_id, "type": "standalone_task", "title": title.strip(), "content": description,
+                           "data_json": json.dumps(metadata), "status": "pending", "author": author, "created_at": created_at,
+                           "updated_at": created_at})
 
     def list_tasks(self, *, query: str = "", status: str = "all", priority: str = "all", due: str = "all", sort: str = "recommended") -> list[dict[str, object]]:
         if status not in {"all", "open", "completed", "cancelled"} or priority not in {"all", "high", "normal", "low"} or due not in {"all", "overdue", "today", "week", "none"} or sort not in {"recommended", "due", "priority", "newest", "oldest"}:
@@ -204,9 +228,10 @@ class KnowledgeStore:
                 """
                 SELECT tasks.id, tasks.type, tasks.title, tasks.content, tasks.data_json, tasks.status,
                        tasks.author, tasks.created_at, tasks.updated_at, documents.content AS source_text
-                FROM tasks JOIN documents ON documents.id=json_extract(tasks.data_json, '$.knowledge_entry_id')
-                WHERE tasks.type='knowledge_task'
-                  AND json_extract(tasks.data_json, '$.knowledge_kind') IN ('artem_recommendation', 'owner_idea')
+                FROM tasks LEFT JOIN documents ON documents.id=json_extract(tasks.data_json, '$.knowledge_entry_id')
+                WHERE (tasks.type='knowledge_task'
+                  AND json_extract(tasks.data_json, '$.knowledge_kind') IN ('artem_recommendation', 'owner_idea'))
+                   OR tasks.type='standalone_task'
                 ORDER BY tasks.created_at DESC, tasks.id DESC
                 """
             ).fetchall()
@@ -246,17 +271,13 @@ class KnowledgeStore:
         return urgent + high
 
     def edit_task(self, *, task_id: str, title: str, description: str, priority: str, due_date: str | None) -> dict[str, object]:
-        if not title.strip(): raise KnowledgeError("title must not be empty")
-        if priority not in {"high", "normal", "low"}: raise KnowledgeError("priority must be high, normal, or low")
-        if due_date:
-            try: date.fromisoformat(due_date)
-            except ValueError as error: raise KnowledgeError("due_date must be YYYY-MM-DD") from error
+        self._validate_task_fields(title=title, priority=priority, due_date=due_date)
         with sqlite3.connect(self.path) as connection:
             connection.row_factory = sqlite3.Row; connection.execute("BEGIN IMMEDIATE")
-            row = connection.execute("SELECT * FROM tasks WHERE id=? AND type='knowledge_task'", (task_id,)).fetchone()
+            row = connection.execute("SELECT * FROM tasks WHERE id=? AND type IN ('knowledge_task', 'standalone_task')", (task_id,)).fetchone()
             if row is None: raise KnowledgeError("knowledge task was not found")
             metadata = json.loads(row["data_json"])
-            if metadata.get("knowledge_kind") not in set(KNOWLEDGE_KINDS.values()): raise KnowledgeError("knowledge task was not found")
+            if row["type"] == "knowledge_task" and metadata.get("knowledge_kind") not in set(KNOWLEDGE_KINDS.values()): raise KnowledgeError("knowledge task was not found")
             old = self._task(dict(row)); metadata.update(priority=priority, due_date=due_date)
             now = _utc_text(); version = row["version"] + 1
             connection.execute("UPDATE tasks SET title=?, content=?, data_json=?, updated_at=?, version=? WHERE id=?", (title.strip(), description, json.dumps(metadata, ensure_ascii=False, sort_keys=True), now, version, task_id))
@@ -281,10 +302,10 @@ class KnowledgeStore:
                 """,
                 (task_id,),
             ).fetchone()
-            if task is None or task["type"] != "knowledge_task":
+            if task is None or task["type"] not in {"knowledge_task", "standalone_task"}:
                 raise KnowledgeError("knowledge task was not found")
             metadata = json.loads(task["data_json"])
-            if metadata.get("knowledge_kind") not in set(KNOWLEDGE_KINDS.values()):
+            if task["type"] == "knowledge_task" and metadata.get("knowledge_kind") not in set(KNOWLEDGE_KINDS.values()):
                 raise KnowledgeError("knowledge task was not found")
             if task["status"] == status:
                 return self._task(dict(task))
@@ -346,13 +367,25 @@ class KnowledgeStore:
             "due_date": metadata.get("due_date"),
             "created_at": row["created_at"],
             "id": row["id"],
-            "knowledge_entry_id": metadata["knowledge_entry_id"],
-            "knowledge_kind": metadata["knowledge_kind"],
-            "knowledge_tags": metadata["knowledge_tags"],
-            "knowledge_topic": metadata["knowledge_topic"],
+            "knowledge_entry_id": metadata.get("knowledge_entry_id"),
+            "knowledge_kind": metadata.get("knowledge_kind"),
+            "knowledge_tags": metadata.get("knowledge_tags", []),
+            "knowledge_topic": metadata.get("knowledge_topic"),
             "status": "open" if row["status"] in {"pending", "in_progress"} else row["status"],
-            "source": "Рекомендация Артёма" if metadata["knowledge_kind"] == "artem_recommendation" else "Моя идея",
+            "source": ("Рекомендация Артёма" if metadata.get("knowledge_kind") == "artem_recommendation" else "Моя идея") if metadata.get("knowledge_kind") else "Самостоятельная задача",
             "title": row["title"],
             "type": row["type"],
             "updated_at": row.get("updated_at", row["created_at"]),
         }
+
+    @staticmethod
+    def _validate_task_fields(*, title: str, priority: str, due_date: str | None) -> None:
+        if not title.strip():
+            raise KnowledgeError("title must not be empty")
+        if priority not in {"high", "normal", "low"}:
+            raise KnowledgeError("priority must be high, normal, or low")
+        if due_date:
+            try:
+                date.fromisoformat(due_date)
+            except ValueError as error:
+                raise KnowledgeError("due_date must be YYYY-MM-DD") from error

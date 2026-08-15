@@ -140,12 +140,16 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
         count=1,
     )
     page = page.replace("let view=focusTask?'tasks':'artem'", f"let view={json.dumps(selected)}")
+    # The base script eagerly loads tasks before the task UI can replace its renderer.
+    # Task mode is loaded once by the guarded MVP layer below.
+    if selected == "tasks":
+        page = page.replace(";load();</script></body>", ";if(view!=='tasks')load();</script></body>")
     if selected in {"tasks", "memory"}:
         page = page.replace(
             '<div id="knowledge" data-testid="knowledge-screen">',
             '<div id="knowledge" data-testid="knowledge-screen" class="hidden">',
         )
-    return page.replace("</body>", _e2e_markers() + _stable_test_ids() + _tab_accessibility() + _task_ui() + _task_edit_feedback() + _task_edit_controls() + _task_safe_render() + "</body>")
+    return page.replace("</body>", _task_mvp_ui() + "</body>")
 
 
 def _e2e_markers() -> str:
@@ -180,10 +184,47 @@ def _stable_test_ids() -> str:
     return """<script>(()=>{const mark=()=>{for(const card of document.querySelectorAll('#entries>.entry:not([id^="task-"])')){const entryId=card.textContent.match(/\\b[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\\b/i)?.[0];if(!entryId)continue;card.dataset.testid=`knowledge-entry-${entryId}`;const action=card.querySelector('.actions'),button=action?.querySelector('button'),link=action?.querySelector('a[href*="focus_task="]');if(button)button.dataset.testid=`create-task-${entryId}`;if(link){const taskId=new URL(link.href).searchParams.get('focus_task');link.dataset.testid=`open-task-${taskId}`;action.querySelector('.result').dataset.testid=`task-feedback-${taskId}`;}}};new MutationObserver(mark).observe(document.body,{childList:true,subtree:true});mark()})()</script>"""
 
 
+def _task_mvp_ui() -> str:
+    """Single guarded task UI layer; it deliberately does not depend on async test-id decoration."""
+    return r"""<style>
+.task-modal{position:fixed;inset:0;background:#000a;display:grid;place-items:center;z-index:20;padding:16px}.task-modal.hidden{display:none}.task-modal form{background:#182334;border:2px solid #4388d4;border-radius:10px;width:min(620px,92vw);max-height:85vh;overflow:auto;padding:20px}.task-modal label{display:block;margin:10px 0}.task-modal input,.task-modal select{width:100%;box-sizing:border-box}.priority-high{color:#ff9ca9}.priority-normal{color:#8ee0ff}.priority-low{color:#a8b6c9}.due-overdue{color:#ff9ca9}.due-today{color:#ffc36b}.task-actions{display:flex;gap:9px;flex-wrap:wrap;margin:12px 0}.task-actions button{width:auto}@media(max-width:600px){.task-actions button{width:auto}}</style>
+<script>(()=>{
+const originalLoad=load;
+for(const [name,testid] of [['topic','add-topic'],['text','add-text'],['tags','add-tags']]){const field=document.querySelector(`#add [name="${name}"]`);if(field)field.dataset.testid=testid}
+const taskModal=document.createElement('section');
+taskModal.className='task-modal hidden'; taskModal.dataset.testid='task-modal'; taskModal.setAttribute('role','dialog'); taskModal.setAttribute('aria-modal','true');
+taskModal.innerHTML='<form data-testid="task-form"><h2 data-testid="task-modal-title"></h2><label>Название<input name="title" required data-testid="task-title"></label><label>Описание<textarea name="description" required data-testid="task-description"></textarea></label><label>Приоритет<select name="priority" data-testid="task-priority"><option value="high">Высокий</option><option value="normal">Обычный</option><option value="low">Низкий</option></select></label><label>Срок<input name="due_date" type="date" data-testid="task-due-date"></label><div class="task-actions"><button data-testid="task-save">Сохранить</button><button type="button" data-testid="task-cancel">Отмена</button></div><div class="error" data-testid="task-form-error"></div></form>';
+document.body.append(taskModal);
+const form=taskModal.querySelector('form'), formError=taskModal.querySelector('[data-testid="task-form-error"]'); let modalState=null;
+const closeModal=()=>{taskModal.classList.add('hidden');modalState=null;}; taskModal.querySelector('[data-testid="task-cancel"]').onclick=closeModal; taskModal.onclick=e=>{if(e.target===taskModal)closeModal};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!taskModal.classList.contains('hidden'))closeModal()});
+const focusUrl=id=>`/?view=tasks&focus_task=${encodeURIComponent(id)}#task-${id}`;
+function openModal(mode,{entry=null,item=null,holder=null}={}){modalState={mode,entry,item,holder};const suffix=item?.id;formError.textContent='';form.dataset.testid=suffix?`task-edit-form-${suffix}`:'task-form';for(const [name,base] of [['title','task-edit-title'],['description','task-edit-description'],['priority','task-edit-priority'],['due_date','task-edit-due-date']])form.elements[name].dataset.testid=suffix?`${base}-${suffix}`:`task-${name==='due_date'?'due-date':name}`;taskModal.querySelector('[data-testid="task-modal-title"]').textContent=mode==='edit'?'Редактировать задачу':'Новая задача';form.elements.title.value=item?.title||entry?.topic||'';form.elements.description.value=item?.description||entry?.text||'';form.elements.priority.value=item?.priority||'normal';form.elements.due_date.value=item?.due_date||'';taskModal.classList.remove('hidden');form.elements.title.focus()}
+function feedback(holder,item,created){holder.replaceChildren();const text=document.createElement('span');text.className='result';text.dataset.testid=`task-feedback-${item.id}`;text.textContent=created?'Задача создана':'Задача уже создана';const priority=document.createElement('span');priority.textContent=` · ${item.priority}`;holder.append(text,priority);if(item.due_date){const due=document.createElement('span');due.textContent=` · ${item.due_date}`;holder.append(due)}const open=document.createElement('a');open.href=focusUrl(item.id);open.dataset.testid=`open-task-${item.id}`;open.textContent='Открыть задачу';holder.append(open)}
+form.onsubmit=async e=>{e.preventDefault();if(!modalState)return;const state=modalState;const payload={title:form.elements.title.value,description:form.elements.description.value,priority:form.elements.priority.value,due_date:form.elements.due_date.value||null};try{let result;if(state.mode==='edit'){result=await api(`/api/tasks/${encodeURIComponent(state.item.id)}/edit`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});closeModal();await load();const card=document.getElementById(`task-${result.id}`);if(card){card.classList.add('task-focused');const note=document.createElement('div');note.className='result';note.dataset.testid=`task-edit-feedback-${result.id}`;note.textContent='Изменения сохранены';card.prepend(note);card.scrollIntoView({behavior:'smooth',block:'center'})}}else{if(state.entry)payload.id=state.entry.id;result=await api('/api/tasks',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});closeModal();if(state.holder)feedback(state.holder,result,result.created);else window.location.href=focusUrl(result.id)}}catch(error){formError.textContent=error.message}};
+function removeTaskUi(){document.querySelector('#task-controls')?.remove();document.querySelector('#today-tasks')?.remove();}
+function taskParams(){const p=new URLSearchParams(location.search);return {query:p.get('query')||'',status:p.get('status')||'all',priority:p.get('priority')||'all',due:p.get('due')||'all',sort:p.get('sort')||'recommended'}}
+function updateTaskUrl(values){const p=new URLSearchParams(values);p.set('view','tasks');history.replaceState(null,'',`/?${p.toString()}`)}
+function makeSelect(label,values,testid,current){const wrap=document.createElement('label');wrap.textContent=label;const select=document.createElement('select');select.dataset.testid=testid;for(const [value,text] of values)select.append(new Option(text,value));select.value=current;wrap.append(select);return [wrap,select]}
+function controls(items){if(view!=='tasks')return;let bar=document.querySelector('#task-controls');if(!bar){bar=document.createElement('div');bar.id='task-controls';bar.className='row';entries.before(bar)}bar.replaceChildren();const values=taskParams(),query=document.createElement('input');query.value=values.query;query.placeholder='Поиск задач';query.dataset.testid='task-search';const [statusWrap,status]=makeSelect('Статус',[['all','Все'],['open','Открытые'],['completed','Выполненные'],['cancelled','Отменённые']],'task-status-filter',values.status);const [priorityWrap,priority]=makeSelect('Приоритет',[['all','Все'],['high','Высокий'],['normal','Обычный'],['low','Низкий']],'task-priority-filter',values.priority);const [dueWrap,due]=makeSelect('Срок',[['all','Все'],['overdue','Просроченные'],['today','Сегодня'],['week','7 дней'],['none','Без срока']],'task-due-filter',values.due);const [sortWrap,sort]=makeSelect('Сортировка',[['recommended','Рекомендуемая'],['due','По сроку'],['priority','По приоритету'],['newest','Новые'],['oldest','Старые']],'task-sort',values.sort);const reset=document.createElement('button');reset.textContent='Сбросить';reset.dataset.testid='task-reset';const create=document.createElement('button');create.textContent='Новая задача';create.dataset.testid='new-task';create.onclick=()=>openModal('create');const count=document.createElement('span');count.dataset.testid='task-count';count.textContent=`Найдено: ${items.length}`;bar.append(query,statusWrap,priorityWrap,dueWrap,sortWrap,reset,create,count);const change=()=>{updateTaskUrl({query:query.value,status:status.value,priority:priority.value,due:due.value,sort:sort.value});load()};query.oninput=change;[status,priority,due,sort].forEach(x=>x.onchange=change);reset.onclick=()=>{updateTaskUrl({query:'',status:'all',priority:'all',due:'all',sort:'recommended'});load()}}
+async function today(){if(view!=='tasks')return;let box=document.querySelector('#today-tasks');if(!box){box=document.createElement('section');box.id='today-tasks';box.dataset.testid='today-tasks';entries.before(box)}const items=await api('/api/tasks/today');box.replaceChildren();const heading=document.createElement('h2');heading.textContent='Сегодня';box.append(heading);if(!items.length){const empty=document.createElement('p');empty.textContent='На сегодня срочных задач нет.';box.append(empty);return}for(const item of items){const line=document.createElement('div'), open=document.createElement('a');line.className='task-actions';line.textContent=`${item.title} · ${item.priority}${item.due_date?' · '+item.due_date:''}`;open.href=focusUrl(item.id);open.dataset.testid=`today-open-${item.id}`;open.textContent='Открыть';line.append(open);box.append(line)}}
+async function change(id,status){try{await api(`/api/tasks/${encodeURIComponent(id)}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});load()}catch(error){show(error.message,true)}}
+renderTasks=items=>{if(view!=='tasks')return;removeTaskUi();controls(items);entries.replaceChildren();for(const item of items){const card=document.createElement('article');card.id=`task-${item.id}`;card.className='entry';card.dataset.testid=`task-card-${item.id}`;if(item.id===focusTask)card.classList.add('task-focused');const title=document.createElement('strong');title.textContent=item.display_title;const meta=document.createElement('div');meta.className='meta';meta.textContent=`${item.status} · ${item.created_at} · ${item.priority}${item.due_date?' · '+item.due_date:''}`;const actions=document.createElement('div');actions.className='task-actions';actions.dataset.testid=`task-actions-${item.id}`;const details=document.createElement('div');details.className='hidden';details.dataset.testid=`task-details-${item.id}`;const toggle=document.createElement('button');toggle.textContent='Подробнее';toggle.dataset.testid=`task-details-toggle-${item.id}`;toggle.onclick=()=>{details.classList.toggle('hidden');toggle.textContent=details.classList.contains('hidden')?'Подробнее':'Скрыть'};const edit=document.createElement('button');edit.textContent='Редактировать';edit.dataset.testid=`task-edit-${item.id}`;edit.onclick=()=>openModal('edit',{item});actions.append(toggle,edit);if(item.status==='open'){for(const [text,status,testid] of [['Выполнено','completed','task-completed'],['Отменить','cancelled','task-cancelled']]){const button=document.createElement('button');button.textContent=text;button.dataset.testid=`${testid}-${item.id}`;button.onclick=()=>change(item.id,status);actions.append(button)}}const description=document.createElement('p');description.textContent=item.description;const source=document.createElement('div');source.textContent=item.source;const topic=document.createElement('div');topic.textContent=item.knowledge_topic||'Без источника';const uuid=document.createElement('div');uuid.className='meta';uuid.textContent=item.id;details.append(description,source,topic,uuid);if(item.id===focusTask){const label=document.createElement('div');label.className='focus-label';label.textContent='Открытая задача';card.append(label)}card.append(title,meta,actions,details);entries.append(card)}today().catch(error=>show(error.message,true));if(focusTask)setTimeout(focusCard,0)};
+renderKnowledge=items=>{if(view!=='artem'&&view!=='idea')return;removeTaskUi();entries.replaceChildren();for(const item of items){const card=document.createElement('article');card.className='entry';card.dataset.testid=`knowledge-entry-${item.id}`;const title=document.createElement('strong');title.textContent=item.topic;const text=document.createElement('p');text.textContent=item.text;const actions=document.createElement('div');actions.className='task-actions';if(item.task)feedback(actions,item.task,false);else{const button=document.createElement('button');button.textContent='Создать задачу';button.dataset.testid=`create-task-${item.id}`;button.onclick=()=>openModal('create',{entry:item,holder:actions});actions.append(button)}card.append(title,text,actions);entries.append(card)}};
+load=async()=>{try{if(view==='tasks'){const p=new URLSearchParams(taskParams());renderTasks(await api(`/api/tasks?${p}`));return}if(view==='artem'||view==='idea'){const search=document.querySelector('#search');renderKnowledge(await api(`/api/entries?kind=${encodeURIComponent(view)}&query=${encodeURIComponent(search?search.value:'')}`));return}removeTaskUi();return originalLoad()}catch(error){show(error.message,true)}};
+for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',()=>{for(const candidate of document.querySelectorAll('[data-view]')){if(candidate===tab)candidate.setAttribute('aria-current','page');else candidate.removeAttribute('aria-current')}if(tab.dataset.view!=='tasks')removeTaskUi()});
+setTimeout(load,0);
+})();</script>"""
+
+
 def create_operator_app(database_path: Path) -> FastAPI:
     store = KnowledgeStore(database_path)
     token = secrets.token_urlsafe(32)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+
+    @app.get("/favicon.ico", status_code=204)
+    def favicon() -> None:
+        return None
 
     @app.get("/", response_class=HTMLResponse)
     def page(request: Request, view: str = "artem", focus_task: str | None = None) -> str:
@@ -245,10 +286,22 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error("missing or invalid startup token", 403)
         try:
             payload = await request.json()
-            entry_id = _text(payload, "id")
-            existing = store.task_for_entry(entry_id)
-            item = existing or store.to_task(entry_id=entry_id, title=_optional_text(payload, "title"))
-            item["created"] = existing is None
+            entry_id = _optional_text(payload, "id")
+            if entry_id:
+                existing = store.task_for_entry(entry_id)
+                item = existing or store.to_task(
+                    entry_id=entry_id, title=_optional_text(payload, "title"),
+                    description=_optional_text(payload, "description"),
+                    priority=_optional_text(payload, "priority") or "normal",
+                    due_date=_optional_text(payload, "due_date"),
+                )
+                item["created"] = existing is None
+            else:
+                item = store.create_task(
+                    title=_text(payload, "title"), description=_text(payload, "description"),
+                    priority=_optional_text(payload, "priority") or "normal", due_date=_optional_text(payload, "due_date"),
+                )
+                item["created"] = True
             return JSONResponse(item)
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error:
             return _error(str(error), 400)
