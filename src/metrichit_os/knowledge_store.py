@@ -341,6 +341,8 @@ class KnowledgeStore:
             if task is None or task["type"] not in {"knowledge_task", "standalone_task"}:
                 raise KnowledgeError("knowledge task was not found")
             metadata = json.loads(task["data_json"])
+            if task["type"] == "standalone_task" and metadata.get("handoff", {}).get("kind") == "codex_engineering":
+                raise KnowledgeError("Codex engineering handoff status is managed by handoff-claim and handoff-complete")
             if task["type"] == "knowledge_task" and metadata.get("knowledge_kind") not in set(KNOWLEDGE_KINDS.values()):
                 raise KnowledgeError("knowledge task was not found")
             if task["status"] == status:

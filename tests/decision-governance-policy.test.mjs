@@ -32,8 +32,13 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.implementation, 'repo_side_cli');
       assert.equal(data.handoff.create_command, 'handoff-create');
       assert.equal(data.handoff.next_command, 'handoff-next');
+      assert.equal(data.handoff.claim_command, 'handoff-claim');
+      assert.equal(data.handoff.complete_command, 'handoff-complete');
       assert.equal(data.handoff.atomic_decision_task_link, true);
-      assert.equal(data.revision, 3);
+      assert.deepEqual(data.handoff.lifecycle, ['ready', 'in_progress', 'completed']);
+      assert.equal(data.handoff.strategy_stops_after_create, true);
+      assert.equal(data.handoff.one_active_developer_handoff, true);
+      assert.equal(data.revision, 4);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();

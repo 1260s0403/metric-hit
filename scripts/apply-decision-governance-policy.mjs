@@ -10,7 +10,7 @@ const decisionPath = 'knowledge/decisions/decision-governance-policy-2026-08-15.
 const semanticKey = 'architecture.decision_governance_policy';
 const reviewedAt = '2026-08-15T17:00:00.000Z';
 const owner = 'owner';
-const revision = 3;
+const revision = 4;
 
 function uuid(key) {
   const hex = createHash('sha256').update(`metrichit-decision-governance:${key}`).digest('hex');
@@ -30,7 +30,8 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   if (decision.includes('\uFFFD')) throw new Error('Decision contains U+FFFD');
 
   const title = 'Политика контура решений MetricHit OS';
-  const content = 'Контур решений относится к центральному ядру, а не к отделу или автономному агенту. Явно утверждённые владельцем решения могут сохраняться как approved; предложения, выводы и непринятые варианты остаются pending candidates, а потенциальные решения никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Решения могут связываться с проектом, задачей, источником и при необходимости Git-коммитом. В current context включаются только значимые approved-решения; технические мелкие правки решениями не считаются. Контур охватывает архитектуру, продукт, приоритеты, правила, бюджеты, сроки, права, ограничения и направления проектов. Реализован минимальный repo-side strategy → developer handoff: стратегический поток передаёт явно утверждённый короткий decision delta, обычный Python-код валидирует его и атомарно сохраняет approved candidate вместе со связанной standalone engineering task в существующем task-контуре; developer-поток получает следующую задачу read-only CLI-командой. Отдельный LLM-вызов, агент, UI, daemon и scheduler не используются. Будущий UI входит в управление кандидатами памяти и должен стать основой «Центра решений владельца».';
+  let content = 'Контур решений относится к центральному ядру, а не к отделу или автономному агенту. Явно утверждённые владельцем решения могут сохраняться как approved; предложения, выводы и непринятые варианты остаются pending candidates, а потенциальные решения никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Решения могут связываться с проектом, задачей, источником и при необходимости Git-коммитом. В current context включаются только значимые approved-решения; технические мелкие правки решениями не считаются. Контур охватывает архитектуру, продукт, приоритеты, правила, бюджеты, сроки, права, ограничения и направления проектов. Реализован минимальный repo-side strategy → developer handoff: стратегический поток передаёт явно утверждённый короткий decision delta, обычный Python-код валидирует его и атомарно сохраняет approved candidate вместе со связанной standalone engineering task в существующем task-контуре; developer-поток получает следующую задачу read-only CLI-командой. Отдельный LLM-вызов, агент, UI, daemon и scheduler не используются. Будущий UI входит в управление кандидатами памяти и должен стать основой «Центра решений владельца».';
+  content += ' Strategy останавливается после handoff-create; только явная команда владельца разрешает Developer прочитать и claim ready handoff. Lifecycle ограничен ready → in_progress → completed, одновременно активен один developer handoff, а completion хранит hash коммита; claim и complete идемпотентны.';
   const policyData = JSON.stringify({
     belongs_to: 'central_core',
     is_department: false,
@@ -44,7 +45,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     excludes: ['minor_technical_changes'],
     scopes: ['architecture', 'product', 'priorities', 'rules', 'budgets', 'deadlines', 'rights', 'constraints', 'project_directions'],
     execution: { separate_llm_call_required: false, separate_agent_required: false, output: 'short_decision_delta', persistence: 'validated_by_regular_code', target_overhead: 'few_percent_or_less', implementation: 'repo_side_cli' },
-    handoff: { create_command: 'handoff-create', next_command: 'handoff-next', task_type: 'standalone_task', atomic_decision_task_link: true, read_only_next: true },
+    handoff: { create_command: 'handoff-create', next_command: 'handoff-next', claim_command: 'handoff-claim', complete_command: 'handoff-complete', task_type: 'standalone_task', atomic_decision_task_link: true, read_only_next: true, strategy_stops_after_create: true, developer_requires_explicit_owner_command: true, lifecycle: ['ready', 'in_progress', 'completed'], one_active_developer_handoff: true, claim_complete_idempotent: true, completion_links_commit_hash: true },
     future_ui: ['memory_candidate_management', 'owner_decision_center'],
     functionality_implemented: 'minimal_cli_handoff_only',
     revision,

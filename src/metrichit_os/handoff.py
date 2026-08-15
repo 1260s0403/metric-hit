@@ -142,7 +142,9 @@ class HandoffStore:
             "handoff": {
                 "kind": "codex_engineering", "idempotency_key": idempotency_key,
                 "decision_candidate_id": candidate_id, "decision_semantic_key": semantic_key,
-                "source_id": source_id, **delta,
+                "source_id": source_id,
+                "lifecycle": {"status": "ready"},
+                **delta,
             },
         }
         source_data = {"reference": source_ref, "authority": "explicit_owner_approval", "fingerprint": fingerprint}
@@ -275,7 +277,7 @@ class HandoffStore:
             rows = connection.execute(
                 """SELECT id,title,content,data_json,status,source_id,created_at
                    FROM tasks
-                   WHERE type='standalone_task' AND status IN ('pending','in_progress')
+                   WHERE type='standalone_task' AND status='pending'
                    ORDER BY created_at,id"""
             ).fetchall()
             parsed_rows = []
@@ -289,10 +291,130 @@ class HandoffStore:
                 handoff = metadata.get("handoff")
                 if isinstance(handoff, dict) and handoff.get("kind") == "codex_engineering":
                     try:
-                        return self._attested_result(connection, dict(row), metadata, handoff)
+                        result = self._attested_result(connection, dict(row), metadata, handoff)
+                        if result["status"] == "ready":
+                            return result
                     except HandoffError:
                         continue
         return None
+
+    def claim(self, handoff_id: str, developer_id: str) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        developer_id = self._developer_id(developer_id)
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            result = self._attested_result(connection, dict(row), metadata, handoff)
+            if result["status"] == "in_progress":
+                if handoff["lifecycle"].get("claimed_by") != developer_id:
+                    raise HandoffError("handoff is already claimed by another developer")
+                return result
+            if result["status"] != "ready":
+                raise HandoffError("handoff is not ready to claim")
+            active = self._active_handoff_id(connection)
+            if active is not None and active != handoff_id:
+                raise HandoffError(f"another developer handoff is already in progress: {active}")
+            now = _utc_text()
+            lifecycle = handoff["lifecycle"]
+            lifecycle.update({"status": "in_progress", "claimed_at": now, "claimed_by": developer_id})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "in_progress", now, "claimed")
+            return self._load_task(connection, handoff_id)
+
+    def complete(self, handoff_id: str, commit_hash: str, developer_id: str) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        developer_id = self._developer_id(developer_id)
+        if not isinstance(commit_hash, str):
+            raise HandoffError("commit_hash must be a 7-64 character hexadecimal Git commit hash")
+        commit_hash = commit_hash.strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{7,64}", commit_hash):
+            raise HandoffError("commit_hash must be a 7-64 character hexadecimal Git commit hash")
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            result = self._attested_result(connection, dict(row), metadata, handoff)
+            lifecycle = handoff["lifecycle"]
+            if result["status"] == "completed":
+                if lifecycle.get("commit_hash") != commit_hash or lifecycle.get("claimed_by") != developer_id:
+                    raise HandoffError("completed handoff is already linked to a different commit hash")
+                return result
+            if result["status"] != "in_progress":
+                raise HandoffError("handoff must be claimed before completion")
+            if lifecycle.get("claimed_by") != developer_id:
+                raise HandoffError("handoff is claimed by another developer")
+            now = _utc_text()
+            lifecycle.update({"status": "completed", "completed_at": now, "commit_hash": commit_hash})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "completed", now, "completed", commit_hash)
+            return self._load_task(connection, handoff_id)
+
+    @staticmethod
+    def _handoff_id(value: str) -> str:
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-a[0-9a-f]{3}-[0-9a-f]{12}", value):
+            raise HandoffError("handoff_id must be a handoff UUID")
+        return value
+
+    @staticmethod
+    def _developer_id(value: str) -> str:
+        if not isinstance(value, str) or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}", value):
+            raise HandoffError("developer_id must be a 1-64 character identifier")
+        return value
+
+    def _handoff_row(self, connection: sqlite3.Connection, handoff_id: str) -> sqlite3.Row:
+        row = connection.execute(
+            "SELECT id,title,content,data_json,status,source_id,author,created_at,updated_at,version FROM tasks WHERE id=? AND type='standalone_task'",
+            (handoff_id,),
+        ).fetchone()
+        if row is None:
+            raise HandoffError("handoff was not found")
+        return row
+
+    def _active_handoff_id(self, connection: sqlite3.Connection) -> str | None:
+        rows = connection.execute(
+            "SELECT id,data_json,status,source_id,created_at FROM tasks WHERE type='standalone_task' AND status='in_progress' ORDER BY created_at,id",
+        ).fetchall()
+        for row in rows:
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            if not isinstance(handoff, dict) or handoff.get("kind") != "codex_engineering":
+                continue
+            try:
+                if self._attested_result(connection, dict(row), metadata, handoff)["status"] == "in_progress":
+                    return str(row["id"])
+            except HandoffError:
+                continue
+        return None
+
+    def _update_lifecycle(
+        self,
+        connection: sqlite3.Connection,
+        row: sqlite3.Row,
+        metadata: dict[str, Any],
+        status: str,
+        now: str,
+        action: str,
+        commit_hash: str | None = None,
+    ) -> None:
+        new_version = int(row["version"]) + 1
+        connection.execute(
+            "UPDATE tasks SET data_json=?,status=?,updated_at=?,version=? WHERE id=?",
+            (json.dumps(metadata, ensure_ascii=False, sort_keys=True), status, now, new_version, row["id"]),
+        )
+        data = {"old": {"status": row["status"], "version": row["version"]}, "new": {"status": status, "version": new_version}}
+        if commit_hash:
+            data["new"]["commit_hash"] = commit_hash
+        connection.execute(
+            "INSERT INTO audit_log (id,type,title,data_json,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES (?, 'task_change', ?, ?, ?, ?, ?, 'restricted', 1, 'task', ?, 'update')",
+            (_uuid(f"audit:{action}:{row['id']}"), f"Codex engineering handoff {action}", json.dumps(data, ensure_ascii=False, sort_keys=True), row["author"], now, now, row["id"]),
+        )
 
     def _load_task(self, connection: sqlite3.Connection, task_id: str) -> dict[str, Any]:
         row = connection.execute(
@@ -351,6 +473,8 @@ class HandoffStore:
 
     @staticmethod
     def _result(row: dict[str, Any], handoff: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(handoff, dict):
+            raise HandoffError("engineering task has invalid handoff metadata")
         required_strings = ("goal", "source", "decision_candidate_id", "decision_semantic_key", "source_id")
         if any(not isinstance(handoff.get(key), str) or not handoff[key].strip() for key in required_strings):
             raise HandoffError("engineering task has invalid handoff metadata")
@@ -361,6 +485,21 @@ class HandoffStore:
         project_id = handoff.get("project_id")
         if project_id is not None and (not isinstance(project_id, str) or not project_id.strip()):
             raise HandoffError("engineering task has invalid handoff metadata")
+        lifecycle = handoff.get("lifecycle")
+        if not isinstance(lifecycle, dict) or lifecycle.get("status") not in {"ready", "in_progress", "completed"}:
+            raise HandoffError("engineering task has invalid handoff lifecycle")
+        status = lifecycle["status"]
+        expected_task_status = {"ready": "pending", "in_progress": "in_progress", "completed": "completed"}[status]
+        if row.get("status") != expected_task_status:
+            raise HandoffError("engineering task lifecycle is inconsistent with task status")
+        commit_hash = lifecycle.get("commit_hash")
+        if status == "completed":
+            if not isinstance(commit_hash, str) or not re.fullmatch(r"[0-9a-f]{7,64}", commit_hash):
+                raise HandoffError("completed handoff has an invalid commit hash")
+        elif commit_hash is not None:
+            raise HandoffError("open handoff cannot have a commit hash")
+        if status in {"in_progress", "completed"} and not isinstance(lifecycle.get("claimed_by"), str):
+            raise HandoffError("claimed handoff has an invalid developer identifier")
         return {
             "acceptance": list(handoff["acceptance"]),
             "constraints": list(handoff["constraints"]),
@@ -373,7 +512,9 @@ class HandoffStore:
             "goal": handoff["goal"],
             "project_id": project_id,
             "scope": list(handoff["scope"]),
-            "status": "open" if row["status"] in {"pending", "in_progress"} else row["status"],
+            "handoff_id": row["id"],
+            "lifecycle": dict(lifecycle),
+            "status": status,
             "task_id": row["id"],
         }
 
@@ -391,5 +532,7 @@ def format_handoff(value: dict[str, Any] | None) -> str:
     lines.extend(["", f"Decision: {decision['semantic_key']} ({decision['candidate_id']})", f"Source: {decision['source']} ({decision['source_id']})"])
     if value.get("project_id"):
         lines.append(f"Project: {value['project_id']}")
-    lines.append(f"Task: {value['task_id']}")
+    lines.extend([f"Handoff: {value['handoff_id']}", f"Status: {value['status']}"])
+    if value["status"] == "completed":
+        lines.append(f"Commit: {value['lifecycle']['commit_hash']}")
     return "\n".join(lines) + "\n"

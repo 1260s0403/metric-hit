@@ -90,6 +90,15 @@ def workflow_parser() -> argparse.ArgumentParser:
     handoff_next = subparsers.add_parser("handoff-next")
     handoff_next.add_argument("--db", required=True)
     handoff_next.add_argument("--format", choices=("json", "text"), default="json")
+    handoff_claim = subparsers.add_parser("handoff-claim")
+    handoff_claim.add_argument("--db", required=True)
+    handoff_claim.add_argument("--id", required=True)
+    handoff_claim.add_argument("--developer", required=True)
+    handoff_complete = subparsers.add_parser("handoff-complete")
+    handoff_complete.add_argument("--db", required=True)
+    handoff_complete.add_argument("--id", required=True)
+    handoff_complete.add_argument("--commit", required=True)
+    handoff_complete.add_argument("--developer", required=True)
     for name in ("knowledge-add", "knowledge-list", "knowledge-search", "knowledge-to-task"):
         command = subparsers.add_parser(name)
         command.add_argument("--db", required=True)
@@ -154,6 +163,12 @@ def run_workflow_command(arguments_list: list[str]) -> int:
             print(format_handoff(handoff), end="")
         else:
             print_json({"handoff": handoff})
+        return 0
+    if arguments.command == "handoff-claim":
+        print_json(HandoffStore(database_path).claim(arguments.id, arguments.developer))
+        return 0
+    if arguments.command == "handoff-complete":
+        print_json(HandoffStore(database_path).complete(arguments.id, arguments.commit, arguments.developer))
         return 0
     if arguments.command.startswith("knowledge-"):
         store = KnowledgeStore(database_path)

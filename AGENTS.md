@@ -10,7 +10,7 @@
 6. Штатным read-only путём извлечь только относящиеся к задаче записи памяти.
 7. Только затем планировать изменения.
 
-Для developer-потока после startup protocol получать актуальную engineering task командой `.venv\Scripts\python.exe -m metrichit_os handoff-next --db data\database\metrichit.db --format text`. Выполнять полученный handoff либо прямую задачу владельца; постоянный архитектурный контекст брать из этого protocol, не копировать его в task.
+Strategy-поток создаёт approved handoff только явной командой `handoff-create` и на этом останавливается: он не вызывает `handoff-next` и не выполняет engineering. Developer-поток только после явной команды владельца читает `handoff-next`, затем берёт указанный ready handoff через `handoff-claim --id <ID> --developer <developer-id>` и завершает его через `handoff-complete --id <ID> --commit <hash> --developer <developer-id>`. Одновременно допускается только один `in_progress` developer handoff; постоянный архитектурный контекст брать из startup protocol, не копировать его в task.
 
 Утверждённая память выше предположений модели. Расхождения кода, памяти и документов нужно выяснять, а не угадывать. Semantic-дубли запрещены; записи в память выполняются только штатным идемпотентным workflow.
 

@@ -41,6 +41,8 @@ def test_approved_decision_creates_linked_existing_task_and_is_idempotent(tmp_pa
     first = store.create_approved(payload())
     second = store.create_approved(payload())
     assert second == first == store.next()
+    assert first["handoff_id"] == first["task_id"]
+    assert first["status"] == "ready"
     assert first["decision"]["semantic_key"] == "architecture.unified_inbox_mvp"
     assert first["goal"] == "Реализовать единый входящий поток"
 
@@ -52,6 +54,7 @@ def test_approved_decision_creates_linked_existing_task_and_is_idempotent(tmp_pa
         assert task["type"] == "standalone_task"
         assert task["source_id"] == first["decision"]["source_id"]
         assert json.loads(task["data_json"])["handoff"]["decision_candidate_id"] == candidate["id"]
+        assert json.loads(task["data_json"])["handoff"]["lifecycle"] == {"status": "ready"}
         assert connection.execute("SELECT count(*) FROM memory_candidates WHERE semantic_key=?", (candidate["semantic_key"],)).fetchone()[0] == 1
         assert connection.execute("SELECT count(*) FROM tasks WHERE id=?", (task["id"],)).fetchone()[0] == 1
 
@@ -92,7 +95,10 @@ def test_next_returns_only_active_handoffs_and_does_not_break_user_tasks(tmp_pat
     handoff = HandoffStore(database).create_approved(payload())
     assert HandoffStore(database).next()["task_id"] == handoff["task_id"]
     assert {item["id"] for item in knowledge.list_tasks()} == {user_task["id"], handoff["task_id"]}
-    knowledge.set_task_status(task_id=handoff["task_id"], status="completed")
+    claimed = HandoffStore(database).claim(handoff["handoff_id"], "developer-a")
+    assert claimed["status"] == "in_progress"
+    completed = HandoffStore(database).complete(handoff["handoff_id"], "a" * 40, "developer-a")
+    assert completed["status"] == "completed"
     assert HandoffStore(database).next() is None
     assert knowledge.list_tasks(status="open")[0]["id"] == user_task["id"]
 
@@ -170,6 +176,40 @@ def test_cli_create_and_next_return_stable_json_and_text(tmp_path):
     assert text == format_handoff(first)
     assert "# Codex engineering handoff" in text
     assert "Decision: architecture.unified_inbox_mvp" in text
+    claimed = subprocess.run(
+        [sys.executable, "-m", "metrichit_os", "handoff-claim", "--db", str(database), "--id", first["handoff_id"], "--developer", "developer-a"],
+        capture_output=True, text=True, encoding="utf-8", check=True,
+    )
+    assert json.loads(claimed.stdout)["status"] == "in_progress"
+    completed = subprocess.run(
+        [sys.executable, "-m", "metrichit_os", "handoff-complete", "--db", str(database), "--id", first["handoff_id"], "--commit", "b" * 40, "--developer", "developer-a"],
+        capture_output=True, text=True, encoding="utf-8", check=True,
+    )
+    assert json.loads(completed.stdout)["lifecycle"]["commit_hash"] == "b" * 40
+
+
+def test_lifecycle_is_idempotent_and_allows_only_one_active_developer_handoff(tmp_path):
+    database = temporary_database(tmp_path)
+    store = HandoffStore(database)
+    first = store.create_approved(payload())
+    second = store.create_approved(payload(
+        idempotency_key="handoff-second-v1",
+        semantic_key="architecture.second_handoff_mvp",
+        goal="Р РµР°Р»РёР·РѕРІР°С‚СЊ РІС‚РѕСЂРѕР№ РїРѕС‚РѕРє",
+    ))
+    claimed = store.claim(first["handoff_id"], "developer-a")
+    assert store.claim(first["handoff_id"], "developer-a") == claimed
+    with pytest.raises(HandoffError, match="another developer"):
+        store.claim(first["handoff_id"], "developer-b")
+    with pytest.raises(HandoffError, match="already in progress"):
+        store.claim(second["handoff_id"], "developer-b")
+    with pytest.raises(HandoffError, match="claimed before completion"):
+        store.complete(second["handoff_id"], "c" * 40, "developer-b")
+    completed = store.complete(first["handoff_id"], "c" * 40, "developer-a")
+    assert store.complete(first["handoff_id"], "c" * 40, "developer-a") == completed
+    with pytest.raises(HandoffError, match="different commit hash"):
+        store.complete(first["handoff_id"], "d" * 40, "developer-a")
+    assert store.next()["handoff_id"] == second["handoff_id"]
 
 
 def test_focused_workflow_never_writes_working_database(tmp_path):
