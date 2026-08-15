@@ -11,6 +11,7 @@
 - активность и audit;
 - backup/restore infrastructure;
 - проекты.
+- минимальный strategy → developer handoff через approved decision delta и существующий task-контур.
 
 ## Следующие этапы
 

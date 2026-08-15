@@ -8,9 +8,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabase = join(root, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/decision-governance-policy-2026-08-15.md';
 const semanticKey = 'architecture.decision_governance_policy';
-const reviewedAt = '2026-08-15T16:15:00.000Z';
+const reviewedAt = '2026-08-15T17:00:00.000Z';
 const owner = 'owner';
-const revision = 2;
+const revision = 3;
 
 function uuid(key) {
   const hex = createHash('sha256').update(`metrichit-decision-governance:${key}`).digest('hex');
@@ -30,7 +30,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   if (decision.includes('\uFFFD')) throw new Error('Decision contains U+FFFD');
 
   const title = 'Политика контура решений MetricHit OS';
-  const content = 'Контур решений относится к центральному ядру, а не к отделу или автономному агенту. Явно утверждённые владельцем решения могут сохраняться как approved; предложения, выводы и непринятые варианты остаются pending candidates, а потенциальные решения никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Решения могут связываться с проектом, задачей, источником и при необходимости Git-коммитом. В current context включаются только значимые approved-решения; технические мелкие правки решениями не считаются. Контур охватывает архитектуру, продукт, приоритеты, правила, бюджеты, сроки, права, ограничения и направления проектов. Целевая схема: выполняющая модель должна формировать короткий decision delta, который обычный код валидирует и сохраняет; отдельный LLM-вызов или агент для каждой задачи не нужен, целевая дополнительная нагрузка — не более нескольких процентов. Decision-delta workflow и UI пока не реализованы; будущий UI входит в управление кандидатами памяти и должен стать основой «Центра решений владельца».';
+  const content = 'Контур решений относится к центральному ядру, а не к отделу или автономному агенту. Явно утверждённые владельцем решения могут сохраняться как approved; предложения, выводы и непринятые варианты остаются pending candidates, а потенциальные решения никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Решения могут связываться с проектом, задачей, источником и при необходимости Git-коммитом. В current context включаются только значимые approved-решения; технические мелкие правки решениями не считаются. Контур охватывает архитектуру, продукт, приоритеты, правила, бюджеты, сроки, права, ограничения и направления проектов. Реализован минимальный repo-side strategy → developer handoff: стратегический поток передаёт явно утверждённый короткий decision delta, обычный Python-код валидирует его и атомарно сохраняет approved candidate вместе со связанной standalone engineering task в существующем task-контуре; developer-поток получает следующую задачу read-only CLI-командой. Отдельный LLM-вызов, агент, UI, daemon и scheduler не используются. Будущий UI входит в управление кандидатами памяти и должен стать основой «Центра решений владельца».';
   const policyData = JSON.stringify({
     belongs_to: 'central_core',
     is_department: false,
@@ -43,9 +43,10 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     current_context: 'significant_approved_only',
     excludes: ['minor_technical_changes'],
     scopes: ['architecture', 'product', 'priorities', 'rules', 'budgets', 'deadlines', 'rights', 'constraints', 'project_directions'],
-    execution: { separate_llm_call_required: false, separate_agent_required: false, output: 'short_decision_delta', persistence: 'validated_by_regular_code', target_overhead: 'few_percent_or_less' },
+    execution: { separate_llm_call_required: false, separate_agent_required: false, output: 'short_decision_delta', persistence: 'validated_by_regular_code', target_overhead: 'few_percent_or_less', implementation: 'repo_side_cli' },
+    handoff: { create_command: 'handoff-create', next_command: 'handoff-next', task_type: 'standalone_task', atomic_decision_task_link: true, read_only_next: true },
     future_ui: ['memory_candidate_management', 'owner_decision_center'],
-    functionality_implemented: false,
+    functionality_implemented: 'minimal_cli_handoff_only',
     revision,
     supersedes_semantic_revision: revision - 1,
     evidence: { path: decisionPath },
@@ -63,13 +64,16 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   const documentId = uuid(`document:${decisionPath}:${revision}`);
   const versionId = uuid(`version:${decisionPath}:${revision}`);
   const candidateId = uuid(`candidate:${semanticKey}:${revision}`);
-  const priorCandidateId = uuid(`candidate:${semanticKey}`);
+  const approvedLineage = new Set([
+    uuid(`candidate:${semanticKey}`),
+    ...Array.from({ length: revision - 2 }, (_, index) => uuid(`candidate:${semanticKey}:${index + 2}`)),
+  ]);
   const db = new DatabaseSync(databasePath);
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
   db.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
   try {
     const activeSameKey = db.prepare(`SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?`).all(semanticKey, candidateId);
-    const competing = activeSameKey.filter((row) => !(row.id === priorCandidateId && row.status === 'approved'));
+    const competing = activeSameKey.filter((row) => !(approvedLineage.has(row.id) && row.status === 'approved'));
     if (competing.length) throw new Error(`Semantic duplicate or evolution requires an explicit superseding revision for ${semanticKey}`);
     const conflict = db.prepare(`SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))`).get(candidateId, semanticKey);
     if (conflict) throw new Error(`Open memory conflict blocks ${semanticKey}`);

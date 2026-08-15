@@ -28,6 +28,7 @@ from .editorial_store import WorkflowError, initialize_workflow_database
 from .editorial_mvp import run_editorial_mvp
 from .editorial_workflow import EditorialWorkflowService
 from .knowledge_store import KnowledgeError, KnowledgeStore
+from .handoff import HandoffError, HandoffStore, format_handoff
 from .operator_panel import run_operator_panel
 from .services import current_context, editorial_status, memory_summary
 from .text_providers import ProviderError
@@ -81,6 +82,14 @@ def workflow_parser() -> argparse.ArgumentParser:
     panel = subparsers.add_parser("operator-panel")
     panel.add_argument("--db", required=True)
     panel.add_argument("--port", type=int, required=True)
+    handoff_create = subparsers.add_parser("handoff-create")
+    handoff_create.add_argument("--db", required=True)
+    handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
+    handoff_input.add_argument("--data", help="UTF-8 JSON object")
+    handoff_input.add_argument("--stdin", action="store_true")
+    handoff_next = subparsers.add_parser("handoff-next")
+    handoff_next.add_argument("--db", required=True)
+    handoff_next.add_argument("--format", choices=("json", "text"), default="json")
     for name in ("knowledge-add", "knowledge-list", "knowledge-search", "knowledge-to-task"):
         command = subparsers.add_parser(name)
         command.add_argument("--db", required=True)
@@ -134,6 +143,18 @@ def run_workflow_command(arguments_list: list[str]) -> int:
     if arguments.command == "operator-panel":
         run_operator_panel(database_path, port=arguments.port)
         return 0
+    if arguments.command == "handoff-create":
+        raw = sys.stdin.read() if arguments.stdin else arguments.data
+        payload = json.loads(raw)
+        print_json(HandoffStore(database_path).create_approved(payload))
+        return 0
+    if arguments.command == "handoff-next":
+        handoff = HandoffStore(database_path).next()
+        if arguments.format == "text":
+            print(format_handoff(handoff), end="")
+        else:
+            print_json({"handoff": handoff})
+        return 0
     if arguments.command.startswith("knowledge-"):
         store = KnowledgeStore(database_path)
         if arguments.command == "knowledge-add":
@@ -184,7 +205,7 @@ def main() -> int:
         return 0
     try:
         return run_workflow_command(sys.argv[1:])
-    except (KnowledgeError, WorkflowError, ProviderError, ValidationError, ValueError, sqlite3.Error) as error:
+    except (HandoffError, KnowledgeError, WorkflowError, ProviderError, ValidationError, ValueError, sqlite3.Error) as error:
         print_json({"error": type(error).__name__, "message": str(error)})
         return 2
 

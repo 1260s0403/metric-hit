@@ -29,6 +29,11 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.deepEqual(data.pre_save_checks, ['semantic_duplicate', 'evolution', 'conflicts']);
       assert.equal(data.execution.separate_llm_call_required, false);
       assert.equal(data.execution.target_overhead, 'few_percent_or_less');
+      assert.equal(data.execution.implementation, 'repo_side_cli');
+      assert.equal(data.handoff.create_command, 'handoff-create');
+      assert.equal(data.handoff.next_command, 'handoff-next');
+      assert.equal(data.handoff.atomic_decision_task_link, true);
+      assert.equal(data.revision, 3);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
