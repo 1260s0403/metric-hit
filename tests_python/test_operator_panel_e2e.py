@@ -107,13 +107,17 @@ def _open_tasks(page: Page, task_id: str) -> None:
 
 def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
     page.goto(panel)
-    for view in ("overview", "artem", "idea", "tasks", "memory"):
+    for view in ("overview", "search", "artem", "idea", "tasks", "memory"):
         page.get_by_test_id(f"tab-{view}").click()
         expect(page.get_by_test_id(f"tab-{view}")).to_have_class("active")
         expect(page.get_by_test_id(f"tab-{view}")).to_have_attribute("aria-current", "page")
         assert page.locator('[data-view].active').count() == 1
         if view == "overview":
             expect(page.get_by_test_id("overview-screen")).to_be_visible()
+            expect(page.get_by_test_id("knowledge-screen")).to_be_hidden()
+            expect(page.get_by_test_id("memory-screen")).to_be_hidden()
+        elif view == "search":
+            expect(page.get_by_test_id("search-screen")).to_be_visible()
             expect(page.get_by_test_id("knowledge-screen")).to_be_hidden()
             expect(page.get_by_test_id("memory-screen")).to_be_hidden()
         elif view in {"artem", "idea"}:
