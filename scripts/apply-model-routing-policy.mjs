@@ -8,7 +8,8 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/model-routing-policy-2026-08-13.md';
 const owner = 'owner';
-const reviewedAt = '2026-08-15T00:00:00.000Z';
+const reviewedAt = '2026-08-15T18:00:00.000Z';
+const revision = 3;
 
 function stableUuid(key) {
   const hex = createHash('sha256').update(`metrichit-model-routing:${key}`).digest('hex');
@@ -34,12 +35,12 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
     authority: 'direct_owner_confirmation',
     decision_date: '2026-08-15',
   });
-  const sourceId = stableUuid(`source:${decisionPath}:2`);
-  const documentId = stableUuid(`document:${decisionPath}:2`);
-  const versionId = stableUuid(`document-version:${decisionPath}:2`);
-  const candidateId = stableUuid('candidate:ai.model_routing_policy:2');
+  const sourceId = stableUuid(`source:${decisionPath}:${revision}`);
+  const documentId = stableUuid(`document:${decisionPath}:${revision}`);
+  const versionId = stableUuid(`document-version:${decisionPath}:${revision}`);
+  const candidateId = stableUuid(`candidate:ai.model_routing_policy:${revision}`);
   const title = 'Политика выбора модели Codex';
-  const candidateContent = 'По умолчанию: GPT-5.6 Terra, reasoning Medium. GPT-5.3-Codex-Spark — только для небольших изолированных UI-правок, CSS, текстов интерфейса, узких исправлений и коротких тестовых циклов; не для архитектуры, SQLite-схем, бизнес-логики, авторизации, security, backup/restore, миграций и больших сквозных модулей. Для сложной архитектуры, security и особо ответственных задач предлагать GPT-5.6 Sol; для массовой однотипной обработки — GPT-5.6 Luna. Переключение возможно только после уведомления и явного подтверждения владельца; после специальной задачи предлагать вернуться на Terra Medium.';
+  const candidateContent = 'Перед каждой новой задачей модель классифицируется заново. По умолчанию используется GPT-5.6 Terra, reasoning Medium. GPT-5.3-Codex-Spark — только для небольших изолированных UI-правок, CSS, текстов интерфейса, узких исправлений и коротких тестовых циклов; не для архитектуры, SQLite-схем, бизнес-логики, авторизации, security, backup/restore, миграций и больших сквозных модулей. Для сложной архитектуры, security и особо ответственных задач предлагать GPT-5.6 Sol; для массовой однотипной обработки — GPT-5.6 Luna. Sol и Luna используются только после подтверждения владельца; разрешение действует только для конкретной задачи либо явно непрерывного этапа и не переносится автоматически на следующую задачу. Если текущая модель избыточна для новой задачи, Codex до начала работы предлагает вернуться на Terra Medium. Модель самостоятельно не переключается.';
   const candidateData = JSON.stringify({
     default_model: 'GPT-5.6 Terra',
     default_reasoning: 'Medium',
@@ -48,8 +49,13 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
     sol_for: ['complex_architecture', 'security_critical', 'high_responsibility'],
     luna_for: ['bulk_classification', 'bulk_extraction', 'large_homogeneous_processing', 'background_operations'],
     owner_confirmation_required: true,
+    reclassify_before_each_new_task: true,
+    special_model_approval_scope: 'task_or_explicit_continuous_stage_only',
+    special_model_approval_carries_to_next_task: false,
+    recommend_terra_when_current_model_is_excessive: true,
     return_recommendation: 'GPT-5.6 Terra / Medium',
-    supersedes: 'ai.model_routing_policy revision 1',
+    revision,
+    supersedes: 'ai.model_routing_policy revision 2',
     evidence: { path: decisionPath },
   });
 
@@ -57,6 +63,13 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
   database.exec('PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;');
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
   try {
+    const approvedLineage = new Set([
+      stableUuid('candidate:ai.model_routing_policy:2'),
+      stableUuid('candidate:ai.model_routing_policy'),
+    ]);
+    const competing = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key='ai.model_routing_policy' AND status IN ('pending','approved') AND id<>?").all(candidateId)
+      .filter((row) => !(row.status === 'approved' && approvedLineage.has(row.id)));
+    if (competing.length) throw new Error('Semantic duplicate or evolution requires an explicit superseding revision for ai.model_routing_policy');
     created.sources += Number(database.prepare(`
       INSERT OR IGNORE INTO sources
         (id, type, title, content, data_json, status, author, valid_at, access_level)
