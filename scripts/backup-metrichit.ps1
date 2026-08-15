@@ -137,7 +137,8 @@ try {
         $globalSourceBeforeArchive = Get-RequiredSourceInventory
         Assert-BackupInventoriesEqual -Expected $globalSourceBefore -Actual $globalSourceBeforeArchive -Label 'Global backup source before archive creation'
 
-        Compress-Archive -LiteralPath $snapshotRoot -DestinationPath $archivePath -CompressionLevel Optimal -ErrorAction Stop
+        $archiveAttempts = Invoke-BackupArchiveWithRetry -SourcePath $snapshotRoot -ArchivePath $archivePath
+        Write-Output "Workspace ZIP created after $archiveAttempts attempt(s)."
 
         $globalSourceAfterArchive = Get-RequiredSourceInventory
         Assert-BackupInventoriesEqual -Expected $globalSourceBefore -Actual $globalSourceAfterArchive -Label 'Global backup source after archive creation'

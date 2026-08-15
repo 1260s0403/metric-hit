@@ -66,6 +66,79 @@ function Copy-BackupTree {
     }
 }
 
+function Test-BackupTransientFileLock {
+    param([Parameter(Mandatory = $true)]$ErrorRecord)
+
+    $current = $ErrorRecord.Exception
+    while ($null -ne $current) {
+        $win32Code = ([int64]$current.HResult -band 0xFFFF)
+        if ($current -is [UnauthorizedAccessException] -or $win32Code -in 5, 32, 33) { return $true }
+        if ($current.Message -match '(?i)(access (is )?denied|being used by another process|sharing violation|lock violation)') { return $true }
+        $current = $current.InnerException
+    }
+    return $false
+}
+
+function Remove-BackupIncompleteArchive {
+    param(
+        [Parameter(Mandatory = $true)][string]$ArchivePath,
+        [int]$MaxAttempts = 3,
+        [int]$InitialDelayMilliseconds = 250,
+        [scriptblock]$RemoveAction = { param($archive) Remove-Item -LiteralPath $archive -Force -ErrorAction Stop }
+    )
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        if (-not (Test-Path -LiteralPath $ArchivePath)) { return }
+        try {
+            & $RemoveAction $ArchivePath
+            if (-not (Test-Path -LiteralPath $ArchivePath)) { return }
+            throw "Incomplete ZIP remains after removal: $ArchivePath"
+        } catch {
+            if (-not (Test-BackupTransientFileLock -ErrorRecord $_) -or $attempt -eq $MaxAttempts) {
+                throw "Unable to remove incomplete ZIP after $attempt attempt(s): $ArchivePath. $($_.Exception.Message)"
+            }
+            Start-Sleep -Milliseconds ($InitialDelayMilliseconds * $attempt)
+        }
+    }
+}
+
+function Invoke-BackupArchiveWithRetry {
+    param(
+        [Parameter(Mandatory = $true)][string]$SourcePath,
+        [Parameter(Mandatory = $true)][string]$ArchivePath,
+        [int]$MaxAttempts = 3,
+        [int]$InitialDelayMilliseconds = 250,
+        [scriptblock]$ArchiveAction = { param($source, $archive) Compress-Archive -LiteralPath $source -DestinationPath $archive -CompressionLevel Optimal -ErrorAction Stop },
+        [scriptblock]$ArchiveRemoveAction = { param($archive) Remove-Item -LiteralPath $archive -Force -ErrorAction Stop }
+    )
+
+    if ($MaxAttempts -lt 1) { throw 'MaxAttempts must be at least 1.' }
+    if ($InitialDelayMilliseconds -lt 0) { throw 'InitialDelayMilliseconds must not be negative.' }
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        try {
+            & $ArchiveAction $SourcePath $ArchivePath
+            if (-not (Test-Path -LiteralPath $ArchivePath -PathType Leaf)) {
+                throw "Archive action did not produce ZIP: $ArchivePath"
+            }
+            return $attempt
+        } catch {
+            $archiveError = $_
+            $isTransient = Test-BackupTransientFileLock -ErrorRecord $_
+            try {
+                Remove-BackupIncompleteArchive -ArchivePath $ArchivePath -MaxAttempts $MaxAttempts -InitialDelayMilliseconds $InitialDelayMilliseconds -RemoveAction $ArchiveRemoveAction
+            } catch {
+                throw "Workspace archive attempt $attempt failed: $($archiveError.Exception.Message) Cleanup failed: $($_.Exception.Message)"
+            }
+            if (-not $isTransient) { throw $archiveError }
+            if ($attempt -eq $MaxAttempts) {
+                throw "Workspace archive failed after $MaxAttempts attempts due to transient file lock: $($_.Exception.Message)"
+            }
+            Start-Sleep -Milliseconds ($InitialDelayMilliseconds * $attempt)
+        }
+    }
+}
+
 function Get-BackupFileInventory {
     param(
         [Parameter(Mandatory = $true)][string]$Root,
