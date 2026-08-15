@@ -62,12 +62,12 @@ def test_refuses_external_host(tmp_path):
         run_operator_panel(temporary_database(tmp_path), port=8765, host="0.0.0.0")
 
 
-def test_page_title_is_metrichit(tmp_path):
+def test_page_title_stays_metrichit_while_visual_heading_is_yadro(tmp_path):
     client, _, _ = panel(tmp_path)
     page = client.get("/").text
 
     assert "<title>MetricHit</title>" in page
-    assert "<h1>MetricHit</h1>" in page
+    assert "<h1>Ядро</h1>" in page
 
 
 def test_dashboard_is_default_and_keeps_view_separate_from_kind(tmp_path):
