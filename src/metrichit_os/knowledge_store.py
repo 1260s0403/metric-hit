@@ -333,7 +333,7 @@ class KnowledgeStore:
     @staticmethod
     def _task(row: dict[str, object]) -> dict[str, object]:
         metadata = json.loads(str(row["data_json"]))
-        description = row.get("source_text") or row["content"]
+        description = row["content"]
         display_title = row["title"]
         if display_title.casefold() in {"панель", "кейс", "статьи"}:
             display_title = f"{display_title} — {_task_title(description)}"

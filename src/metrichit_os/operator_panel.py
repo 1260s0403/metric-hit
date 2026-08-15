@@ -145,7 +145,7 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
             '<div id="knowledge" data-testid="knowledge-screen">',
             '<div id="knowledge" data-testid="knowledge-screen" class="hidden">',
         )
-    return page.replace("</body>", _e2e_markers() + _stable_test_ids() + _tab_accessibility() + "</body>")
+    return page.replace("</body>", _e2e_markers() + _stable_test_ids() + _tab_accessibility() + _task_ui() + _task_edit_feedback() + _task_edit_controls() + "</body>")
 
 
 def _e2e_markers() -> str:
@@ -155,6 +155,21 @@ def _e2e_markers() -> str:
 
 def _tab_accessibility() -> str:
     return """<script>document.addEventListener('click',event=>{const active=event.target.closest('[data-view]');if(!active)return;for(const tab of document.querySelectorAll('[data-view]')){if(tab===active)tab.setAttribute('aria-current','page');else tab.removeAttribute('aria-current')}})</script>"""
+
+
+def _task_ui() -> str:
+    return """<script>(()=>{const originalLoad=load,originalRender=renderTasks;let taskQuery=new URLSearchParams(location.search);const params=()=>Object.fromEntries(['query','status','priority','due','sort'].map(k=>[k,taskQuery.get(k)||({status:'all',priority:'all',due:'all',sort:'recommended'}[k]||'')]));const updateUrl=()=>history.replaceState(null,'',`/?view=tasks&${new URLSearchParams({...params(),focus_task:focusTask||''}).toString()}`);const label=(text,value,testid)=>{const l=document.createElement('label');l.textContent=text;const s=document.createElement('select');s.dataset.testid=testid;for(const [v,n] of value)s.append(new Option(n,v));l.append(s);return [l,s]};function controls(items){let bar=document.querySelector('#task-controls');if(!bar){bar=document.createElement('div');bar.id='task-controls';bar.className='row';bar.dataset.testid='task-controls';entries.before(bar)}bar.replaceChildren();const q=document.createElement('input');q.placeholder='Поиск задач';q.value=params().query;q.dataset.testid='task-search';const [sl,st]=label('Статус',[['all','Все'],['open','Открытые'],['completed','Выполненные'],['cancelled','Отменённые']],'task-status-filter');const [pl,pr]=label('Приоритет',[['all','Все'],['high','Высокий'],['normal','Обычный'],['low','Низкий']],'task-priority-filter');const [dl,du]=label('Срок',[['all','Все'],['overdue','Просроченные'],['today','Сегодня'],['week','7 дней'],['none','Без срока']],'task-due-filter');const [ol,so]=label('Сортировка',[['recommended','Рекомендуемая'],['due','По сроку'],['priority','По приоритету'],['newest','Новые'],['oldest','Старые']],'task-sort');for(const s of [st,pr,du,so])s.value=params()[s===st?'status':s===pr?'priority':s===du?'due':'sort'];const reset=document.createElement('button');reset.textContent='Сбросить';reset.dataset.testid='task-reset';const count=document.createElement('span');count.dataset.testid='task-count';count.textContent=`Найдено: ${items.length}`;bar.append(q,sl,pl,dl,ol,reset,count);const change=()=>{taskQuery.set('query',q.value);taskQuery.set('status',st.value);taskQuery.set('priority',pr.value);taskQuery.set('due',du.value);taskQuery.set('sort',so.value);updateUrl();load()};q.oninput=change;[st,pr,du,so].forEach(x=>x.onchange=change);reset.onclick=()=>{taskQuery=new URLSearchParams();updateUrl();load()}}
+async function today(){let box=document.querySelector('#today-tasks');if(!box){box=document.createElement('section');box.id='today-tasks';box.dataset.testid='today-tasks';entries.before(box)}const items=await api('/api/tasks/today');box.replaceChildren();const h=document.createElement('h2');h.textContent='Сегодня';box.append(h);if(!items.length){const empty=document.createElement('p');empty.textContent='На сегодня срочных задач нет.';box.append(empty);return}for(const item of items){const line=document.createElement('div');line.className='actions';line.textContent=`${item.title} · ${item.priority}${item.due_date?' · '+item.due_date:''}`;const open=document.createElement('a');open.dataset.testid=`today-open-${item.id}`;open.href=`/?view=tasks&focus_task=${item.id}#task-${item.id}`;open.textContent='Открыть';line.append(open);box.append(line)}}
+renderTasks=items=>{originalRender(items);if(view!=='tasks')return;controls(items);today();for(const item of items){const card=document.getElementById(`task-${item.id}`);if(!card)continue;const meta=card.querySelector('.meta');meta.textContent=`${item.status} · ${item.created_at} · ${item.priority}${item.due_date?' · '+item.due_date:''}`;if(item.due_date){const due=document.createElement('span');due.className=item.due_date<new Date().toISOString().slice(0,10)?'due-overdue':item.due_date===new Date().toISOString().slice(0,10)?'due-today':'';due.textContent=item.due_date;meta.append(' ',due)}const details=card.querySelector('[data-testid^="task-details-"]');const edit=document.createElement('button');edit.textContent='Редактировать';edit.dataset.testid=`task-edit-${item.id}`;edit.onclick=()=>{const form=document.createElement('form');form.dataset.testid=`task-edit-form-${item.id}`;form.innerHTML=`<input data-testid="task-edit-title-${item.id}" value=""><textarea data-testid="task-edit-description-${item.id}"></textarea><select data-testid="task-edit-priority-${item.id}"><option value="high">high</option><option value="normal">normal</option><option value="low">low</option></select><input type="date" data-testid="task-edit-due-date-${item.id}"><button data-testid="task-edit-save-${item.id}">Сохранить</button><button type="button" data-testid="task-edit-cancel-${item.id}">Отмена</button><span data-testid="task-edit-feedback-${item.id}"></span>`;form.querySelector(`[data-testid="task-edit-title-${item.id}"]`).value=item.title;form.querySelector(`[data-testid="task-edit-description-${item.id}"]`).value=item.description;form.querySelector(`[data-testid="task-edit-priority-${item.id}"]`).value=item.priority;form.querySelector(`[data-testid="task-edit-due-date-${item.id}"]`).value=item.due_date||'';form.onsubmit=async e=>{e.preventDefault();const feedback=form.querySelector('span');try{await api(`/api/tasks/${item.id}/edit`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:form.querySelector('input').value,description:form.querySelector('textarea').value,priority:form.querySelector('select').value,due_date:form.querySelector('input[type=date]').value||null})});feedback.textContent='Изменения сохранены';card.classList.add('task-focused');load()}catch(err){feedback.className='error';feedback.textContent=err.message}};form.querySelector(`[data-testid="task-edit-cancel-${item.id}"]`).onclick=()=>form.remove();details.append(form)};details.append(edit)}};
+load=async()=>{if(view!=='tasks')return originalLoad();try{const p=new URLSearchParams(params());renderTasks(await api(`/api/tasks?${p}`))}catch(e){show(e.message,true)}};if(view==='tasks')load()})()</script>"""
+
+
+def _task_edit_feedback() -> str:
+    return """<script>(()=>{new MutationObserver(()=>{for(const form of document.querySelectorAll('[data-testid^="task-edit-form-"]')){if(form.dataset.enhanced)continue;form.dataset.enhanced='1';const id=form.dataset.testid.slice('task-edit-form-'.length);form.onsubmit=async event=>{event.preventDefault();const feedback=form.querySelector(`[data-testid="task-edit-feedback-${id}"]`);try{await api(`/api/tasks/${id}/edit`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title:form.querySelector('input').value,description:form.querySelector('textarea').value,priority:form.querySelector('select').value,due_date:form.querySelector('input[type=date]').value||null})});feedback.className='result';feedback.textContent='Изменения сохранены';form.closest('.entry').classList.add('task-focused')}catch(error){feedback.className='error';feedback.textContent=error.message}}}}).observe(document.body,{childList:true,subtree:true})})()</script>"""
+
+
+def _task_edit_controls() -> str:
+    return """<script>(()=>{const add=async()=>{const items=await api('/api/tasks');for(const card of document.querySelectorAll('article[id^="task-"]')){const id=card.id.slice(5),details=card.querySelector('.hidden');if(!details||details.querySelector(`[data-testid="task-edit-${id}"]`))continue;const item=items.find(x=>x.id===id);if(!item)continue;const button=document.createElement('button');button.textContent='Редактировать';button.dataset.testid=`task-edit-${id}`;button.onclick=()=>{const form=document.createElement('form');form.dataset.testid=`task-edit-form-${id}`;form.innerHTML=`<input data-testid="task-edit-title-${id}"><textarea data-testid="task-edit-description-${id}"></textarea><select data-testid="task-edit-priority-${id}"><option>high</option><option>normal</option><option>low</option></select><input type="date" data-testid="task-edit-due-date-${id}"><button data-testid="task-edit-save-${id}">Сохранить</button><button type="button" data-testid="task-edit-cancel-${id}">Отмена</button><span data-testid="task-edit-feedback-${id}"></span>`;form.querySelector('input').value=item.title;form.querySelector('textarea').value=item.description;form.querySelector('select').value=item.priority;form.querySelector('input[type=date]').value=item.due_date||'';form.querySelector(`[data-testid="task-edit-cancel-${id}"]`).onclick=()=>form.remove();details.append(form)};details.append(button)}};new MutationObserver(()=>add().catch(()=>{})).observe(entries,{childList:true,subtree:true});add().catch(()=>{})})()</script>"""
 
 
 def _stable_test_ids() -> str:
@@ -235,8 +250,28 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error(str(error), 400)
 
     @app.get("/api/tasks")
-    def tasks() -> JSONResponse:
-        return JSONResponse(store.list_tasks())
+    def tasks(query: str = "", status: str = "all", priority: str = "all", due: str = "all", sort: str = "recommended") -> JSONResponse:
+        try:
+            return JSONResponse(store.list_tasks(query=query, status=status, priority=priority, due=due, sort=sort))
+        except KnowledgeError as error:
+            return _error(str(error), 400)
+
+    @app.get("/api/tasks/today")
+    def today_tasks() -> JSONResponse:
+        return JSONResponse(store.today_tasks())
+
+    @app.post("/api/tasks/{task_id}/edit")
+    async def edit_task(task_id: str, request: Request) -> JSONResponse:
+        if request.headers.get(TOKEN_HEADER) != token:
+            return _error("missing or invalid startup token", 403)
+        try:
+            payload = await request.json()
+            return JSONResponse(store.edit_task(
+                task_id=task_id, title=_text(payload, "title"), description=_text(payload, "description"),
+                priority=_text(payload, "priority"), due_date=_optional_text(payload, "due_date"),
+            ))
+        except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error:
+            return _error(str(error), 400)
 
     @app.post("/api/tasks/{task_id}/status")
     async def change_task_status(task_id: str, request: Request) -> JSONResponse:
