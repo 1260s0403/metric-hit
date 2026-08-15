@@ -16,9 +16,13 @@ function section(database, heading, types) {
     )`
     : '';
   const rows = database.prepare(`
-    SELECT title, content FROM memory_candidates
-    WHERE status = 'approved' AND type IN (${types.map(() => '?').join(', ')})
-    ${excludedEditorialRules}
+    SELECT title, content FROM (
+      SELECT title, content, semantic_key,
+             ROW_NUMBER() OVER (PARTITION BY semantic_key ORDER BY reviewed_at DESC, updated_at DESC, id DESC) AS revision_rank
+      FROM memory_candidates
+      WHERE status = 'approved' AND type IN (${types.map(() => '?').join(', ')})
+      ${excludedEditorialRules}
+    ) WHERE revision_rank = 1
     ORDER BY semantic_key
   `).all(...types);
   const body = rows.length

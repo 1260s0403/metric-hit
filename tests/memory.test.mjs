@@ -823,8 +823,11 @@ test('model routing decision is repeatable and creates an approved policy', (t) 
   database.close();
   assert.equal(policy.status, 'approved');
   assert.equal(policy.reviewed_by, 'owner');
-  assert.equal(policy.reviewed_at, '2026-08-13T00:00:00.000Z');
+  assert.equal(policy.reviewed_at, '2026-08-15T00:00:00.000Z');
   assert.equal(JSON.parse(policy.data_json).default_model, 'GPT-5.6 Terra');
+  assert.deepEqual(JSON.parse(policy.data_json).spark_for, [
+    'isolated_ui_fixes', 'css', 'interface_copy', 'narrow_fixes', 'short_test_cycles',
+  ]);
 });
 
 test('product positioning and editorial directness decision is repeatable and supersedes conflicting rules', (t) => {

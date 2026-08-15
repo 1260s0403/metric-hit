@@ -8,7 +8,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/model-routing-policy-2026-08-13.md';
 const owner = 'owner';
-const reviewedAt = '2026-08-13T00:00:00.000Z';
+const reviewedAt = '2026-08-15T00:00:00.000Z';
 
 function stableUuid(key) {
   const hex = createHash('sha256').update(`metrichit-model-routing:${key}`).digest('hex');
@@ -32,21 +32,24 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
     sha256: createHash('sha256').update(bytes).digest('hex'),
     encoding: 'utf-8',
     authority: 'direct_owner_confirmation',
-    decision_date: '2026-08-13',
+    decision_date: '2026-08-15',
   });
-  const sourceId = stableUuid(`source:${decisionPath}`);
-  const documentId = stableUuid(`document:${decisionPath}`);
-  const versionId = stableUuid(`document-version:${decisionPath}:1`);
-  const candidateId = stableUuid('candidate:ai.model_routing_policy');
+  const sourceId = stableUuid(`source:${decisionPath}:2`);
+  const documentId = stableUuid(`document:${decisionPath}:2`);
+  const versionId = stableUuid(`document-version:${decisionPath}:2`);
+  const candidateId = stableUuid('candidate:ai.model_routing_policy:2');
   const title = 'Политика выбора модели Codex';
-  const candidateContent = 'По умолчанию: GPT-5.6 Terra, reasoning Medium. Перед сложными архитектурными, security-критичными и особо ответственными задачами предлагать GPT-5.6 Sol; перед массовой однотипной обработкой и фоновыми операциями — GPT-5.6 Luna. Переключение возможно только после уведомления и явного подтверждения владельца; после специальной задачи предлагать вернуться на Terra Medium.';
+  const candidateContent = 'По умолчанию: GPT-5.6 Terra, reasoning Medium. GPT-5.3-Codex-Spark — только для небольших изолированных UI-правок, CSS, текстов интерфейса, узких исправлений и коротких тестовых циклов; не для архитектуры, SQLite-схем, бизнес-логики, авторизации, security, backup/restore, миграций и больших сквозных модулей. Для сложной архитектуры, security и особо ответственных задач предлагать GPT-5.6 Sol; для массовой однотипной обработки — GPT-5.6 Luna. Переключение возможно только после уведомления и явного подтверждения владельца; после специальной задачи предлагать вернуться на Terra Medium.';
   const candidateData = JSON.stringify({
     default_model: 'GPT-5.6 Terra',
     default_reasoning: 'Medium',
+    spark_for: ['isolated_ui_fixes', 'css', 'interface_copy', 'narrow_fixes', 'short_test_cycles'],
+    spark_excluded_for: ['architecture', 'sqlite_schema', 'business_logic', 'authorization', 'security', 'backup_restore', 'migrations', 'large_end_to_end_modules'],
     sol_for: ['complex_architecture', 'security_critical', 'high_responsibility'],
     luna_for: ['bulk_classification', 'bulk_extraction', 'large_homogeneous_processing', 'background_operations'],
     owner_confirmation_required: true,
     return_recommendation: 'GPT-5.6 Terra / Medium',
+    supersedes: 'ai.model_routing_policy revision 1',
     evidence: { path: decisionPath },
   });
 
@@ -57,22 +60,22 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
     created.sources += Number(database.prepare(`
       INSERT OR IGNORE INTO sources
         (id, type, title, content, data_json, status, author, valid_at, access_level)
-      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-13', 'internal')
+      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-15', 'internal')
     `).run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
     created.documents += Number(database.prepare(`
       INSERT OR IGNORE INTO documents
         (id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
-      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-13', 'internal', 1)
+      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-15', 'internal', 1)
     `).run(documentId, title, content, metadata, sourceId, owner).changes);
     created.versions += Number(database.prepare(`
       INSERT OR IGNORE INTO document_versions
         (id, document_id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
-      VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-13', 'internal', 1)
+      VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-15', 'internal', 2)
     `).run(versionId, documentId, title, content, metadata, sourceId, owner).changes);
     created.candidates += Number(database.prepare(`
       INSERT OR IGNORE INTO memory_candidates
         (id, type, semantic_key, title, content, data_json, status, source_id, author, valid_at, access_level, version)
-      VALUES (?, 'ai_policy', 'ai.model_routing_policy', ?, ?, ?, 'pending', ?, ?, '2026-08-13', 'internal', 1)
+      VALUES (?, 'ai_policy', 'ai.model_routing_policy', ?, ?, ?, 'pending', ?, ?, '2026-08-15', 'internal', 1)
     `).run(candidateId, title, candidateContent, candidateData, sourceId, owner).changes);
 
     const candidate = database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(candidateId);
@@ -82,7 +85,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
         SET status = 'approved', reviewed_by = ?, reviewed_at = ?,
             review_note = ?, updated_at = ?, version = version + 1
         WHERE id = ?
-      `).run(owner, reviewedAt, 'Одобрено на основании прямого решения владельца MetricHit от 13.08.2026.', reviewedAt, candidateId);
+      `).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 15.08.2026; заменяет редакцию маршрутизации моделей от 13.08.2026.', reviewedAt, candidateId);
     }
     assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(candidateId), {
       type: 'ai_policy', semantic_key: 'ai.model_routing_policy', title,
@@ -111,4 +114,3 @@ if (isMainModule()) {
   console.log(`Applied model routing policy to: ${result.databasePath}`);
   console.log(`Created: ${JSON.stringify(result.created)}`);
 }
-
