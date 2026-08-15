@@ -43,7 +43,12 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.user_workflow_requires_lifecycle_commands, false);
       assert.deepEqual(data.handoff.lifecycle, ['ready', 'in_progress', 'completed']);
       assert.equal(data.handoff.claim_complete_idempotent, true);
-      assert.equal(data.revision, 7);
+      assert.equal(data.handoff.new_engineering_task_requires_new_native_thread, true);
+      assert.equal(data.handoff.strategy_may_replace_existing_or_completed_thread_scope, false);
+      assert.equal(data.handoff.active_engineering_thread_blocks_second_thread, true);
+      assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
+      assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
+      assert.equal(data.revision, 8);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();

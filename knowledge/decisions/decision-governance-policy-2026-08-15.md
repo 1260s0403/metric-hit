@@ -2,7 +2,7 @@
 
 - Дата решения: 15.08.2026.
 - Источник: прямое утверждение владельца MetricHit.
-- Статус: архитектурное решение; 15.08.2026 дополнено минимальной repo-side записью/audit для native Codex task-thread.
+- Статус: архитектурное решение; 15.08.2026 дополнено минимальной repo-side записью/audit для native Codex task-thread, 16.08.2026 — правилами изоляции scope и закрытия thread после результата.
 
 ## Место в архитектуре
 
@@ -22,7 +22,7 @@
 
 ## Исполнение и будущий интерфейс
 
-Канонический workflow engineering: `Strategy → native Codex task-thread → commit/result`. Strategy — постоянный поток: он передаёт явно утверждённый короткий `decision/task context`, фиксирует его обычным Python-кодом как approved candidate вместе со связанной engineering task и запускает для каждой engineering-задачи отдельный native Codex task-thread. Strategy не выполняет engineering; постоянный developer-чат не входит в целевой workflow.
+Канонический workflow engineering: `Strategy → native Codex task-thread → commit/result`. Strategy — постоянный поток: он передаёт явно утверждённый короткий `decision/task context`, фиксирует его обычным Python-кодом как approved candidate вместе со связанной engineering task и запускает для каждой engineering-задачи отдельный native Codex task-thread. Каждая новая engineering-задача требует нового native task-thread; Strategy никогда не заменяет scope существующего или завершённого thread. Пока другой engineering thread действительно выполняется, Strategy не запускает второй и не переназначает первый: он ждёт завершения либо запрашивает у владельца явную отмену. После commit/result и чистого `git status` предыдущий thread закрыт для новых задач. Strategy не выполняет engineering; постоянный developer-чат не входит в целевой workflow.
 
 Repo-side handoff — только каноническая запись решения, контекста задачи и известного результата/commit hash для audit. Он не конкурирует с native task-thread как очередь исполнения и не требует `handoff-next`, `handoff-claim` или `handoff-complete` на startup либо в пользовательском процессе. Эти команды и lifecycle `ready` → `in_progress` → `completed` сохраняются как совместимый внутренний механизм; claim и complete остаются идемпотентными. Отдельные UI, daemon, scheduler, OpenAI API и интеграция внутреннего API Codex не реализуются.
 

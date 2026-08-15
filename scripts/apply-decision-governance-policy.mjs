@@ -8,9 +8,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabase = join(root, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/decision-governance-policy-2026-08-15.md';
 const semanticKey = 'architecture.decision_governance_policy';
-const reviewedAt = '2026-08-15T19:00:00.000Z';
+const reviewedAt = '2026-08-16T00:00:00.000Z';
 const owner = 'owner';
-const revision = 7;
+const revision = 8;
 
 function uuid(key) {
   const hex = createHash('sha256').update(`metrichit-decision-governance:${key}`).digest('hex');
@@ -31,6 +31,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
 
   const title = 'Политика контура решений MetricHit OS';
   let content = 'Контур решений относится к центральному ядру, а не к отделу или автономному агенту. Явно утверждённые владельцем решения могут сохраняться как approved; предложения, выводы и непринятые варианты остаются pending candidates, а потенциальные решения никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Решения могут связываться с проектом, задачей, источником и при необходимости Git-коммитом. В current context включаются только значимые approved-решения; технические мелкие правки решениями не считаются. Контур охватывает архитектуру, продукт, приоритеты, правила, бюджеты, сроки, права, ограничения и направления проектов. Канонический workflow engineering: Strategy → native Codex task-thread → commit/result. Strategy — постоянный поток: он фиксирует явно утверждённый короткий decision/task context в repo-side handoff, запускает для каждой engineering-задачи отдельный native Codex task-thread и не меняет код. Постоянный developer-чат не требуется. Repo-side handoff хранит решение, контекст задачи и известный итог/commit hash для audit; он не конкурирует с native task-thread как очередь исполнения. Существующие handoff-next, handoff-claim и handoff-complete и lifecycle ready → in_progress → completed остаются совместимым внутренним механизмом, но не обязательны для startup или пользовательского процесса. UI, daemon, scheduler, OpenAI API и интеграция внутреннего API Codex не реализуются. Будущий UI входит в управление кандидатами памяти и должен стать основой «Центра решений владельца».';
+  content += ' Управление native Codex task-thread строго изолирует задачи: каждая новая engineering-задача создаёт новый native task-thread; Strategy никогда не заменяет scope существующего или завершённого task-thread. Пока другой engineering thread действительно выполняется, Strategy не запускает второй thread и не переназначает первый: он ждёт завершения либо запрашивает у владельца явную отмену. После commit/result и чистого git status предыдущий thread закрыт для новых задач.';
   const policyData = JSON.stringify({
     belongs_to: 'central_core',
     is_department: false,
@@ -44,7 +45,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     excludes: ['minor_technical_changes'],
     scopes: ['architecture', 'product', 'priorities', 'rules', 'budgets', 'deadlines', 'rights', 'constraints', 'project_directions'],
     execution: { separate_llm_call_required: false, separate_agent_required: false, output: 'short_decision_delta', persistence: 'validated_by_regular_code', target_overhead: 'few_percent_or_less', implementation: 'native_codex_task_thread', canonical_path: ['strategy', 'native_codex_task_thread', 'commit_result'] },
-    handoff: { create_command: 'handoff-create', next_command: 'handoff-next', claim_command: 'handoff-claim', complete_command: 'handoff-complete', task_type: 'standalone_task', atomic_decision_task_link: true, native_task_thread: 'execution_mechanism', repo_side_role: 'decision_task_context_and_result_audit', repo_side_is_execution_queue: false, permanent_developer_chat_required: false, user_workflow_requires_lifecycle_commands: false, lifecycle: ['ready', 'in_progress', 'completed'], claim_complete_idempotent: true, completion_links_commit_hash: true },
+    handoff: { create_command: 'handoff-create', next_command: 'handoff-next', claim_command: 'handoff-claim', complete_command: 'handoff-complete', task_type: 'standalone_task', atomic_decision_task_link: true, native_task_thread: 'execution_mechanism', repo_side_role: 'decision_task_context_and_result_audit', repo_side_is_execution_queue: false, permanent_developer_chat_required: false, user_workflow_requires_lifecycle_commands: false, lifecycle: ['ready', 'in_progress', 'completed'], claim_complete_idempotent: true, completion_links_commit_hash: true, new_engineering_task_requires_new_native_thread: true, strategy_may_replace_existing_or_completed_thread_scope: false, active_engineering_thread_blocks_second_thread: true, active_thread_requires_wait_or_owner_explicit_cancellation: true, thread_closed_after_commit_result_and_clean_git_status: true },
     future_ui: ['memory_candidate_management', 'owner_decision_center'],
     functionality_implemented: 'repo_side_record_audit_with_native_task_thread_execution',
     revision,
@@ -57,7 +58,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     sha256: createHash('sha256').update(bytes).digest('hex'),
     encoding: 'utf-8',
     authority: 'direct_owner_confirmation',
-    decision_date: '2026-08-15',
+    decision_date: '2026-08-16',
   });
 
   const sourceId = uuid(`source:${decisionPath}:${revision}`);
@@ -78,10 +79,10 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     const conflict = db.prepare(`SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))`).get(candidateId, semanticKey);
     if (conflict) throw new Error(`Open memory conflict blocks ${semanticKey}`);
 
-    created.sources += Number(db.prepare(`INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-15', 'internal')`).run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
-    created.documents += Number(db.prepare(`INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-15', 'internal', 1)`).run(documentId, title, decision, metadata, sourceId, owner).changes);
-    created.versions += Number(db.prepare(`INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-15', 'internal', 1)`).run(versionId, documentId, title, decision, metadata, sourceId, owner).changes);
-    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-15', 'internal', 1)`).run(candidateId, semanticKey, title, content, policyData, sourceId, owner).changes);
+    created.sources += Number(db.prepare(`INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-16', 'internal')`).run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
+    created.documents += Number(db.prepare(`INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-16', 'internal', 1)`).run(documentId, title, decision, metadata, sourceId, owner).changes);
+    created.versions += Number(db.prepare(`INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-16', 'internal', 1)`).run(versionId, documentId, title, decision, metadata, sourceId, owner).changes);
+    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-16', 'internal', 1)`).run(candidateId, semanticKey, title, content, policyData, sourceId, owner).changes);
 
     const candidate = db.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
     if (candidate.status === 'pending') {
