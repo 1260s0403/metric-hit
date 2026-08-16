@@ -103,13 +103,123 @@ def test_memory_shows_only_approved_records_and_searches(tmp_path):
     assert [item["title"] for item in decisions] == ["Видимое решение"]
 
 
-def test_memory_is_read_only_and_escapes_html(tmp_path):
+def test_memory_escapes_html_and_protects_review_actions(tmp_path):
     client, _, database = panel(tmp_path)
     seed_memory(database, "<img src=x onerror=alert(1)>")
 
     assert "<img src=x onerror=alert(1)>" not in client.get("/").text
     assert "content.textContent=item.content" in client.get("/").text
-    assert not any(route.path.startswith("/api/memory") and "POST" in route.methods for route in client.app.routes)
+    assert any(route.path.startswith("/api/memory") and "POST" in route.methods for route in client.app.routes)
+    assert client.post(
+        "/api/memory/candidates/00000000-0000-0000-0000-000000000001/approve", json={}
+    ).status_code == 403
+
+
+def seed_candidate(database, *, candidate_id="00000000-0000-4000-8000-000000000031", semantic_key="test.candidate", content="Новое значение"):
+    source_id = "00000000-0000-4000-8000-000000000030"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT OR IGNORE INTO sources (id,type,title,content,author) VALUES (?,'owner_input','Решение владельца','Источник','owner')",
+            (source_id,),
+        )
+        connection.execute(
+            """INSERT INTO memory_candidates
+               (id,type,semantic_key,title,content,data_json,source_id,author)
+               VALUES (?,'product_fact',?,'Кандидат',?,'{}',?,'owner')""",
+            (candidate_id, semantic_key, content, source_id),
+        )
+    return candidate_id, source_id
+
+
+def test_candidate_list_detail_approve_optional_comment_and_reject_reason(tmp_path):
+    client, token, database = panel(tmp_path)
+    approved_id, _ = seed_candidate(database)
+    rejected_id, _ = seed_candidate(
+        database, candidate_id="00000000-0000-4000-8000-000000000032", semantic_key="test.rejected"
+    )
+
+    listed = client.get("/api/memory/candidates").json()
+    assert [item["id"] for item in listed] == [approved_id, rejected_id]
+    detail = client.get(f"/api/memory/candidates/{approved_id}").json()
+    assert detail["semantic_key"] == "test.candidate"
+    assert detail["source_title"] == "Решение владельца"
+    approved = client.post(
+        f"/api/memory/candidates/{approved_id}/approve",
+        headers={"X-Operator-Token": token}, json={"comment": ""},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "approved"
+    missing_reason = client.post(
+        f"/api/memory/candidates/{rejected_id}/reject",
+        headers={"X-Operator-Token": token}, json={"reason": "  "},
+    )
+    assert missing_reason.status_code == 400
+    rejected = client.post(
+        f"/api/memory/candidates/{rejected_id}/reject",
+        headers={"X-Operator-Token": token}, json={"reason": "Не соответствует фактам"},
+    )
+    assert rejected.status_code == 200
+    assert rejected.json()["review_note"] == "Не соответствует фактам"
+    assert client.get("/api/memory/candidates").json() == []
+
+    with sqlite3.connect(database) as connection:
+        outcomes = connection.execute(
+            "SELECT entity_id FROM audit_log WHERE type='memory_review' AND entity_type='memory_candidate' ORDER BY rowid"
+        ).fetchall()
+    assert [row[0] for row in outcomes] == [approved_id, rejected_id]
+
+
+def test_conflict_resolution_requires_reason_and_preserves_history(tmp_path):
+    client, token, database = panel(tmp_path)
+    candidate_id, source_id = seed_candidate(database, semantic_key="test.conflict", content="Новая версия")
+    item_id = "00000000-0000-4000-8000-000000000033"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """INSERT INTO memory_items (id,type,semantic_key,title,content,source_id,author)
+               VALUES (?,'product_fact','test.conflict','Текущая запись','Старая версия',?,'owner')""",
+            (item_id, source_id),
+        )
+
+    approved = client.post(
+        f"/api/memory/candidates/{candidate_id}/approve",
+        headers={"X-Operator-Token": token}, json={},
+    )
+    assert approved.status_code == 200
+    conflicts = client.get("/api/memory/conflicts").json()
+    assert len(conflicts) == 1
+    conflict_id = conflicts[0]["id"]
+    assert conflicts[0]["existing_content"] == "Старая версия"
+    missing = client.post(
+        f"/api/memory/conflicts/{conflict_id}/resolve",
+        headers={"X-Operator-Token": token}, json={"outcome": "candidate", "reason": ""},
+    )
+    assert missing.status_code == 400
+    resolved = client.post(
+        f"/api/memory/conflicts/{conflict_id}/resolve",
+        headers={"X-Operator-Token": token},
+        json={"outcome": "candidate", "reason": "Владелец подтвердил новую версию"},
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["status"] == "resolved"
+    assert client.get("/api/memory/conflicts").json() == []
+
+    with sqlite3.connect(database) as connection:
+        connection.row_factory = sqlite3.Row
+        old_item = connection.execute("SELECT status,version FROM memory_items WHERE id=?", (item_id,)).fetchone()
+        active = connection.execute(
+            "SELECT content,status FROM memory_items WHERE semantic_key='test.conflict' AND status='active'"
+        ).fetchone()
+        conflict = connection.execute("SELECT status,resolution,version FROM memory_conflicts WHERE id=?", (conflict_id,)).fetchone()
+        audit = connection.execute(
+            "SELECT count(*) FROM audit_log WHERE entity_id=? AND type='memory_review'", (conflict_id,)
+        ).fetchone()[0]
+    assert dict(old_item) == {"status": "superseded", "version": 2}
+    assert dict(active) == {"content": "Новая версия", "status": "active"}
+    assert conflict["status"] == "resolved"
+    assert "Владелец подтвердил" in conflict["resolution"]
+    assert conflict["version"] == 2
+    assert audit == 1
+    assert "Новая версия" in (database.with_name("current-context.md")).read_text(encoding="utf-8")
 
 
 def test_lists_and_searches_by_current_kind(tmp_path):

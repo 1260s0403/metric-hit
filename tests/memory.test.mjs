@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -644,6 +644,38 @@ test('conflict history cannot be deleted or closed without a resolution', (t) =>
     () => database.prepare("UPDATE memory_conflicts SET content = 'Rewritten' WHERE id = ?").run(conflictId),
     /history and attribution are immutable/,
   );
+});
+
+test('current context excludes open and dismissed conflict candidates', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  initializeDatabase(databasePath);
+  const database = new DatabaseSync(databasePath);
+  t.after(() => { database.close(); remove(); });
+  database.exec('PRAGMA foreign_keys = ON');
+  seedSource(database);
+  const sourceId = '00000000-0000-4000-8000-000000000001';
+  const itemId = '00000000-0000-4000-8000-000000000034';
+  const candidateId = '00000000-0000-4000-8000-000000000035';
+  database.prepare(`
+    INSERT INTO memory_items (id,type,semantic_key,title,content,source_id,author)
+    VALUES (?,'product_fact','context.conflict','Current','Current value',?,'owner')
+  `).run(itemId, sourceId);
+  database.prepare(`
+    INSERT INTO memory_candidates (id,type,semantic_key,title,content,source_id,author)
+    VALUES (?,'product_fact','context.conflict','Candidate hidden while conflicted','Candidate value',?,'owner')
+  `).run(candidateId, sourceId);
+  database.prepare(`
+    UPDATE memory_candidates SET status='approved',reviewed_by='owner',reviewed_at=?,version=version+1 WHERE id=?
+  `).run('2026-08-16T00:00:00.000Z', candidateId);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  exportCurrentContext(databasePath, outputPath, '2026-08-16T00:00:00.000Z');
+  assert.doesNotMatch(readFileSync(outputPath, 'utf8'), /Candidate hidden while conflicted/);
+  const conflictId = database.prepare('SELECT id FROM memory_conflicts WHERE candidate_id=?').get(candidateId).id;
+  database.prepare(`
+    UPDATE memory_conflicts SET status='dismissed',resolution='Keep current',version=version+1 WHERE id=?
+  `).run(conflictId);
+  exportCurrentContext(databasePath, outputPath, '2026-08-16T00:00:00.000Z');
+  assert.doesNotMatch(readFileSync(outputPath, 'utf8'), /Candidate hidden while conflicted/);
 });
 
 test('read-only check rejects a same-name no-op protective trigger', (t) => {

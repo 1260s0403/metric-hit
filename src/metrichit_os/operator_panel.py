@@ -11,11 +11,12 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from .config import CURRENT_CONTEXT
+from .config import CURRENT_CONTEXT, MEMORY_DATABASE
 from .activity import list_activity
 from .database import read_only_database
 from .global_search import search as global_search
 from .knowledge_store import KnowledgeError, KnowledgeStore
+from .memory_review import MemoryReviewError, MemoryReviewStore
 from .project_store import ProjectStore
 
 
@@ -128,8 +129,9 @@ def _memory_documents(database_path: Path, query: str) -> list[dict[str, object]
     return [dict(row) for row in rows]
 
 
-def _current_context() -> dict[str, object]:
-    content = CURRENT_CONTEXT.read_text(encoding="utf-8")
+def _current_context(context_path: Path = CURRENT_CONTEXT) -> dict[str, object]:
+    path = context_path if context_path.is_file() else CURRENT_CONTEXT
+    content = path.read_text(encoding="utf-8")
     return {"content": content}
 
 
@@ -200,6 +202,13 @@ const output=document.querySelector('#output'),markdown=document.querySelector('
 def _page(token: str, focus_task: str | None, view: str) -> str:
     selected = view if view in {"overview", "search", "activity", "projects", "artem", "idea", "tasks", "memory"} else "overview"
     page = _page_raw(token, focus_task)
+    page = page.replace(
+        '<button data-memory="context" class="active">Текущий контекст</button>',
+        '<button data-memory="context" class="active">Текущий контекст</button>'
+        '<button data-memory="candidates" data-testid="memory-tab-candidates">Кандидаты</button>'
+        '<button data-memory="conflicts" data-testid="memory-tab-conflicts">Конфликты</button>',
+        1,
+    )
     page = page.replace(
         '<form id="add">',
         '<form id="add"><fieldset data-testid="intake" style="border:0;padding:0;margin:0 0 12px"><legend>Новый вход</legend><div class="actions"><button type="button" data-testid="intake-text" aria-pressed="true">Текст</button><button type="button" data-testid="intake-url" aria-pressed="false">Ссылка</button><button type="button" data-testid="intake-file" aria-pressed="false">Файл</button></div><label data-testid="intake-url-row" class="hidden">Ссылка<br><input id="intake-url" type="text" inputmode="url" placeholder="https://example.com"></label><label data-testid="intake-file-row" class="hidden">Текстовый файл<br><input id="intake-file" type="file" accept=".txt,.md,.csv,.json,text/plain,text/markdown,text/csv,application/json"></label></fieldset>',
@@ -294,7 +303,21 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
     task_ui = _task_mvp_ui().replace("due_date:form.elements.due_date.value||null};try{", "due_date:form.elements.due_date.value||null,project_id:form.elements.project_id.value||null};try{").replace("form.elements.due_date.value=item?.due_date||'';taskModal", "form.elements.due_date.value=item?.due_date||'';form.elements.project_id.dataset.current=item?.project_id||entry?.project_id||'';window.metricHitRefreshProjects?.(form,item?.project_id||entry?.project_id||'');taskModal").replace("sort:p.get('sort')||'recommended'}", "sort:p.get('sort')||'recommended',project:p.get('project')||'all'}").replace("sort:sort.value});load()", "sort:sort.value,project:new URLSearchParams(location.search).get('project')||'all'});load()")
     search_ui = _search_ui().replace("${item.date} · ${item.status}", "${item.date} · ${item.status}${item.project_name?` · ${item.project_name}`:''}")
     activity_ui = _activity_ui().replace(":item.object_type==='memory'?", ":item.object_type==='project'?`/?view=projects&project_id=${encodeURIComponent(item.target_id)}#project-${item.target_id}`:item.object_type==='memory'?")
-    return page.replace("</body>", task_ui + dashboard_ui + search_ui + activity_ui + _projects_ui() + _project_assignment_ui() + _project_modal_refresh() + _project_experience_ui() + _project_assignment_controls() + _project_task_filter_ui() + focus_ui + _focus_navigation_reload_ui() + _dashboard_quick_action_guard() + "</body>")
+    return page.replace("</body>", task_ui + dashboard_ui + search_ui + activity_ui + _projects_ui() + _project_assignment_ui() + _project_modal_refresh() + _project_experience_ui() + _project_assignment_controls() + _project_task_filter_ui() + focus_ui + _focus_navigation_reload_ui() + _memory_review_ui() + _dashboard_quick_action_guard() + "</body>")
+
+
+def _memory_review_ui() -> str:
+    return r"""<style>
+.memory-warning{border-left:4px solid #ffc36b;padding-left:10px;color:#ffd58f}.memory-review-form{border:1px solid #40516a;border-radius:8px;padding:12px;margin-top:12px}.memory-review-form label{display:block;margin:8px 0}.memory-review-form textarea{min-height:72px}.memory-comparison{display:grid;grid-template-columns:1fr 1fr;gap:12px}.memory-comparison>section{border:1px solid #40516a;border-radius:8px;padding:12px}@media(max-width:600px){.memory-comparison{grid-template-columns:1fr}}
+</style><script>(()=>{
+const normalLoadMemory=loadMemory,make=(tag,text,testid)=>{const element=document.createElement(tag);if(text!==undefined)element.textContent=text;if(testid)element.dataset.testid=testid;return element};
+function feedback(holder,text,error=false){holder.className=error?'error':'result';holder.textContent=text}
+async function candidateDetail(item,card,button){button.disabled=true;try{const detail=await api(`/api/memory/candidates/${encodeURIComponent(item.id)}`),box=make('section');box.dataset.testid=`memory-candidate-detail-${item.id}`;box.append(make('div',`Статус: ${detail.status}`,'memory-candidate-status'),make('div',`Semantic key: ${detail.semantic_key}`,'memory-candidate-key'),make('p',detail.content,'memory-candidate-content'),make('div',`Источник: ${detail.source_title} · ${detail.source_type} · ${detail.source_author}`,'memory-candidate-source'));if(detail.task_id)box.append(make('div',`Связанная задача: ${detail.task_title} · ${detail.task_status}`,'memory-candidate-task'));if(detail.conflicts.some(x=>x.status==='open')){const warning=make('p','Есть открытый конфликт. Подтверждение не изменит действующую память до отдельного разрешения.','memory-candidate-warning');warning.className='memory-warning';box.append(warning)}const form=make('form');form.className='memory-review-form';form.dataset.testid=`memory-candidate-form-${item.id}`;const label=make('label','Комментарий к подтверждению (необязательно) или причина отклонения');const note=make('textarea',undefined,`memory-candidate-note-${item.id}`);label.append(note);const actions=make('div');actions.className='actions';const approve=make('button','Подтвердить',`memory-candidate-approve-${item.id}`),reject=make('button','Отклонить',`memory-candidate-reject-${item.id}`),result=make('div',undefined,`memory-candidate-feedback-${item.id}`);reject.className='cancel';actions.append(approve,reject);form.append(label,actions,result);form.onsubmit=event=>event.preventDefault();approve.onclick=async()=>{approve.disabled=reject.disabled=true;try{const reviewed=await api(`/api/memory/candidates/${encodeURIComponent(item.id)}/approve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({comment:note.value})});feedback(result,reviewed.conflicts.some(x=>x.status==='open')?'Кандидат подтверждён. Перейдите в «Конфликты».':'Кандидат подтверждён.');await loadMemory()}catch(error){feedback(result,error.message,true);approve.disabled=reject.disabled=false}};reject.onclick=async()=>{if(!note.value.trim()){feedback(result,'Укажите причину отклонения.',true);note.focus();return}approve.disabled=reject.disabled=true;try{await api(`/api/memory/candidates/${encodeURIComponent(item.id)}/reject`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason:note.value})});feedback(result,'Кандидат отклонён.');await loadMemory()}catch(error){feedback(result,error.message,true);approve.disabled=reject.disabled=false}};box.append(form);button.replaceWith(box)}catch(error){button.disabled=false;const result=make('div',error.message);result.className='error';button.after(result)}}
+function renderCandidates(items){memoryItems.replaceChildren();if(!items.length){memoryItems.append(make('p','Кандидатов на проверку нет.','memory-candidates-empty'));return}for(const item of items){const card=make('article');card.className='entry';card.dataset.testid=`memory-candidate-${item.id}`;card.append(make('strong',item.title),make('div',`${item.type} · ${item.created_at}`,'meta'),make('div',item.semantic_key,'meta'),make('p',item.content.length>240?`${item.content.slice(0,239)}…`:item.content));if(item.task_title)card.append(make('div',`Задача: ${item.task_title}`,'meta'));if(item.conflict_count){const warning=make('p','Есть конфликт','memory-candidate-warning');warning.className='memory-warning';card.append(warning)}const details=make('button','Подробнее',`memory-candidate-details-${item.id}`);details.onclick=()=>candidateDetail(item,card,details);card.append(details);memoryItems.append(card)}}
+function renderConflicts(items){memoryItems.replaceChildren();if(!items.length){memoryItems.append(make('p','Открытых конфликтов нет.','memory-conflicts-empty'));return}for(const item of items){const card=make('article');card.className='entry';card.dataset.testid=`memory-conflict-${item.id}`;card.append(make('strong',item.title),make('div',item.semantic_key,'meta'),make('div',`Источник: ${item.source_title}${item.task_title?` · задача: ${item.task_title}`:''}`,'meta'));const compare=make('div');compare.className='memory-comparison';const current=make('section'),candidate=make('section');current.append(make('h3','Текущая память'),make('strong',item.existing_title),make('p',item.existing_content,'memory-existing-content'));candidate.append(make('h3','Кандидат'),make('strong',item.candidate_title),make('p',item.candidate_content,'memory-conflicting-content'));compare.append(current,candidate);const form=make('form');form.className='memory-review-form';const label=make('label','Причина решения конфликта (обязательно)'),reason=make('textarea',undefined,`memory-conflict-reason-${item.id}`);label.append(reason);const actions=make('div');actions.className='actions';const accept=make('button','Принять кандидат',`memory-conflict-accept-${item.id}`),keep=make('button','Оставить текущее',`memory-conflict-keep-${item.id}`),result=make('div',undefined,`memory-conflict-feedback-${item.id}`);keep.className='cancel';actions.append(accept,keep);form.append(label,actions,result);form.onsubmit=event=>event.preventDefault();const resolve=async(outcome)=>{if(!reason.value.trim()){feedback(result,'Укажите причину решения конфликта.',true);reason.focus();return}accept.disabled=keep.disabled=true;try{await api(`/api/memory/conflicts/${encodeURIComponent(item.id)}/resolve`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({outcome,reason:reason.value})});feedback(result,'Конфликт разрешён.');await loadMemory()}catch(error){feedback(result,error.message,true);accept.disabled=keep.disabled=false}};accept.onclick=()=>resolve('candidate');keep.onclick=()=>resolve('existing');card.append(compare,form);memoryItems.append(card)}}
+loadMemory=async()=>{if(!['candidates','conflicts'].includes(memoryView))return normalLoadMemory();try{memoryContext.classList.add('hidden');memorySearchRow.classList.toggle('hidden',memoryView==='conflicts');const query=memoryView==='candidates'?`?query=${encodeURIComponent(memorySearch.value)}`:'';const items=await api(`/api/memory/${memoryView}${query}`);if(memoryView==='candidates')renderCandidates(items);else renderConflicts(items)}catch(error){show(error.message,true)}};
+if(view==='memory'&&new URLSearchParams(location.search).get('memory_tab')==='candidates'){memoryView='candidates';setTimeout(loadMemory,0)}
+})();</script>"""
 
 
 def _e2e_markers() -> str:
@@ -414,6 +437,8 @@ def _project_task_filter_ui() -> str:
 def create_operator_app(database_path: Path) -> FastAPI:
     store = KnowledgeStore(database_path)
     projects = ProjectStore(database_path)
+    context_path = CURRENT_CONTEXT if database_path.resolve() == MEMORY_DATABASE.resolve() else database_path.with_name("current-context.md")
+    memory_review = MemoryReviewStore(database_path, context_path)
     token = secrets.token_urlsafe(32)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 
@@ -508,7 +533,54 @@ def create_operator_app(database_path: Path) -> FastAPI:
 
     @app.get("/api/memory/context")
     def memory_context() -> JSONResponse:
-        return JSONResponse(_current_context())
+        return JSONResponse(_current_context(context_path))
+
+    @app.get("/api/memory/candidates")
+    def memory_candidates(query: str = "") -> JSONResponse:
+        return JSONResponse(memory_review.candidates(query))
+
+    @app.get("/api/memory/candidates/{candidate_id}")
+    def memory_candidate(candidate_id: str) -> JSONResponse:
+        try:
+            return JSONResponse(memory_review.candidate(candidate_id))
+        except MemoryReviewError as error:
+            return _error(str(error), 404)
+
+    @app.get("/api/memory/conflicts")
+    def memory_conflicts() -> JSONResponse:
+        return JSONResponse(memory_review.conflicts())
+
+    @app.post("/api/memory/candidates/{candidate_id}/approve")
+    async def memory_candidate_approve(candidate_id: str, request: Request) -> JSONResponse:
+        if request.headers.get(TOKEN_HEADER) != token:
+            return _error("missing or invalid startup token", 403)
+        try:
+            payload = await request.json()
+            return JSONResponse(memory_review.approve(candidate_id, payload.get("comment") if isinstance(payload, dict) else None))
+        except (MemoryReviewError, sqlite3.Error, OSError, json.JSONDecodeError) as error:
+            return _error(str(error), 400)
+
+    @app.post("/api/memory/candidates/{candidate_id}/reject")
+    async def memory_candidate_reject(candidate_id: str, request: Request) -> JSONResponse:
+        if request.headers.get(TOKEN_HEADER) != token:
+            return _error("missing or invalid startup token", 403)
+        try:
+            payload = await request.json()
+            return JSONResponse(memory_review.reject(candidate_id, payload.get("reason") if isinstance(payload, dict) else None))
+        except (MemoryReviewError, sqlite3.Error, json.JSONDecodeError) as error:
+            return _error(str(error), 400)
+
+    @app.post("/api/memory/conflicts/{conflict_id}/resolve")
+    async def memory_conflict_resolve(conflict_id: str, request: Request) -> JSONResponse:
+        if request.headers.get(TOKEN_HEADER) != token:
+            return _error("missing or invalid startup token", 403)
+        try:
+            payload = await request.json()
+            if not isinstance(payload, dict):
+                raise MemoryReviewError("request body must be an object")
+            return JSONResponse(memory_review.resolve(conflict_id, payload.get("outcome"), payload.get("reason")))
+        except (MemoryReviewError, sqlite3.Error, OSError, json.JSONDecodeError) as error:
+            return _error(str(error), 400)
 
     @app.get("/api/memory/facts")
     def memory_facts(query: str = "") -> JSONResponse:

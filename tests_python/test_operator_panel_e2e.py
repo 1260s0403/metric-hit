@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import socket
+import sqlite3
 import subprocess
 import sys
 import time
@@ -19,6 +20,34 @@ def _free_port() -> int:
 def _temporary_database(tmp_path: Path) -> Path:
     database = tmp_path / "operator-e2e.sqlite"
     subprocess.run(["node", "scripts/init-memory.mjs", str(database)], check=True, capture_output=True, text=True)
+    with sqlite3.connect(database) as connection:
+        source_id = "00000000-0000-4000-8000-000000000040"
+        connection.execute(
+            "INSERT INTO sources (id,type,title,content,author) VALUES (?,'owner_input','E2E источник','Тестовый источник','owner')",
+            (source_id,),
+        )
+        connection.executemany(
+            """INSERT INTO memory_candidates (id,type,semantic_key,title,content,data_json,source_id,author)
+               VALUES (?,'product_fact',?,?,?,'{}',?,'owner')""",
+            [
+                ("00000000-0000-4000-8000-000000000041", "e2e.approve", "Подтвердить в E2E", "Полный текст кандидата на подтверждение", source_id),
+                ("00000000-0000-4000-8000-000000000042", "e2e.reject", "Отклонить в E2E", "Полный текст кандидата на отклонение", source_id),
+            ],
+        )
+        connection.execute(
+            """INSERT INTO memory_items (id,type,semantic_key,title,content,source_id,author)
+               VALUES ('00000000-0000-4000-8000-000000000043','product_fact','e2e.conflict','Текущее E2E','Текущее значение',?,'owner')""",
+            (source_id,),
+        )
+        connection.execute(
+            """INSERT INTO memory_candidates (id,type,semantic_key,title,content,data_json,source_id,author)
+               VALUES ('00000000-0000-4000-8000-000000000044','product_fact','e2e.conflict','Конфликт E2E','Новое значение','{}',?,'owner')""",
+            (source_id,),
+        )
+        connection.execute(
+            """UPDATE memory_candidates SET status='approved',reviewed_by='owner',reviewed_at='2026-08-16T00:00:00.000Z',version=version+1
+               WHERE id='00000000-0000-4000-8000-000000000044'"""
+        )
     return database
 
 
@@ -139,6 +168,42 @@ def test_yadro_heading_is_white_left_aligned_on_black_panel(page: Page, panel: s
     )
 
     assert styles == {"color": "rgb(255, 255, 255)", "textAlign": "left", "background": "rgb(0, 0, 0)"}
+
+
+def test_owner_reviews_memory_candidates_with_required_rejection_reason(page: Page, panel: str) -> None:
+    approve_id = "00000000-0000-4000-8000-000000000041"
+    reject_id = "00000000-0000-4000-8000-000000000042"
+    page.goto(f"{panel}/?view=memory")
+    page.get_by_test_id("memory-tab-candidates").click()
+    expect(page.get_by_test_id(f"memory-candidate-{approve_id}")).to_be_visible()
+    page.get_by_test_id(f"memory-candidate-details-{approve_id}").click()
+    expect(page.get_by_test_id(f"memory-candidate-content")).to_contain_text("Полный текст кандидата")
+    page.get_by_test_id(f"memory-candidate-approve-{approve_id}").click()
+    expect(page.get_by_test_id(f"memory-candidate-{approve_id}")).to_have_count(0)
+
+    page.get_by_test_id(f"memory-candidate-details-{reject_id}").click()
+    page.get_by_test_id(f"memory-candidate-reject-{reject_id}").click()
+    expect(page.get_by_test_id(f"memory-candidate-feedback-{reject_id}")).to_contain_text("Укажите причину")
+    page.get_by_test_id(f"memory-candidate-note-{reject_id}").fill("Не подтверждено источником")
+    page.get_by_test_id(f"memory-candidate-reject-{reject_id}").click()
+    expect(page.get_by_test_id("memory-candidates-empty")).to_be_visible()
+
+
+def test_owner_resolves_memory_conflict_with_required_reason(page: Page, panel: str) -> None:
+    conflict_candidate_id = "00000000-0000-4000-8000-000000000044"
+    page.goto(f"{panel}/?view=memory")
+    page.get_by_test_id("memory-tab-conflicts").click()
+    card = page.locator('[data-testid^="memory-conflict-"]').filter(has_text="Конфликт E2E")
+    expect(card).to_be_visible()
+    expect(card.get_by_test_id("memory-existing-content")).to_have_text("Текущее значение")
+    expect(card.get_by_test_id("memory-conflicting-content")).to_have_text("Новое значение")
+    keep = card.locator(f'[data-testid^="memory-conflict-keep-"]')
+    keep.click()
+    expect(card.locator('[data-testid^="memory-conflict-feedback-"]')).to_contain_text("Укажите причину")
+    card.locator('[data-testid^="memory-conflict-reason-"]').fill("Текущая запись подтверждена")
+    keep.click()
+    expect(page.get_by_test_id("memory-conflicts-empty")).to_be_visible()
+    assert conflict_candidate_id not in page.locator("#memory-items").inner_text()
 
 
 def test_focused_task_is_visible_from_top_middle_and_bottom_of_long_list(page: Page, panel: str) -> None:

@@ -1,6 +1,6 @@
 # MetricHit — текущий рабочий контекст
 
-Сформировано: 2026-08-16T18:02:06.801Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
+Сформировано: 2026-08-16T18:32:12.552Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
 
 ## Основные факты о продукте
 
@@ -79,6 +79,35 @@ Acceptance:
 - Результат зафиксирован одним Git commit и рабочее дерево чистое.
 
 Источник решения: Прямое утверждение владельца в Strategy-чате 16.08.2026.
+- **Implement the complete MVP vertical for owner-managed memory candidates in the…:** Цель: Implement the complete MVP vertical for owner-managed memory candidates in the Yadro operator panel
+
+Scope:
+- Pending candidate list and candidate detail with content, semantic key, provenance, task linkage, status, and conflict warning
+- Owner actions to approve or reject a candidate through the protected existing memory workflow
+- Conflict resolution action that preserves audit and memory integrity
+- Approval comment is optional; rejection reason is mandatory; conflict-resolution reason is mandatory
+- Synchronize generated current context after approved memory changes as required by existing conventions
+- Focused API, memory, policy, and Edge E2E coverage for the full vertical
+
+Ограничения:
+- MVP only: no auto-approval, bulk actions, speculative abstractions, or unrelated UI changes
+- Strategy remains read-only; all repository changes are made only by this single native engineering task-thread
+- Use existing SQLite schema, authorization token protection, memory workflows, project conventions, and locked dependencies
+- Read the operator-panel UX contract before changing the panel
+- One implementation commit and clean git status
+
+Acceptance:
+- Pending candidates can be listed and inspected in the operator panel
+- Owner can approve with no comment or with an optional comment
+- Reject is blocked without a reason and succeeds with a reason
+- Conflict resolution is blocked without a reason and succeeds with a reason while preserving audit history
+- Approved memory and generated current context remain consistent
+- Focused Python tests and at least one current Playwright E2E using system Microsoft Edge pass
+- Focused memory and governance policy tests pass
+- check-memory and git diff --check pass
+- Exactly one commit is created and git status --short is clean
+
+Источник решения: owner decision 2026-08-16 in SERVER Strategy
 - **Зафиксировать завершение unified intake v1 без аудио:** Цель: Зафиксировать завершение unified intake v1 без аудио
 
 Scope:
@@ -474,24 +503,32 @@ seo накрутка поведенческих факторов
 - **Кейс:** Сделать полноценный кейс, выкатить его на пикабу!
 - **Панель:**  добавить возможность  прописывать в один проект несколько регионов
 (от кл: "Как будто это не будет лишним, если ркн ниша, каждый день по 20 проектов заводить такое себе")
-- **Зафиксировать завершение unified intake v1 без аудио:** Цель: Зафиксировать завершение unified intake v1 без аудио
+- **Implement the complete MVP vertical for owner-managed memory candidates in the…:** Цель: Implement the complete MVP vertical for owner-managed memory candidates in the Yadro operator panel
 
 Scope:
-- Unified intake v1 завершён и включает текст, ссылки и текстовые файлы.
-- Голос в MVP не является отдельным входящим контуром: пользователь использует диктовку устройства или браузера, а в Ядро поступает уже текст.
-- Ядро не принимает, не транскрибирует и не хранит аудио.
-- Синхронизировать roadmap, operating context и exported current context с этим решением.
+- Pending candidate list and candidate detail with content, semantic key, provenance, task linkage, status, and conflict warning
+- Owner actions to approve or reject a candidate through the protected existing memory workflow
+- Conflict resolution action that preserves audit and memory integrity
+- Approval comment is optional; rejection reason is mandatory; conflict-resolution reason is mandatory
+- Synchronize generated current context after approved memory changes as required by existing conventions
+- Focused API, memory, policy, and Edge E2E coverage for the full vertical
 
 Ограничения:
-- Не изменять функциональный код, API, UI, схему БД или тесты поведения.
-- Не добавлять аудиофайлы, транскрибацию или аудиохранилище.
-- Следующим этапом roadmap должен стать UI управления памятью.
-- Создать ровно один native task-thread.
+- MVP only: no auto-approval, bulk actions, speculative abstractions, or unrelated UI changes
+- Strategy remains read-only; all repository changes are made only by this single native engineering task-thread
+- Use existing SQLite schema, authorization token protection, memory workflows, project conventions, and locked dependencies
+- Read the operator-panel UX contract before changing the panel
+- One implementation commit and clean git status
 
 Acceptance:
-- Approved memory содержит решение о scope unified intake v1.
-- Roadmap переносит unified intake v1 в завершённое и делает UI управления памятью ближайшим этапом.
-- Current context и operating context не утверждают, что Ядро принимает или хранит аудио.
-- Пройдены focused memory/policy checks, check-memory и git diff --check; один commit и чистый status.
+- Pending candidates can be listed and inspected in the operator panel
+- Owner can approve with no comment or with an optional comment
+- Reject is blocked without a reason and succeeds with a reason
+- Conflict resolution is blocked without a reason and succeeds with a reason while preserving audit history
+- Approved memory and generated current context remain consistent
+- Focused Python tests and at least one current Playwright E2E using system Microsoft Edge pass
+- Focused memory and governance policy tests pass
+- check-memory and git diff --check pass
+- Exactly one commit is created and git status --short is clean
 
-Источник решения: Прямое утверждение владельца в Strategy-чате 16.08.2026.
+Источник решения: owner decision 2026-08-16 in SERVER Strategy

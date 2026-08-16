@@ -21,6 +21,11 @@ function section(database, heading, types) {
              ROW_NUMBER() OVER (PARTITION BY semantic_key ORDER BY reviewed_at DESC, updated_at DESC, id DESC) AS revision_rank
       FROM memory_candidates
       WHERE status = 'approved' AND type IN (${types.map(() => '?').join(', ')})
+      AND NOT EXISTS (
+        SELECT 1 FROM memory_conflicts
+        WHERE memory_conflicts.candidate_id = memory_candidates.id
+          AND memory_conflicts.status IN ('open', 'dismissed')
+      )
       ${excludedEditorialRules}
     ) WHERE revision_rank = 1
     ORDER BY semantic_key
