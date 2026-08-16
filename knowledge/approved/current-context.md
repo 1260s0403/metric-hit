@@ -1,6 +1,6 @@
 # MetricHit — текущий рабочий контекст
 
-Сформировано: 2026-08-16T21:17:48.955Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
+Сформировано: 2026-08-16T21:36:26.959Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
 
 ## Основные факты о продукте
 
@@ -56,6 +56,27 @@ Acceptance:
 Источник решения: Direct owner approval in Strategy chat on 2026-08-16.
 - **SERVER назначен primary workspace MetricHit:** Миграция проекта «Ядро» на SERVER завершена. C:\MetricHit\workspace является canonical primary workspace MetricHit. Домашний ПК сохраняется как резервная точка и не считается primary workspace.
 - **Разделять лендинг и личный кабинет:** go.mtrhit.ru следует называть сайтом или лендингом; личный кабинет и регистрация находятся на mtrhit.ru.
+- **Allow Strategy and engineering tasks to access the public MetricHit landing at…:** Цель: Allow Strategy and engineering tasks to access the public MetricHit landing at go.mtrhit.ru
+
+Scope:
+- Permit read-only access to https://go.mtrhit.ru/ for landing review and development context
+- Keep CRM and mtrhit.ru account or registration site prohibited
+- Do not grant publication, login, form submission, account access, spending, or production-change authority
+
+Ограничения:
+- Access is limited to the exact public landing host go.mtrhit.ru
+- External publication and other owner-gates remain mandatory
+- No landing implementation in this policy task
+- One native task-thread; synchronize AGENTS and canonical context only
+
+Acceptance:
+- Approved memory contains the exact access boundary
+- AGENTS.md distinguishes permitted go.mtrhit.ru from prohibited CRM and mtrhit.ru
+- Current context and operating context are synchronized as needed
+- Focused memory/governance tests, check-memory, git diff --check pass
+- One commit, clean status, completed handoff
+
+Источник решения: explicit owner authorization 2026-08-16 in SERVER Strategy
 - **Synchronize the approved SERVER development workflow with local Codex Full acce…:** Цель: Synchronize the approved SERVER development workflow with local Codex Full access and Never ask settings
 
 Scope:
@@ -554,27 +575,24 @@ seo накрутка поведенческих факторов
 У новой задачи "ссылка" и " файл" нельзя добавлять описание (исправить это)
 Разделение: ядро - самостоятельный проект. а метрикхит это подпроект в нем
 Интегрировать разработку существующего лендинга MetricHit (https://go.mtrhit.ru/) в Ядро.
-- **Record the approved MVP UX direction for the Yadro owner workspace:** Цель: Record the approved MVP UX direction for the Yadro owner workspace
+- **Allow Strategy and engineering tasks to access the public MetricHit landing at…:** Цель: Allow Strategy and engineering tasks to access the public MetricHit landing at go.mtrhit.ru
 
 Scope:
-- Keep the existing dark theme, white Yadro heading, blue action accent, and low visual noise
-- Do not start a visual redesign
-- After the current assessment of splitting embedded HTML CSS JS, prioritize a short owner-focused UX pass
-- Separate global navigation from tabs of the active section and make active context clearer
-- Make Overview prioritize: today priority, pending decisions, nearest tasks, and recent activity
-- Improve spacing and typography hierarchy for faster owner orientation
+- Permit read-only access to https://go.mtrhit.ru/ for landing review and development context
+- Keep CRM and mtrhit.ru account or registration site prohibited
+- Do not grant publication, login, form submission, account access, spending, or production-change authority
 
 Ограничения:
-- No UI implementation in this task
-- No speculative design system or broad redesign
-- Preserve MVP and speed principle
-- One native task-thread; only memory/current context/roadmap synchronization
+- Access is limited to the exact public landing host go.mtrhit.ru
+- External publication and other owner-gates remain mandatory
+- No landing implementation in this policy task
+- One native task-thread; synchronize AGENTS and canonical context only
 
 Acceptance:
-- Approved memory records the UX direction
-- Current context is regenerated through the standard workflow
-- Roadmap reflects the sequence: technical assessment then focused owner UX pass
+- Approved memory contains the exact access boundary
+- AGENTS.md distinguishes permitted go.mtrhit.ru from prohibited CRM and mtrhit.ru
+- Current context and operating context are synchronized as needed
 - Focused memory/governance tests, check-memory, git diff --check pass
-- One commit and clean status
+- One commit, clean status, completed handoff
 
-Источник решения: owner decision 2026-08-16 in SERVER Strategy
+Источник решения: explicit owner authorization 2026-08-16 in SERVER Strategy
