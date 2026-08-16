@@ -1,6 +1,6 @@
 # MetricHit — текущий рабочий контекст
 
-Сформировано: 2026-08-16T17:11:33.369Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
+Сформировано: 2026-08-16T18:02:06.801Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
 
 ## Основные факты о продукте
 
@@ -32,6 +32,28 @@
 - **Длинные статьи ведутся отдельно от SMM:** Полноформатные статьи вынесены в отдельный рабочий контур, чтобы разделить оперативный SMM и редакционную работу.
 - **Скорость MVP и масштабируемость редакционного контура:** MetricHit OS развивается короткими сквозными MVP-этапами. Первый рабочий контур создаёт одну статью для одной выбранной площадки и производные посты Telegram/VK, после чего останавливается на согласовании. Конечная система должна поддерживать несколько статейных площадок и аккаунтов, но масштабирование добавляется после проверки первого контура. Провайдеры моделей и площадки подключаются через узкие сменные адаптеры без изменения редакционного ядра. Преждевременная универсализация запрещена.
 - **Принцип MVP и скорости разработки:** Скорость разработки критична. Для каждой задачи реализуется минимальный законченный пользовательский сценарий. Нельзя добавлять функции и абстракции «на будущее»; сложность допустима только при доказанной необходимости. Большие задачи по возможности делятся на законченные вертикальные этапы примерно по 20–30 минут, но не так, чтобы система оставалась небезопасной, полурабочей или неконсистентной. Нельзя экономить на целостности данных, security, idempotency, критических тестах и восстановимости. Недоделанное не считается MVP.
+- **Prepare the SERVER Python environment for development and tests:** Цель: Prepare the SERVER Python environment for development and tests
+
+Scope:
+- Prepare or restore the project .venv on Python 3.13 in the workspace.
+- Install only dependencies from the existing requirements.lock and pyproject conventions required for FastAPI, pytest, and Playwright.
+- Configure existing panel tests to use the system Microsoft Edge without changing product functionality.
+- Verify FastAPI import, pytest startup, focused Python tests, and at least one existing panel E2E test on system Edge.
+
+Ограничения:
+- Do not change project functionality.
+- Do not add dependencies beyond those needed for this environment.
+- Do not change Windows or install a new Edge if system Edge is already available; use the existing system Edge.
+- If tracked config or requirements must change, do so only if necessary and make one commit; otherwise do not change tracked files or create a commit.
+
+Acceptance:
+- .venv runs FastAPI, pytest, and Playwright for the project.
+- FastAPI import succeeds.
+- Focused Python tests pass.
+- At least one current panel E2E test passes on system Microsoft Edge.
+- git status --short is clean if tracked files did not change.
+
+Источник решения: Direct owner approval in Strategy chat on 2026-08-16.
 - **SERVER назначен primary workspace MetricHit:** Миграция проекта «Ядро» на SERVER завершена. C:\MetricHit\workspace является canonical primary workspace MetricHit. Домашний ПК сохраняется как резервная точка и не считается primary workspace.
 - **Разделять лендинг и личный кабинет:** go.mtrhit.ru следует называть сайтом или лендингом; личный кабинет и регистрация находятся на mtrhit.ru.
 - **Зафиксировать текущий рабочий процесс SERVER и Strategy:** Цель: Зафиксировать текущий рабочий процесс SERVER и Strategy
@@ -55,6 +77,65 @@ Acceptance:
 - Канонические документы и экспорт current context согласованы с утверждённым workflow.
 - Выполнены focused memory/policy checks и check-memory.
 - Результат зафиксирован одним Git commit и рабочее дерево чистое.
+
+Источник решения: Прямое утверждение владельца в Strategy-чате 16.08.2026.
+- **Зафиксировать завершение unified intake v1 без аудио:** Цель: Зафиксировать завершение unified intake v1 без аудио
+
+Scope:
+- Unified intake v1 завершён и включает текст, ссылки и текстовые файлы.
+- Голос в MVP не является отдельным входящим контуром: пользователь использует диктовку устройства или браузера, а в Ядро поступает уже текст.
+- Ядро не принимает, не транскрибирует и не хранит аудио.
+- Синхронизировать roadmap, operating context и exported current context с этим решением.
+
+Ограничения:
+- Не изменять функциональный код, API, UI, схему БД или тесты поведения.
+- Не добавлять аудиофайлы, транскрибацию или аудиохранилище.
+- Следующим этапом roadmap должен стать UI управления памятью.
+- Создать ровно один native task-thread.
+
+Acceptance:
+- Approved memory содержит решение о scope unified intake v1.
+- Roadmap переносит unified intake v1 в завершённое и делает UI управления памятью ближайшим этапом.
+- Current context и operating context не утверждают, что Ядро принимает или хранит аудио.
+- Пройдены focused memory/policy checks, check-memory и git diff --check; один commit и чистый status.
+
+Источник решения: Прямое утверждение владельца в Strategy-чате 16.08.2026.
+- **Исправить пользовательский заголовок панели с Yadro на Ядро:** Цель: Исправить пользовательский заголовок панели с Yadro на Ядро
+
+Scope:
+- Заменить только видимый текст заголовка h1 в operator panel: Yadro на Ядро.
+- Сохранить текущие белый цвет, выравнивание слева и чёрный фон.
+- Запустить существующую focused E2E-проверку панели на Microsoft Edge.
+
+Ограничения:
+- Не менять другие тексты, стили, разметку, поведение, memory, config или тесты.
+- Не создавать второй task-thread.
+- Не расширять UI scope.
+
+Acceptance:
+- Панель отображает Ядро вместо Yadro.
+- Существующий focused E2E и связанные focused tests проходят.
+- Один commit и чистый git status.
+
+Источник решения: Прямое утверждение владельца в Strategy-чате 16.08.2026.
+- **Изменить стиль названия Yadro в операторской панели:** Цель: Изменить стиль названия Yadro в операторской панели
+
+Scope:
+- В src/metrichit_os/operator_panel.py у заголовка Yadro установить белый цвет.
+- Выровнять этот заголовок по левому краю.
+- Сохранить чёрный фон панели.
+
+Ограничения:
+- Не менять никакие другие тексты, стили, разметку, поведение или файлы вне необходимого UI-кода и его точечной проверки.
+- Не изменять фон панели.
+- Соблюсти UX-контракт operator panel и выполнить E2E-критическую проверку поведения.
+- Не создавать второй task-thread.
+
+Acceptance:
+- Название Yadro белое и выровнено слева.
+- Фон панели остаётся чёрным.
+- Проверка подтверждает оба CSS-свойства и отсутствие изменения фона.
+- Один commit; чистый git status.
 
 Источник решения: Прямое утверждение владельца в Strategy-чате 16.08.2026.
 
@@ -393,24 +474,24 @@ seo накрутка поведенческих факторов
 - **Кейс:** Сделать полноценный кейс, выкатить его на пикабу!
 - **Панель:**  добавить возможность  прописывать в один проект несколько регионов
 (от кл: "Как будто это не будет лишним, если ркн ниша, каждый день по 20 проектов заводить такое себе")
-- **Закрепить read-only границу Strategy в governance policy:** Цель: Закрепить read-only границу Strategy в governance policy
+- **Зафиксировать завершение unified intake v1 без аудио:** Цель: Зафиксировать завершение unified intake v1 без аудио
 
 Scope:
-- Strategy обсуждает продукт и архитектуру, анализирует, читает approved memory, Git и документы, а также создаёт engineering-задачи.
-- Strategy не изменяет файлы репозитория.
-- Любое изменение файлов репозитория, включая memory, docs, config, code и tests, выполняется только отдельным native task-thread.
-- Размер изменения не влияет на это правило.
+- Unified intake v1 завершён и включает текст, ссылки и текстовые файлы.
+- Голос в MVP не является отдельным входящим контуром: пользователь использует диктовку устройства или браузера, а в Ядро поступает уже текст.
+- Ядро не принимает, не транскрибирует и не хранит аудио.
+- Синхронизировать roadmap, operating context и exported current context с этим решением.
 
 Ограничения:
-- Эволюция только существующего semantic key architecture.decision_governance_policy; новый semantic key не создавать.
-- Создать ровно один native task-thread для реализации этого решения.
-- Strategy остаётся read-only вне штатного создания task context.
-- Не расширять scope функциональным продуктовым развитием.
+- Не изменять функциональный код, API, UI, схему БД или тесты поведения.
+- Не добавлять аудиофайлы, транскрибацию или аудиохранилище.
+- Следующим этапом roadmap должен стать UI управления памятью.
+- Создать ровно один native task-thread.
 
 Acceptance:
-- Governance policy, связанные decision/docs и exported current context содержат read-only границу Strategy.
-- Изменения файлов выполнены только этим native task-thread.
-- Пройдены focused policy tests, check-memory и git diff --check.
-- Результат зафиксирован одним Git commit; git status чистый.
+- Approved memory содержит решение о scope unified intake v1.
+- Roadmap переносит unified intake v1 в завершённое и делает UI управления памятью ближайшим этапом.
+- Current context и operating context не утверждают, что Ядро принимает или хранит аудио.
+- Пройдены focused memory/policy checks, check-memory и git diff --check; один commit и чистый status.
 
 Источник решения: Прямое утверждение владельца в Strategy-чате 16.08.2026.
