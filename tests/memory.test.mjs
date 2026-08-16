@@ -10,6 +10,7 @@ import { initializeDatabase } from '../scripts/init-memory.mjs';
 import { importChatSummaries } from '../scripts/import-chat-summaries.mjs';
 import { applyInitialMemoryDecision } from '../scripts/apply-initial-memory-decision.mjs';
 import { applyModelRoutingPolicy } from '../scripts/apply-model-routing-policy.mjs';
+import { applyServerPrimaryWorkspace } from '../scripts/apply-server-primary-workspace.mjs';
 import { applyProductPositioningAndEditorialDirectness } from '../scripts/apply-product-positioning-and-editorial-directness.mjs';
 import { readMemory } from '../scripts/memory-cli.mjs';
 import { exportCurrentContext } from '../scripts/export-current-context.mjs';
@@ -830,6 +831,26 @@ test('model routing decision is repeatable and creates an approved policy', (t) 
   ]);
   assert.equal(JSON.parse(policy.data_json).reclassify_before_each_new_task, true);
   assert.equal(JSON.parse(policy.data_json).special_model_approval_carries_to_next_task, false);
+});
+
+test('server primary workspace decision is repeatable and records approved context', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  t.after(remove);
+  initializeDatabase(databasePath);
+  const first = applyServerPrimaryWorkspace(databasePath);
+  const second = applyServerPrimaryWorkspace(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 2 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const server = database.prepare("SELECT status, data_json FROM memory_candidates WHERE semantic_key='infrastructure.server_context'").get();
+  const migration = database.prepare("SELECT status, data_json FROM memory_candidates WHERE semantic_key='migration.server_primary_workspace'").get();
+  database.close();
+  assert.equal(server.status, 'approved');
+  assert.equal(JSON.parse(server.data_json).hostname, 'SERVER');
+  assert.equal(JSON.parse(server.data_json).python, '3.13.14');
+  assert.equal(migration.status, 'approved');
+  assert.equal(JSON.parse(migration.data_json).migration_status, 'authorized_not_started');
+  assert.equal(JSON.parse(migration.data_json).migration_completed, false);
 });
 
 test('product positioning and editorial directness decision is repeatable and supersedes conflicting rules', (t) => {
