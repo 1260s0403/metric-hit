@@ -25,10 +25,10 @@ try {
         param($unusedSource, $path)
         $global:backupRetryAttempts++
         Set-Content -LiteralPath $path -Value 'partial' -NoNewline
-        if ($global:backupRetryAttempts -lt 3) { throw [IO.IOException]::new('The process cannot access the file because it is being used by another process.') }
+        if ($global:backupRetryAttempts -lt 5) { throw [IO.IOException]::new('The process cannot access the file because it is being used by another process.') }
         Set-Content -LiteralPath $path -Value 'complete' -NoNewline
     }
-    Assert-Equal $attempts 3 'Transient lock must retry until success.'
+    Assert-Equal $attempts 5 'Transient lock must tolerate a longer Windows lock before succeeding.'
     Assert-Equal (Get-Content -LiteralPath $archive -Raw) 'complete' 'Partial archive must be replaced on retry.'
 
     Remove-Item -LiteralPath $archive -Force

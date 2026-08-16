@@ -106,7 +106,7 @@ function Invoke-BackupArchiveWithRetry {
     param(
         [Parameter(Mandatory = $true)][string]$SourcePath,
         [Parameter(Mandatory = $true)][string]$ArchivePath,
-        [int]$MaxAttempts = 3,
+        [int]$MaxAttempts = 8,
         [int]$InitialDelayMilliseconds = 250,
         [scriptblock]$ArchiveAction = { param($source, $archive) Compress-Archive -LiteralPath $source -DestinationPath $archive -CompressionLevel Optimal -ErrorAction Stop },
         [scriptblock]$ArchiveRemoveAction = { param($archive) Remove-Item -LiteralPath $archive -Force -ErrorAction Stop }
