@@ -32,11 +32,21 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.implementation, 'native_codex_task_thread');
       assert.deepEqual(data.execution.canonical_path, ['strategy', 'native_codex_task_thread', 'commit_result']);
       assert.equal(data.strategy.mode, 'read_only');
+      assert.deepEqual(data.strategy.primary_role, ['product', 'architecture', 'priorities', 'development']);
+      assert.deepEqual(data.strategy.pre_decision_context, ['approved_memory', 'current_context', 'operating_context', 'roadmap', 'git_state']);
+      assert.deepEqual(data.strategy.proactively_flags, ['material_gaps', 'contradictions', 'mvp_next_steps']);
+      assert.equal(data.strategy.owner_repeats_known_context, false);
+      assert.equal(data.strategy.chat_history_is_canonical_truth, false);
       assert.deepEqual(data.strategy.permitted_actions, ['discuss', 'analyze', 'read_approved_memory', 'read_git', 'read_documents', 'create_native_task_thread']);
       assert.equal(data.strategy.repository_file_modifications_allowed, false);
       assert.deepEqual(data.strategy.repository_file_modification_scope, ['memory', 'docs', 'config', 'code', 'tests']);
       assert.equal(data.strategy.repository_file_modification_size_exception, false);
       assert.equal(data.strategy.repository_file_modifications_require, 'separate_native_task_thread');
+      assert.deepEqual(data.strategy.continuity.transition_triggers, ['chat_too_long', 'repeated_compaction', 'important_detail_loss', 'decision_confusion', 'material_context_waste']);
+      assert.deepEqual(data.strategy.continuity.pre_transition_review, ['approved_memory', 'current_context', 'roadmap', 'significant_approved_decisions', 'plans', 'constraints', 'unfinished_tasks', 'immediate_next_steps']);
+      assert.equal(data.strategy.continuity.synchronization_when_gap_found, 'separate_native_codex_task_thread');
+      assert.equal(data.strategy.continuity.new_chat_confirmation, 'startup_protocol_recovers_context_without_old_transcript');
+      assert.equal(data.strategy.continuity.new_chat_inherits_role_via, 'startup_protocol');
       assert.equal(data.handoff.create_command, 'handoff-create');
       assert.equal(data.handoff.next_command, 'handoff-next');
       assert.equal(data.handoff.claim_command, 'handoff-claim');
@@ -59,7 +69,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_engineering_thread_blocks_second_thread, true);
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
-      assert.equal(data.revision, 11);
+      assert.equal(data.revision, 13);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
