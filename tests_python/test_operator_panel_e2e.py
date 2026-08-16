@@ -131,6 +131,16 @@ def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
             expect(page.get_by_test_id("memory-screen")).to_be_visible()
 
 
+def test_yadro_heading_is_white_left_aligned_on_black_panel(page: Page, panel: str) -> None:
+    page.goto(panel)
+
+    styles = page.locator("h1").evaluate(
+        "heading => ({color: getComputedStyle(heading).color, textAlign: getComputedStyle(heading).textAlign, background: getComputedStyle(document.body).backgroundColor})"
+    )
+
+    assert styles == {"color": "rgb(255, 255, 255)", "textAlign": "left", "background": "rgb(0, 0, 0)"}
+
+
 def test_focused_task_is_visible_from_top_middle_and_bottom_of_long_list(page: Page, panel: str) -> None:
     page.goto(panel)
     task_ids = []
