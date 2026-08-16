@@ -13,6 +13,7 @@
 - проекты.
 - минимальная repo-side запись/audit для `Strategy → native Codex task-thread → commit/result` через approved decision delta и существующий task-контур.
 - миграция проекта «Ядро» на SERVER и проверки; SERVER является primary workspace, домашний ПК — резервной точкой.
+- текущий MVP workflow: серверный Strategy — основной координационный чат, `native Strategy → один task-thread → commit/result`; iPhone Remote к SERVER работает, подключение ноутбука запланировано на 17.08.2026; обычная разработка — GPT-5.6 Terra Medium, Sol/Luna — только по policy. Dispatcher и SDK не обязательны и не развиваются без доказанной необходимости.
 
 ## Следующие этапы
 
