@@ -1,6 +1,6 @@
 # MetricHit — текущий рабочий контекст
 
-Сформировано: 2026-08-16T20:25:40.707Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
+Сформировано: 2026-08-16T21:11:31.077Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
 
 ## Основные факты о продукте
 
@@ -75,6 +75,28 @@ Acceptance:
 - documents/operating-context.md and documents/roadmap.md state the ordinary development setting and preserved owner-gates
 - Focused memory/governance tests, check-memory, git diff --check pass
 - One commit and clean git status
+
+Источник решения: owner decision 2026-08-16 in SERVER Strategy
+- **Record MetricHit landing development as an integrated Yadro workstream and add…:** Цель: Record MetricHit landing development as an integrated Yadro workstream and add it to the owner task for 17.08
+
+Scope:
+- Record that development of the existing MetricHit landing is integrated into Yadro planning and execution
+- Preserve the existing approved landing resource at https://go.mtrhit.ru/
+- Append one concise action item to owner task a1023db2-32d7-4286-b635-03c27fef6a35
+
+Ограничения:
+- Do not implement or publish landing changes
+- Do not access mtrhit.ru or the landing site
+- Do not alter unrelated tasks, code, or configuration
+- Use normal memory and task workflows
+- One native task-thread, focused tests, one commit only if tracked canonical context changes
+
+Acceptance:
+- Approved memory contains the integration decision and retains the existing landing URL as a resource
+- The exact owner task remains pending and includes the landing-development action item
+- Approved current context is regenerated if affected
+- Focused memory/task tests, check-memory, git diff --check pass
+- Clean git status and completed handoff
 
 Источник решения: owner decision 2026-08-16 in SERVER Strategy
 - **Implement the complete MVP vertical for owner-managed memory candidates in the…:** Цель: Implement the complete MVP vertical for owner-managed memory candidates in the Yadro operator panel
@@ -501,28 +523,32 @@ seo накрутка поведенческих факторов
 - **Кейс:** Сделать полноценный кейс, выкатить его на пикабу!
 - **Панель:**  добавить возможность  прописывать в один проект несколько регионов
 (от кл: "Как будто это не будет лишним, если ркн ниша, каждый день по 20 проектов заводить такое себе")
-- **Formalize Strategy chat continuity and canonical-context handover protocol:** Цель: Formalize Strategy chat continuity and canonical-context handover protocol
+- **Клиент:** Написать irostokin у него закончился тест (скрин от 17.08 в тг)
+- **задачи на 17.08:** Установить хром на сервере и установить расширение для него в GPT
+Выйти из фаерфокс
+Стоит ли включать локальную память (персонализация в desctop GPT)
+У новой задачи "ссылка" и " файл" нельзя добавлять описание (исправить это)
+Разделение: ядро - самостоятельный проект. а метрикхит это подпроект в нем
+Интегрировать разработку существующего лендинга MetricHit (https://go.mtrhit.ru/) в Ядро.
+- **Record MetricHit landing development as an integrated Yadro workstream and add…:** Цель: Record MetricHit landing development as an integrated Yadro workstream and add it to the owner task for 17.08
 
 Scope:
-- Define Strategy as the primary human-language product, architecture, priorities, and development coordinator that reads canonical project context before decisions and proactively flags material gaps without scope creep
-- Keep Strategy strictly read-only and require one native engineering task-thread for every repository change
-- Define a transition trigger when the Strategy chat becomes too long, repeatedly compacts, loses detail, confuses decisions, or materially wastes context
-- Before a new Strategy chat, require a read-only completeness review of approved memory, current context, roadmap, constraints, unfinished tasks, and next steps; require a separate task-thread to synchronize canonical context only if the review finds a gap
-- Require a concise handover confirmation that a new Strategy chat can resume using the project startup protocol without old-chat history
-- Ensure each new Strategy chat inherits this role through startup protocol
+- Record that development of the existing MetricHit landing is integrated into Yadro planning and execution
+- Preserve the existing approved landing resource at https://go.mtrhit.ru/
+- Append one concise action item to owner task a1023db2-32d7-4286-b635-03c27fef6a35
 
 Ограничения:
-- Evolve the existing architecture.decision_governance_policy semantic key; do not create a new semantic key
-- Preserve MVP/speed, model policy, SERVER workflow, owner-gates, and existing read-only boundary
-- No functional product changes
-- Do not add history transcripts as a source of truth
-- Exactly one native engineering task-thread, focused tests, one commit, clean status
+- Do not implement or publish landing changes
+- Do not access mtrhit.ru or the landing site
+- Do not alter unrelated tasks, code, or configuration
+- Use normal memory and task workflows
+- One native task-thread, focused tests, one commit only if tracked canonical context changes
 
 Acceptance:
-- AGENTS.md clearly contains the Strategy continuity role and transition protocol
-- Existing governance decision documentation, approved current context, and operating context are synchronized through the normal workflow
-- Roadmap remains accurate and includes any necessary minimal governance reference without duplicating the policy
-- Focused memory and governance policy tests, check-memory, and git diff --check pass
-- One commit is created, git status is clean, and the same handoff is completed
+- Approved memory contains the integration decision and retains the existing landing URL as a resource
+- The exact owner task remains pending and includes the landing-development action item
+- Approved current context is regenerated if affected
+- Focused memory/task tests, check-memory, git diff --check pass
+- Clean git status and completed handoff
 
 Источник решения: owner decision 2026-08-16 in SERVER Strategy
