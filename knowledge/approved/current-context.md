@@ -1,6 +1,6 @@
 # MetricHit — текущий рабочий контекст
 
-Сформировано: 2026-08-16T21:11:31.077Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
+Сформировано: 2026-08-16T21:17:48.955Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
 
 ## Основные факты о продукте
 
@@ -187,6 +187,30 @@ Acceptance:
 - Один commit; чистый git status.
 
 Источник решения: Прямое утверждение владельца в Strategy-чате 16.08.2026.
+- **Record the approved MVP UX direction for the Yadro owner workspace:** Цель: Record the approved MVP UX direction for the Yadro owner workspace
+
+Scope:
+- Keep the existing dark theme, white Yadro heading, blue action accent, and low visual noise
+- Do not start a visual redesign
+- After the current assessment of splitting embedded HTML CSS JS, prioritize a short owner-focused UX pass
+- Separate global navigation from tabs of the active section and make active context clearer
+- Make Overview prioritize: today priority, pending decisions, nearest tasks, and recent activity
+- Improve spacing and typography hierarchy for faster owner orientation
+
+Ограничения:
+- No UI implementation in this task
+- No speculative design system or broad redesign
+- Preserve MVP and speed principle
+- One native task-thread; only memory/current context/roadmap synchronization
+
+Acceptance:
+- Approved memory records the UX direction
+- Current context is regenerated through the standard workflow
+- Roadmap reflects the sequence: technical assessment then focused owner UX pass
+- Focused memory/governance tests, check-memory, git diff --check pass
+- One commit and clean status
+
+Источник решения: owner decision 2026-08-16 in SERVER Strategy
 
 ## Редакционные правила
 
@@ -530,25 +554,27 @@ seo накрутка поведенческих факторов
 У новой задачи "ссылка" и " файл" нельзя добавлять описание (исправить это)
 Разделение: ядро - самостоятельный проект. а метрикхит это подпроект в нем
 Интегрировать разработку существующего лендинга MetricHit (https://go.mtrhit.ru/) в Ядро.
-- **Record MetricHit landing development as an integrated Yadro workstream and add…:** Цель: Record MetricHit landing development as an integrated Yadro workstream and add it to the owner task for 17.08
+- **Record the approved MVP UX direction for the Yadro owner workspace:** Цель: Record the approved MVP UX direction for the Yadro owner workspace
 
 Scope:
-- Record that development of the existing MetricHit landing is integrated into Yadro planning and execution
-- Preserve the existing approved landing resource at https://go.mtrhit.ru/
-- Append one concise action item to owner task a1023db2-32d7-4286-b635-03c27fef6a35
+- Keep the existing dark theme, white Yadro heading, blue action accent, and low visual noise
+- Do not start a visual redesign
+- After the current assessment of splitting embedded HTML CSS JS, prioritize a short owner-focused UX pass
+- Separate global navigation from tabs of the active section and make active context clearer
+- Make Overview prioritize: today priority, pending decisions, nearest tasks, and recent activity
+- Improve spacing and typography hierarchy for faster owner orientation
 
 Ограничения:
-- Do not implement or publish landing changes
-- Do not access mtrhit.ru or the landing site
-- Do not alter unrelated tasks, code, or configuration
-- Use normal memory and task workflows
-- One native task-thread, focused tests, one commit only if tracked canonical context changes
+- No UI implementation in this task
+- No speculative design system or broad redesign
+- Preserve MVP and speed principle
+- One native task-thread; only memory/current context/roadmap synchronization
 
 Acceptance:
-- Approved memory contains the integration decision and retains the existing landing URL as a resource
-- The exact owner task remains pending and includes the landing-development action item
-- Approved current context is regenerated if affected
-- Focused memory/task tests, check-memory, git diff --check pass
-- Clean git status and completed handoff
+- Approved memory records the UX direction
+- Current context is regenerated through the standard workflow
+- Roadmap reflects the sequence: technical assessment then focused owner UX pass
+- Focused memory/governance tests, check-memory, git diff --check pass
+- One commit and clean status
 
 Источник решения: owner decision 2026-08-16 in SERVER Strategy
