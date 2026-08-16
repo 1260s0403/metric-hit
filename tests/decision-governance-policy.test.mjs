@@ -31,6 +31,12 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.target_overhead, 'few_percent_or_less');
       assert.equal(data.execution.implementation, 'native_codex_task_thread');
       assert.deepEqual(data.execution.canonical_path, ['strategy', 'native_codex_task_thread', 'commit_result']);
+      assert.equal(data.strategy.mode, 'read_only');
+      assert.deepEqual(data.strategy.permitted_actions, ['discuss', 'analyze', 'read_approved_memory', 'read_git', 'read_documents', 'create_native_task_thread']);
+      assert.equal(data.strategy.repository_file_modifications_allowed, false);
+      assert.deepEqual(data.strategy.repository_file_modification_scope, ['memory', 'docs', 'config', 'code', 'tests']);
+      assert.equal(data.strategy.repository_file_modification_size_exception, false);
+      assert.equal(data.strategy.repository_file_modifications_require, 'separate_native_task_thread');
       assert.equal(data.handoff.create_command, 'handoff-create');
       assert.equal(data.handoff.next_command, 'handoff-next');
       assert.equal(data.handoff.claim_command, 'handoff-claim');
@@ -53,7 +59,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_engineering_thread_blocks_second_thread, true);
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
-      assert.equal(data.revision, 10);
+      assert.equal(data.revision, 11);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
@@ -107,6 +113,31 @@ test('decision governance workflow refuses a pending semantic duplicate', () => 
       () => execFileSync(process.execPath, [resolve('scripts/apply-decision-governance-policy.mjs'), databasePath]),
       /explicit superseding revision/,
     );
+  } finally {
+    rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('decision governance workflow accepts its approved task context evolution', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-decision-governance-task-context-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    const prior = applyDecisionGovernancePolicy(databasePath);
+    const sourceId = '30000000-0000-4000-a000-000000000001';
+    const candidateId = '30000000-0000-4000-a000-000000000002';
+    const data = JSON.stringify({ handoff_task_id: '30000000-0000-4000-a000-000000000003', supersedes_candidate_id: prior.candidateId });
+    const seed = `
+      import { DatabaseSync } from 'node:sqlite';
+      const db = new DatabaseSync(process.argv[1]);
+      db.prepare("INSERT INTO sources (id,type,title,content,status,author,access_level) VALUES (?, 'owner_decision', 'Task context source', 'Task context source', 'active', 'owner', 'internal')").run('${sourceId}');
+      db.prepare("INSERT INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,access_level) VALUES (?, 'decision', 'architecture.decision_governance_policy', 'Task context', 'Approved task context', ?, 'pending', ?, 'owner', 'internal')").run('${candidateId}', '${data.replaceAll("'", "''")}', '${sourceId}');
+      db.prepare("UPDATE memory_candidates SET status='approved',reviewed_by='owner',reviewed_at='2026-08-16T17:07:33.145Z' WHERE id=?").run('${candidateId}');
+      db.close();
+    `;
+    execFileSync(process.execPath, ['--input-type=module', '--eval', seed, databasePath]);
+    const reapplied = applyDecisionGovernancePolicy(databasePath);
+    assert.deepEqual(reapplied.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
   } finally {
     rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }

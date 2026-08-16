@@ -8,9 +8,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabase = join(root, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/decision-governance-policy-2026-08-15.md';
 const semanticKey = 'architecture.decision_governance_policy';
-const reviewedAt = '2026-08-16T01:00:00.000Z';
+const reviewedAt = '2026-08-16T17:15:00.000Z';
 const owner = 'owner';
-const revision = 10;
+const revision = 11;
 
 function uuid(key) {
   const hex = createHash('sha256').update(`metrichit-decision-governance:${key}`).digest('hex');
@@ -30,7 +30,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   if (decision.includes('\uFFFD')) throw new Error('Decision contains U+FFFD');
 
   const title = 'Политика контура решений MetricHit OS';
-  let content = 'Контур решений относится к центральному ядру, а не к отделу или автономному агенту. Явно утверждённые владельцем решения могут сохраняться как approved; предложения, выводы и непринятые варианты остаются pending candidates, а потенциальные решения никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Решения могут связываться с проектом, задачей, источником и при необходимости Git-коммитом. В current context включаются только значимые approved-решения; технические мелкие правки решениями не считаются. Контур охватывает архитектуру, продукт, приоритеты, правила, бюджеты, сроки, права, ограничения и направления проектов. Канонический workflow engineering: Strategy → native Codex task-thread → commit/result. Strategy — постоянный поток: он фиксирует явно утверждённый короткий decision/task context в repo-side handoff, запускает для каждой engineering-задачи отдельный native Codex task-thread и не меняет код. Постоянный developer-чат не требуется. Repo-side handoff хранит решение, контекст задачи и известный итог/commit hash для audit; он не конкурирует с native task-thread как очередь исполнения. Существующие handoff-next, handoff-claim и handoff-complete и lifecycle ready → in_progress → completed остаются совместимым внутренним механизмом, но не обязательны для startup или пользовательского процесса. UI, daemon, scheduler, OpenAI API и интеграция внутреннего API Codex не реализуются. Будущий UI входит в управление кандидатами памяти и должен стать основой «Центра решений владельца».';
+  let content = 'Контур решений относится к центральному ядру, а не к отделу или автономному агенту. Явно утверждённые владельцем решения могут сохраняться как approved; предложения, выводы и непринятые варианты остаются pending candidates, а потенциальные решения никогда не auto-approve. Перед сохранением проверяются semantic duplicate, evolution и conflicts. Решения могут связываться с проектом, задачей, источником и при необходимости Git-коммитом. В current context включаются только значимые approved-решения; технические мелкие правки решениями не считаются. Контур охватывает архитектуру, продукт, приоритеты, правила, бюджеты, сроки, права, ограничения и направления проектов. Канонический workflow engineering: Strategy → native Codex task-thread → commit/result. Strategy — постоянный read-only поток: он обсуждает и анализирует, читает approved memory, Git и документы, а также создаёт для каждой engineering-задачи отдельный native Codex task-thread. Strategy не изменяет файлы репозитория — включая memory, docs, config, code и tests — независимо от размера изменения; их изменяет только отдельный native task-thread. Постоянный developer-чат не требуется. Repo-side handoff хранит решение, контекст задачи и известный итог/commit hash для audit; он не конкурирует с native task-thread как очередь исполнения. Существующие handoff-next, handoff-claim и handoff-complete и lifecycle ready → in_progress → completed остаются совместимым внутренним механизмом, но не обязательны для startup или пользовательского процесса. UI, daemon, scheduler, OpenAI API и интеграция внутреннего API Codex не реализуются. Будущий UI входит в управление кандидатами памяти и должен стать основой «Центра решений владельца».';
   content += ' Управление native Codex task-thread строго изолирует задачи: одно пользовательское engineering-решение создаёт ровно один native task-thread. До создания Strategy проверяет, нет ли уже thread для текущего пользовательского turn/решения. Повторная обработка того же turn маршрутизируется идемпотентно: если thread уже есть, Strategy сообщает его ID и status и ничего не создаёт. Каждая новая engineering-задача создаёт новый native task-thread; Strategy никогда не заменяет scope существующего или завершённого task-thread. Пока другой engineering thread действительно выполняется, Strategy не запускает второй thread и не переназначает первый: он ждёт завершения либо запрашивает у владельца явную отмену. После commit/result и чистого git status предыдущий thread закрыт для новых задач.';
   const policyData = JSON.stringify({
     belongs_to: 'central_core',
@@ -45,6 +45,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     excludes: ['minor_technical_changes'],
     scopes: ['architecture', 'product', 'priorities', 'rules', 'budgets', 'deadlines', 'rights', 'constraints', 'project_directions'],
     execution: { separate_llm_call_required: false, separate_agent_required: false, output: 'short_decision_delta', persistence: 'validated_by_regular_code', target_overhead: 'few_percent_or_less', implementation: 'native_codex_task_thread', canonical_path: ['strategy', 'native_codex_task_thread', 'commit_result'] },
+    strategy: { mode: 'read_only', permitted_actions: ['discuss', 'analyze', 'read_approved_memory', 'read_git', 'read_documents', 'create_native_task_thread'], repository_file_modifications_allowed: false, repository_file_modification_scope: ['memory', 'docs', 'config', 'code', 'tests'], repository_file_modification_size_exception: false, repository_file_modifications_require: 'separate_native_task_thread' },
     handoff: { create_command: 'handoff-create', next_command: 'handoff-next', claim_command: 'handoff-claim', complete_command: 'handoff-complete', task_type: 'standalone_task', atomic_decision_task_link: true, native_task_thread: 'execution_mechanism', repo_side_role: 'decision_task_context_and_result_audit', repo_side_is_execution_queue: false, permanent_developer_chat_required: false, user_workflow_requires_lifecycle_commands: false, lifecycle: ['ready', 'in_progress', 'completed'], claim_complete_idempotent: true, completion_links_commit_hash: true, one_native_thread_per_user_engineering_decision: true, strategy_checks_existing_thread_by_user_turn_or_decision_before_create: true, repeated_user_turn_routing_is_idempotent: true, existing_thread_response_includes_id_and_status: true, existing_thread_prevents_second_creation: true, new_engineering_task_requires_new_native_thread: true, strategy_may_replace_existing_or_completed_thread_scope: false, active_engineering_thread_blocks_second_thread: true, active_thread_requires_wait_or_owner_explicit_cancellation: true, thread_closed_after_commit_result_and_clean_git_status: true },
     future_ui: ['memory_candidate_management', 'owner_decision_center'],
     functionality_implemented: 'repo_side_record_audit_with_native_task_thread_execution',
@@ -73,8 +74,17 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
   db.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
   try {
-    const activeSameKey = db.prepare(`SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?`).all(semanticKey, candidateId);
-    const competing = activeSameKey.filter((row) => !(approvedLineage.has(row.id) && row.status === 'approved'));
+    const activeSameKey = db.prepare(`SELECT id,status,data_json FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?`).all(semanticKey, candidateId);
+    const isApprovedTaskContextEvolution = (row) => {
+      if (row.status !== 'approved') return false;
+      try {
+        const data = JSON.parse(row.data_json);
+        return typeof data.handoff_task_id === 'string' && (approvedLineage.has(data.supersedes_candidate_id) || data.supersedes_candidate_id === candidateId);
+      } catch {
+        return false;
+      }
+    };
+    const competing = activeSameKey.filter((row) => !(approvedLineage.has(row.id) && row.status === 'approved') && !isApprovedTaskContextEvolution(row));
     if (competing.length) throw new Error(`Semantic duplicate or evolution requires an explicit superseding revision for ${semanticKey}`);
     const conflict = db.prepare(`SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))`).get(candidateId, semanticKey);
     if (conflict) throw new Error(`Open memory conflict blocks ${semanticKey}`);
