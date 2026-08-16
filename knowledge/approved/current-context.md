@@ -1,6 +1,6 @@
 # MetricHit — текущий рабочий контекст
 
-Сформировано: 2026-08-16T18:32:12.552Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
+Сформировано: 2026-08-16T20:00:06.085Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
 
 ## Основные факты о продукте
 
@@ -56,29 +56,27 @@ Acceptance:
 Источник решения: Direct owner approval in Strategy chat on 2026-08-16.
 - **SERVER назначен primary workspace MetricHit:** Миграция проекта «Ядро» на SERVER завершена. C:\MetricHit\workspace является canonical primary workspace MetricHit. Домашний ПК сохраняется как резервная точка и не считается primary workspace.
 - **Разделять лендинг и личный кабинет:** go.mtrhit.ru следует называть сайтом или лендингом; личный кабинет и регистрация находятся на mtrhit.ru.
-- **Зафиксировать текущий рабочий процесс SERVER и Strategy:** Цель: Зафиксировать текущий рабочий процесс SERVER и Strategy
+- **Synchronize the approved SERVER development workflow with local Codex Full acce…:** Цель: Synchronize the approved SERVER development workflow with local Codex Full access and Never ask settings
 
 Scope:
-- SERVER является primary workspace MetricHit.
-- Серверный Strategy является основным координационным чатом.
-- iPhone Remote к SERVER подтверждённо работает; подключение ноутбука запланировано на 17.08.2026.
-- Обычная разработка выполняется на GPT-5.6 Terra Medium; Sol и Luna используются только по утверждённой policy.
-- Текущий MVP workflow engineering: native Strategy → один task-thread → commit/result.
-- Dispatcher и SDK не являются обязательным контуром и не развиваются без доказанной необходимости.
+- Record that ordinary development inside C:\MetricHit\workspace uses local Codex Full access and Never ask
+- Keep explicit owner decisions mandatory for deletion, force operations, access changes, publication, spending, and other dangerous actions
+- Regenerate approved current context and synchronize operating context and roadmap only
 
 Ограничения:
-- Не изменять функциональный код.
-- Не создавать второй engineering task-thread для этого решения.
-- Сохранить существующие approved semantic keys и policy без semantic duplicate.
-- Не использовать Dispatcher или SDK как обязательный workflow.
+- No functional project changes
+- No new semantic key
+- Do not alter AGENTS.md safety and owner-gate rules
+- One native engineering task-thread, focused tests, one commit, clean status
 
 Acceptance:
-- Approved decision delta создана и связана с этой engineering task.
-- Канонические документы и экспорт current context согласованы с утверждённым workflow.
-- Выполнены focused memory/policy checks и check-memory.
-- Результат зафиксирован одним Git commit и рабочее дерево чистое.
+- Approved memory evolution supersedes the existing operations.server_strategy_workflow decision
+- knowledge/approved/current-context.md is generated through the normal workflow
+- documents/operating-context.md and documents/roadmap.md state the ordinary development setting and preserved owner-gates
+- Focused memory/governance tests, check-memory, git diff --check pass
+- One commit and clean git status
 
-Источник решения: Прямое утверждение владельца в Strategy-чате 16.08.2026.
+Источник решения: owner decision 2026-08-16 in SERVER Strategy
 - **Implement the complete MVP vertical for owner-managed memory candidates in the…:** Цель: Implement the complete MVP vertical for owner-managed memory candidates in the Yadro operator panel
 
 Scope:
@@ -503,32 +501,24 @@ seo накрутка поведенческих факторов
 - **Кейс:** Сделать полноценный кейс, выкатить его на пикабу!
 - **Панель:**  добавить возможность  прописывать в один проект несколько регионов
 (от кл: "Как будто это не будет лишним, если ркн ниша, каждый день по 20 проектов заводить такое себе")
-- **Implement the complete MVP vertical for owner-managed memory candidates in the…:** Цель: Implement the complete MVP vertical for owner-managed memory candidates in the Yadro operator panel
+- **Synchronize the approved SERVER development workflow with local Codex Full acce…:** Цель: Synchronize the approved SERVER development workflow with local Codex Full access and Never ask settings
 
 Scope:
-- Pending candidate list and candidate detail with content, semantic key, provenance, task linkage, status, and conflict warning
-- Owner actions to approve or reject a candidate through the protected existing memory workflow
-- Conflict resolution action that preserves audit and memory integrity
-- Approval comment is optional; rejection reason is mandatory; conflict-resolution reason is mandatory
-- Synchronize generated current context after approved memory changes as required by existing conventions
-- Focused API, memory, policy, and Edge E2E coverage for the full vertical
+- Record that ordinary development inside C:\MetricHit\workspace uses local Codex Full access and Never ask
+- Keep explicit owner decisions mandatory for deletion, force operations, access changes, publication, spending, and other dangerous actions
+- Regenerate approved current context and synchronize operating context and roadmap only
 
 Ограничения:
-- MVP only: no auto-approval, bulk actions, speculative abstractions, or unrelated UI changes
-- Strategy remains read-only; all repository changes are made only by this single native engineering task-thread
-- Use existing SQLite schema, authorization token protection, memory workflows, project conventions, and locked dependencies
-- Read the operator-panel UX contract before changing the panel
-- One implementation commit and clean git status
+- No functional project changes
+- No new semantic key
+- Do not alter AGENTS.md safety and owner-gate rules
+- One native engineering task-thread, focused tests, one commit, clean status
 
 Acceptance:
-- Pending candidates can be listed and inspected in the operator panel
-- Owner can approve with no comment or with an optional comment
-- Reject is blocked without a reason and succeeds with a reason
-- Conflict resolution is blocked without a reason and succeeds with a reason while preserving audit history
-- Approved memory and generated current context remain consistent
-- Focused Python tests and at least one current Playwright E2E using system Microsoft Edge pass
-- Focused memory and governance policy tests pass
-- check-memory and git diff --check pass
-- Exactly one commit is created and git status --short is clean
+- Approved memory evolution supersedes the existing operations.server_strategy_workflow decision
+- knowledge/approved/current-context.md is generated through the normal workflow
+- documents/operating-context.md and documents/roadmap.md state the ordinary development setting and preserved owner-gates
+- Focused memory/governance tests, check-memory, git diff --check pass
+- One commit and clean git status
 
 Источник решения: owner decision 2026-08-16 in SERVER Strategy
