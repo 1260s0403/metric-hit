@@ -30,6 +30,10 @@ test('model lifecycle and MVP speed policies are approved, exact and idempotent'
       assert.equal(mvp.status, 'approved');
       assert.equal(JSON.parse(model.data_json).reclassify_before_each_new_task, true);
       assert.equal(JSON.parse(model.data_json).special_model_approval_carries_to_next_task, false);
+      assert.equal(JSON.parse(model.data_json).engineering_task_thread_must_verify_actual_model_on_start, true);
+      assert.equal(JSON.parse(model.data_json).special_model_mismatch_blocks_critical_actions, true);
+      assert.equal(JSON.parse(model.data_json).special_model_mismatch_action, 'pause_and_request_owner_model_switch');
+      assert.equal(JSON.parse(model.data_json).after_special_model_switch, 'continue_current_state_without_rollback_new_thread_or_restart');
       assert.equal(JSON.parse(mvp.data_json).delivery, 'minimal_complete_user_scenario');
       assert.equal(JSON.parse(mvp.data_json).incomplete_is_mvp, false);
       assert.equal(db.prepare('SELECT count(*) AS count FROM memory_conflicts WHERE status=\'open\'').get().count, 0);
