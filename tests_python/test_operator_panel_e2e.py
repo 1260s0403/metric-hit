@@ -170,6 +170,24 @@ def test_yadro_heading_is_white_left_aligned_on_black_panel(page: Page, panel: s
     assert styles == {"color": "rgb(255, 255, 255)", "textAlign": "left", "background": "rgb(0, 0, 0)"}
 
 
+def test_owner_overview_prioritizes_context_and_separates_navigation_levels(page: Page, panel: str) -> None:
+    page.goto(panel)
+
+    expect(page.get_by_test_id("overview-today-priority")).to_be_visible()
+    overview_cards = page.locator('[data-testid="overview-screen"] > .overview-grid > .overview-card')
+    expect(overview_cards.nth(0)).to_have_attribute("data-testid", "overview-today-priority")
+    expect(overview_cards.nth(1)).to_have_attribute("data-testid", "overview-pending-decisions")
+    expect(overview_cards.nth(2)).to_have_attribute("data-testid", "overview-nearest-tasks")
+    expect(overview_cards.nth(3)).to_have_attribute("data-testid", "overview-recent-activity")
+    expect(page.locator(".global-nav")).to_be_visible()
+    expect(page.get_by_test_id("tab-overview")).to_have_attribute("aria-current", "page")
+
+    page.get_by_test_id("tab-memory").click()
+    expect(page.locator(".local-tabs")).to_be_visible()
+    expect(page.get_by_test_id("tab-memory")).to_have_attribute("aria-current", "page")
+    expect(page.locator('.local-tabs button.active')).to_have_text("Текущий контекст")
+
+
 def test_owner_reviews_memory_candidates_with_required_rejection_reason(page: Page, panel: str) -> None:
     approve_id = "00000000-0000-4000-8000-000000000041"
     reject_id = "00000000-0000-4000-8000-000000000042"
