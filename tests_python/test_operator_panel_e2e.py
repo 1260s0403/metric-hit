@@ -161,7 +161,7 @@ def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
             expect(page.get_by_test_id("memory-screen")).to_be_visible()
 
 
-def test_yadro_uses_dark_left_navigation_with_restrained_active_blue(page: Page, panel: str) -> None:
+def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page, panel: str, tmp_path: Path) -> None:
     page.goto(panel)
 
     styles = page.locator(".panel-header").evaluate(
@@ -171,9 +171,15 @@ def test_yadro_uses_dark_left_navigation_with_restrained_active_blue(page: Page,
     assert styles == {
         "position": "fixed",
         "borderRight": "1px",
-        "background": "rgb(11, 14, 19)",
-        "activeBackground": "rgb(24, 54, 93)",
+        "background": "rgb(9, 9, 9)",
+        "activeBackground": "rgb(29, 29, 29)",
     }
+    expect(page.get_by_test_id("workspace-context")).to_contain_text("Ядро")
+    expect(page.get_by_test_id("page-title")).to_have_text("Обзор")
+    page.screenshot(path=str(tmp_path / "monochrome-overview.png"), full_page=True)
+
+    page.get_by_test_id("tab-tasks").click()
+    expect(page.get_by_test_id("page-title")).to_have_text("Задачи")
 
 
 def test_owner_overview_prioritizes_context_and_separates_navigation_levels(page: Page, panel: str) -> None:
@@ -253,7 +259,7 @@ def test_task_creation_is_idempotent_and_focuses_visible_card(page: Page, panel:
     card = page.get_by_test_id(f"task-card-{task_id}")
     expect(card).to_be_in_viewport()
     expect(card).to_have_class(re.compile(r"\btask-focused\b"))
-    assert card.evaluate("node => getComputedStyle(node).backgroundColor") == "rgb(19, 34, 53)"
+    assert card.evaluate("node => getComputedStyle(node).backgroundColor") == "rgb(23, 23, 23)"
     expect(card).to_contain_text("Открытая задача")
 
 

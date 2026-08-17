@@ -259,16 +259,11 @@ def test_overview_is_default_shows_counts_and_uses_existing_actions(page: Page, 
     assert page.locator('[data-view].active').count() == 1
     expect(page.get_by_test_id("overview-screen")).to_be_visible()
     expect(page.get_by_test_id("knowledge-screen")).to_be_hidden()
-    expect(page.get_by_test_id("overview-open-count")).to_have_text("Открытых: 3")
-    expect(page.get_by_test_id("overview-overdue-count")).to_have_text("Просрочено: 1")
-    expect(page.get_by_test_id("overview-today-count")).to_have_text("На сегодня: 1")
-    expect(page.get_by_test_id("overview-high-count")).to_have_text("Высокий приоритет: 2")
-    expect(page.get_by_test_id("overview-overdue-tasks")).to_contain_text("urgent")
-    expect(page.get_by_test_id("overview-today-tasks")).to_contain_text("today")
-    expect(page.get_by_test_id("overview-high-tasks")).to_contain_text("important")
-    assert page.locator('[data-testid^="overview-task-"]').count() <= 5
+    expect(page.get_by_test_id("overview-today-priority")).to_contain_text("urgent")
+    expect(page.get_by_test_id("overview-nearest-tasks")).to_contain_text("important")
+    assert page.locator('[data-testid^="overview-task-"]').count() <= 6
 
-    page.get_by_test_id(f"overview-open-{overdue['id']}").click()
+    page.get_by_test_id(f"overview-open-{overdue['id']}").first.click()
     expect(page).to_have_url(re.compile(rf"view=tasks.*focus_task={overdue['id']}"))
     card = page.get_by_test_id(f"task-card-{overdue['id']}")
     expect(card).to_be_in_viewport()
@@ -289,5 +284,4 @@ def test_overview_empty_state_and_mobile_layout(page: Page, panel: tuple[str, Kn
     page.set_viewport_size({"width": 390, "height": 844})
     page.goto(base_url)
     expect(page.get_by_test_id("overview-empty-tasks")).to_have_text("Открытых задач нет.")
-    expect(page.get_by_test_id("overview-open-count")).to_have_text("Открытых: 0")
     assert page.evaluate("() => document.documentElement.scrollWidth <= window.innerWidth")
