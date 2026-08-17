@@ -19,6 +19,7 @@
 - HTML, CSS и vanilla JavaScript операторской панели отделены от Python/FastAPI; новый frontend-стек и зависимости не добавлены.
 - короткий UX-проход обзора владельца: приоритеты дня, ожидающие решения, ближайшие задачи и недавняя активность, с разделением глобальной и локальной навигации.
 - project scope MVP: «Ядро» — самостоятельная инфраструктура/control plane; «Развитие Ядра» — внутренний независимый проект, MetricHit — первый независимый бизнес-проект. Поддерживается один уровень принадлежащих проекту подпроектов; новые задачи, рекомендации и идеи обязательно scoped с default MetricHit, legacy-записи не переназначены.
+- reference-driven operator panel: утверждённое Codex Desktop-like dark monochrome направление (black/graphite/gray/soft off-white; без синих акцентов и светящегося белого). Завершены Projects, Tasks и Memory: icon primary nav, no duplicate project rendering, explicit project/subproject task relationship, grouped memory rows. Результат — `e3431ce52f3b81540518ede8e619b07e2b8201cd`; на поставке 28 E2E и 47 Python tests, позднейшая независимая live-проверка подтвердила current HEAD/served assets, browser screenshots и отсутствие browser errors. Макеты не считаются реальными данными.
 
 ## Следующие этапы
 
