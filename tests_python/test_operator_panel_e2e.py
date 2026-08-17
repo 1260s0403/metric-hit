@@ -106,6 +106,8 @@ def page(browser: Browser, panel: str, tmp_path: Path) -> Page:
 
 def _add_entry(page: Page, topic: str, text: str) -> str:
     if not page.get_by_test_id("knowledge-screen").is_visible():
+        if page.locator(".nav-more").get_attribute("open") is None:
+            page.locator(".nav-more > summary").click()
         page.get_by_test_id("tab-artem").click()
     page.get_by_test_id("add-topic").fill(topic)
     page.get_by_test_id("add-text").fill(text)
@@ -138,6 +140,8 @@ def _open_tasks(page: Page, task_id: str) -> None:
 def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
     page.goto(panel)
     for view in ("overview", "search", "artem", "idea", "tasks", "memory"):
+        if view in {"search", "artem", "idea"} and page.locator(".nav-more").get_attribute("open") is None:
+            page.locator(".nav-more > summary").click()
         page.get_by_test_id(f"tab-{view}").click()
         expect(page.get_by_test_id(f"tab-{view}")).to_have_class("active")
         expect(page.get_by_test_id(f"tab-{view}")).to_have_attribute("aria-current", "page")
@@ -171,8 +175,8 @@ def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page,
     assert styles == {
         "position": "fixed",
         "borderRight": "1px",
-        "background": "rgb(11, 11, 11)",
-        "activeBackground": "rgb(29, 29, 29)",
+        "background": "rgb(16, 17, 18)",
+        "activeBackground": "rgb(38, 40, 43)",
     }
     expect(page.get_by_test_id("workspace-context")).to_contain_text("Ядро")
     expect(page.get_by_test_id("page-title")).to_have_text("Обзор")
@@ -199,6 +203,9 @@ def test_owner_overview_prioritizes_context_and_separates_navigation_levels(page
     expect(page.get_by_test_id("tab-overview")).to_have_attribute("aria-current", "page")
 
     page.get_by_test_id("tab-memory").click()
+    expect(page.locator(".memory-secondary")).to_be_visible()
+    expect(page.locator(".local-tabs")).to_be_hidden()
+    page.locator(".memory-secondary > summary").click()
     expect(page.locator(".local-tabs")).to_be_visible()
     expect(page.get_by_test_id("tab-memory")).to_have_attribute("aria-current", "page")
     expect(page.locator('.local-tabs button.active')).to_have_text("Текущий контекст")
@@ -208,6 +215,7 @@ def test_owner_reviews_memory_candidates_with_required_rejection_reason(page: Pa
     approve_id = "00000000-0000-4000-8000-000000000041"
     reject_id = "00000000-0000-4000-8000-000000000042"
     page.goto(f"{panel}/?view=memory")
+    page.locator(".memory-secondary > summary").click()
     page.get_by_test_id("memory-tab-candidates").click()
     expect(page.get_by_test_id(f"memory-candidate-{approve_id}")).to_be_visible()
     page.get_by_test_id(f"memory-candidate-details-{approve_id}").click()
@@ -226,6 +234,7 @@ def test_owner_reviews_memory_candidates_with_required_rejection_reason(page: Pa
 def test_owner_resolves_memory_conflict_with_required_reason(page: Page, panel: str) -> None:
     conflict_candidate_id = "00000000-0000-4000-8000-000000000044"
     page.goto(f"{panel}/?view=memory")
+    page.locator(".memory-secondary > summary").click()
     page.get_by_test_id("memory-tab-conflicts").click()
     card = page.locator('[data-testid^="memory-conflict-"]').filter(has_text="Конфликт E2E")
     expect(card).to_be_visible()
@@ -263,7 +272,7 @@ def test_task_creation_is_idempotent_and_focuses_visible_card(page: Page, panel:
     card = page.get_by_test_id(f"task-card-{task_id}")
     expect(card).to_be_in_viewport()
     expect(card).to_have_class(re.compile(r"\btask-focused\b"))
-    assert card.evaluate("node => getComputedStyle(node).backgroundColor") == "rgb(23, 23, 23)"
+    assert card.evaluate("node => getComputedStyle(node).backgroundColor") == "rgb(32, 34, 37)"
     expect(card).to_contain_text("Открытая задача")
 
 
@@ -328,6 +337,8 @@ def test_task_statuses_persist_after_reload(page: Page, panel: str) -> None:
 
 def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(page: Page, panel: str) -> None:
     page.goto(panel)
+    if page.locator(".nav-more").get_attribute("open") is None:
+        page.locator(".nav-more > summary").click()
     page.get_by_test_id("tab-artem").click()
 
     page.get_by_test_id("intake-text").click()
@@ -356,6 +367,8 @@ def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(pag
     page.get_by_test_id("tab-tasks").click()
     expect(page.locator('[data-testid^="task-card-"]').first).to_contain_text("Проверить источник перед использованием")
 
+    if page.locator(".nav-more").get_attribute("open") is None:
+        page.locator(".nav-more > summary").click()
     page.get_by_test_id("tab-artem").click()
     page.get_by_test_id("intake-file").click()
     expect(page.get_by_test_id("add-text")).to_be_hidden()

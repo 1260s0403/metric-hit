@@ -221,7 +221,7 @@ def test_idea_task_modal_and_standalone_task_keep_priority_and_due_date(page: Pa
     expect(link).to_be_visible()
     link.click()
     expect(page.get_by_test_id("tab-tasks")).to_have_attribute("aria-current", "page")
-    expect(page.locator("#entries")).to_contain_text(f"Срок {due}")
+    expect(page.locator("#entries .task-due")).to_have_text(due)
     expect(page.locator("#entries")).to_contain_text("Высокий")
     page.get_by_test_id("new-task").click()
     page.get_by_test_id("task-title").fill("Standalone")

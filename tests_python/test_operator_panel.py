@@ -464,7 +464,8 @@ def test_tasks_focus_view_is_server_selected_and_task_actions_are_compact(tmp_pa
     assert startup["focus_task"] == task["id"]
     assert "task-linear-row" in javascript and "focusCard" in javascript
     assert "toolbar.append(project,status,create)" in javascript
-    assert "row.append(check,body,disclosure)" in javascript
+    assert "row.append(check,title,relationship,due,disclosure)" in javascript
+    assert "Без подпроекта" in javascript
     assert "row-detail-actions" in javascript
     assert "slice(0,160)" not in javascript
 
@@ -474,12 +475,14 @@ def test_canonical_workspace_dom_and_palette_are_linear_and_monochrome(tmp_path)
     stylesheet = client.get("/assets/operator-panel.css").text
     javascript = client.get("/assets/operator-panel.js").text
 
-    assert "max-width:1260px" in stylesheet
-    assert "--canvas:#0b0b0b" in stylesheet
+    assert "--canvas:#101112" in stylesheet
+    assert "--active:#26282b" in stylesheet
     assert "background:#f1f1ef" not in stylesheet
     assert "#fff" not in stylesheet
     assert "accent-color:#777" in stylesheet
-    assert "project-linear-row" in javascript
+    assert "project-card-top" in javascript
     assert "task-linear-row" in javascript
     assert "memory-linear-group" in javascript
+    assert "task-relationship" in javascript
+    assert 'data-testid="tab-decisions"' in client.get("/").text
     assert "['Контекст',1]" not in javascript  # groups are derived from real API data
