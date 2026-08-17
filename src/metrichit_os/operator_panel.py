@@ -220,6 +220,11 @@ def _page(token: str, focus_task: str | None, view: str) -> str:
         1,
     )
     page = page.replace(
+        "intakeForm.querySelector('textarea').closest('label')",
+        "intakeForm.elements.text.closest('label')",
+        1,
+    )
+    page = page.replace(
         "due_date:form.elements.due_date.value||null};try{",
         "due_date:form.elements.due_date.value||null,project_id:form.elements.project_id?.value||null};try{",
     )

@@ -290,12 +290,15 @@ def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(pag
     page.get_by_test_id("tab-artem").click()
 
     page.get_by_test_id("intake-text").click()
+    expect(page.get_by_test_id("add-text")).to_be_visible()
+    expect(page.get_by_test_id("intake-description-row")).to_be_hidden()
     page.get_by_test_id("add-text").fill("Текст из входящего потока")
     page.get_by_test_id("add-entry").click()
     expect(page.get_by_test_id("entries")).to_contain_text("Текст из входящего потока")
 
     page.get_by_test_id("intake-url").click()
     expect(page.get_by_test_id("intake-url")).to_have_attribute("aria-pressed", "true")
+    expect(page.get_by_test_id("add-text")).to_be_hidden()
     expect(page.get_by_test_id("intake-description-row")).to_be_visible()
     page.locator("#intake-url").fill("not-a-url")
     page.get_by_test_id("add-entry").click()
@@ -314,6 +317,7 @@ def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(pag
 
     page.get_by_test_id("tab-artem").click()
     page.get_by_test_id("intake-file").click()
+    expect(page.get_by_test_id("add-text")).to_be_hidden()
     expect(page.get_by_test_id("intake-description-row")).to_be_visible()
     page.locator("#intake-description").fill("Согласовать содержание файла")
     page.locator("#intake-file").set_input_files({"name": "brief.md", "mimeType": "text/markdown", "buffer": b"# Brief\nFile input"})
