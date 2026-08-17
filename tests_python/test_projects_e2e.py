@@ -22,6 +22,8 @@ def test_projects_create_edit_archive_in_browser(tmp_path: Path) -> None:
             browser=p.chromium.launch(channel='msedge',headless=True); page=browser.new_page(viewport={'width':390,'height':844}); page.set_default_timeout(5000); errors=[]
             page.on('pageerror',lambda e:errors.append(str(e)));page.on('console',lambda m:errors.append(m.text) if m.type=='error' else None)
             page.goto(f'http://127.0.0.1:{port}/?view=projects');expect(page.get_by_test_id('projects-new')).to_be_visible();assert page.get_by_test_id('tab-projects').get_attribute('aria-current')=='page'
+            page.wait_for_timeout(300)
+            expect(page.get_by_test_id('projects-new')).to_have_count(1)
             initial_ids = page.locator('[data-testid^="project-card-"]').evaluate_all("cards => cards.map(card => card.dataset.testid)")
             assert len(initial_ids) == len(set(initial_ids))
 

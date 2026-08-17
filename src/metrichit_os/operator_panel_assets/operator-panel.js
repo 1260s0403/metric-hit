@@ -168,6 +168,14 @@ window.metricHitRefreshProjects=async(form,current)=>{scopes=await originalApi('
   const projectUrl=id=>`/?view=projects&project_id=${encodeURIComponent(id)}#project-${id}`;
   const taskUrl=id=>`/?view=tasks&focus_task=${encodeURIComponent(id)}#task-${id}`;
   let canonicalTaskVersion=0,canonicalTaskSignature='';
+  projectsScreen.dataset.canonicalRender='true';
+  new MutationObserver(()=>{
+    const rendered=new Set();
+    for(const item of projectsScreen.querySelectorAll(':scope > [data-testid^="project-card-"],:scope > button[data-testid="projects-new"]')){
+      if(!item.classList.contains('project-card')&&!item.classList.contains('new-project-card')||rendered.has(item.dataset.testid))item.remove();
+      else rendered.add(item.dataset.testid);
+    }
+  }).observe(projectsScreen,{childList:true});
 
   async function setTaskStatus(id,status){
     try{await api(`/api/tasks/${encodeURIComponent(id)}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});await load()}
