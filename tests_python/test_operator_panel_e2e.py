@@ -5,6 +5,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import re
 from pathlib import Path
 
 import pytest
@@ -160,14 +161,19 @@ def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
             expect(page.get_by_test_id("memory-screen")).to_be_visible()
 
 
-def test_yadro_heading_is_white_left_aligned_on_black_panel(page: Page, panel: str) -> None:
+def test_yadro_uses_dark_left_navigation_with_restrained_active_blue(page: Page, panel: str) -> None:
     page.goto(panel)
 
-    styles = page.locator("h1").evaluate(
-        "heading => ({color: getComputedStyle(heading).color, textAlign: getComputedStyle(heading).textAlign, background: getComputedStyle(document.body).backgroundColor})"
+    styles = page.locator(".panel-header").evaluate(
+        "header => ({position: getComputedStyle(header).position, borderRight: getComputedStyle(header).borderRightWidth, background: getComputedStyle(document.body).backgroundColor, activeBackground: getComputedStyle(document.querySelector('[data-testid=\\\"tab-overview\\\"]')).backgroundColor})"
     )
 
-    assert styles == {"color": "rgb(255, 255, 255)", "textAlign": "left", "background": "rgb(0, 0, 0)"}
+    assert styles == {
+        "position": "fixed",
+        "borderRight": "1px",
+        "background": "rgb(11, 14, 19)",
+        "activeBackground": "rgb(24, 54, 93)",
+    }
 
 
 def test_owner_overview_prioritizes_context_and_separates_navigation_levels(page: Page, panel: str) -> None:
@@ -246,8 +252,8 @@ def test_task_creation_is_idempotent_and_focuses_visible_card(page: Page, panel:
     _open_tasks(page, task_id)
     card = page.get_by_test_id(f"task-card-{task_id}")
     expect(card).to_be_in_viewport()
-    assert card.evaluate("node => getComputedStyle(node).borderTopWidth") == "3px"
-    assert card.evaluate("node => getComputedStyle(node).backgroundColor") == "rgb(18, 55, 69)"
+    expect(card).to_have_class(re.compile(r"\btask-focused\b"))
+    assert card.evaluate("node => getComputedStyle(node).backgroundColor") == "rgb(19, 34, 53)"
     expect(card).to_contain_text("Открытая задача")
 
 
