@@ -48,6 +48,11 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.strategy.create_thread_allowed, false);
       assert.deepEqual(data.strategy.no_engineering_task_for, ['planning', 'analysis', 'context_reads', 'unapproved_proposals', 'pending_candidates']);
       assert.deepEqual(data.strategy.executor_lifecycle_reporting.announce_after_launch, ['executor_name', 'exact_scope']);
+      assert.equal(data.strategy.executor_lifecycle_reporting.active_executor.keep_user_work_turn_open, true);
+      assert.equal(data.strategy.executor_lifecycle_reporting.active_executor.final_completion_answer_allowed, false);
+      assert.equal(data.strategy.executor_lifecycle_reporting.active_executor.interim_communication, 'clearly_marked_in_progress_comment_only');
+      assert.deepEqual(data.strategy.executor_lifecycle_reporting.publish_final_outcome_only_after, ['commit_or_result', 'verified_clean_git_status']);
+      assert.equal(data.strategy.executor_lifecycle_reporting.final_outcome_on_real_blocker, true);
       assert.deepEqual(data.strategy.executor_lifecycle_reporting.publish_after_completion, ['completed_or_blocked', 'commit_if_any', 'checks', 'git_status', 'blocker_if_any']);
       assert.equal(data.strategy.executor_lifecycle_reporting.periodic_statuses, false);
       assert.equal(data.strategy.executor_lifecycle_reporting.scheduler, false);
@@ -82,7 +87,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 15);
+      assert.equal(data.revision, 16);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
