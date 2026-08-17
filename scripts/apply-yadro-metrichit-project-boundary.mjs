@@ -10,7 +10,7 @@ const decisionPath = 'knowledge/decisions/yadro-metrichit-project-boundary-2026-
 const semanticKey = 'architecture.operating_core_and_departments';
 const owner = 'owner';
 const reviewedAt = '2026-08-17T08:00:00.000Z';
-const revision = 3;
+const revision = 4;
 
 function uuid(key) {
   const hash = createHash('sha256').update(`metrichit-operating-context:${key}`).digest('hex');
@@ -27,17 +27,21 @@ export function applyYadroMetricHitProjectBoundary(databasePath = defaultDatabas
   const decision = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   if (decision.includes('\uFFFD')) throw new Error('Decision contains U+FFFD');
   const title = 'Граница «Ядра» и проекта MetricHit';
-  const content = '«Ядро» — самостоятельный инфраструктурный продукт и control plane: оно предоставляет общие возможности памяти, решений, проектов, задач, аудита и управления Strategy. MetricHit — первый самостоятельный проект под управлением «Ядра», использующий эти возможности как отдельно ограниченный проект. MetricHit не является отделом, внутренним техническим модулем или дочерним проектом в иерархии проектов. Редакция и другие будущие отделы остаются отдельной категорией автономных бизнес-модулей. Решение фиксирует границу и не реализует иерархию, схему, UI или поведение продукта, не переименовывает пакеты и не мигрирует данные.';
+  const content = '«Ядро» — самостоятельная инфраструктура и control plane. «Развитие Ядра» — независимый внутренний проект для работ над самим ядром; MetricHit — первый независимый бизнес-проект под его управлением, и независимых проектов может быть несколько. Каждый независимый проект может иметь ровно один уровень принадлежащих только ему подпроектов. Новые задачи, рекомендации и идеи обязательно относятся к одному проекту (по умолчанию MetricHit) и необязательно к одному его подпроекту. Legacy-записи автоматически не переназначаются. Глобальная утверждённая память, решения, Strategy и audit не scoped. Это решение заменяет прежний запрет дочерней иерархии в противоречащей части.';
   const data = JSON.stringify({
     core_product: 'yadro',
     core_role: 'independent_infrastructure_control_plane',
     shared_capabilities: ['memory', 'decisions', 'projects', 'tasks', 'audit', 'strategy_governance'],
+    internal_core_project: 'Развитие Ядра',
     first_managed_project: 'MetricHit',
     metrichit_role: 'independent_project_managed_by_yadro',
     metrichit_is_department: false,
     metrichit_is_internal_technical_module: false,
-    metrichit_is_child_project_in_hierarchy: false,
-    implementation_excluded: ['project_hierarchy', 'schema_change', 'ui_change', 'product_behavior_change', 'package_rename', 'data_migration'],
+    hierarchy: { max_subproject_depth: 1, cross_project_children_allowed: false },
+    required_scope_for_new: ['task', 'artem_recommendation', 'owner_idea'],
+    default_project: 'MetricHit',
+    legacy_records_mass_reassigned: false,
+    global_scope_excluded: ['approved_memory', 'decisions', 'strategy', 'audit'],
     revision,
     supersedes_semantic_revision: revision - 1,
     evidence: { path: decisionPath },
@@ -49,7 +53,7 @@ export function applyYadroMetricHitProjectBoundary(databasePath = defaultDatabas
   const candidateId = uuid(`candidate:${semanticKey}:${revision}`);
   // Revision 1 was created by the original import workflow before its UUID seed
   // was standardized; revision 2 uses the current deterministic seed.
-  const supersededCandidateIds = new Set(['5d253851-f261-4c61-aae5-a59a3ca47597', uuid(`candidate:${semanticKey}:2`)]);
+  const supersededCandidateIds = new Set(['5d253851-f261-4c61-aae5-a59a3ca47597', uuid(`candidate:${semanticKey}:2`), uuid(`candidate:${semanticKey}:3`)]);
   const db = new DatabaseSync(databasePath);
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
   db.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');

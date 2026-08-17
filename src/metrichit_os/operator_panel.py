@@ -19,6 +19,7 @@ from .global_search import search as global_search
 from .knowledge_store import KnowledgeError, KnowledgeStore
 from .memory_review import MemoryReviewError, MemoryReviewStore
 from .project_store import ProjectStore
+from .project_scope import DEFAULT_PROJECT_ID
 
 
 LOCAL_HOST = "127.0.0.1"
@@ -237,7 +238,7 @@ def create_operator_app(database_path: Path) -> FastAPI:
     async def project_create(request: Request) -> JSONResponse:
         if request.headers.get(TOKEN_HEADER) != token: return _error("missing or invalid startup token", 403)
         try:
-            payload = await request.json(); item, created = projects.create(name=_text(payload, "name"), description=_optional_text(payload, "description") or ""); item["created"] = created
+            payload = await request.json(); item, created = projects.create(name=_text(payload, "name"), description=_optional_text(payload, "description") or "", parent_project_id=_optional_text(payload, "parent_project_id")); item["created"] = created
             return JSONResponse(item)
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error: return _error(str(error), 400)
 
@@ -258,7 +259,7 @@ def create_operator_app(database_path: Path) -> FastAPI:
     async def project_assign(request: Request) -> JSONResponse:
         if request.headers.get(TOKEN_HEADER) != token: return _error("missing or invalid startup token", 403)
         try:
-            payload = await request.json(); projects.assign(object_id=_text(payload, "object_id"), project_id=_optional_text(payload, "project_id")); return JSONResponse({"ok": True})
+            payload = await request.json(); projects.assign(object_id=_text(payload, "object_id"), project_id=_optional_text(payload, "project_id"), subproject_id=_optional_text(payload, "subproject_id")); return JSONResponse({"ok": True})
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error: return _error(str(error), 400)
 
     @app.get("/api/search")
@@ -358,12 +359,14 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error("missing or invalid startup token", 403)
         try:
             payload = await request.json()
-            projects.validate_assignment(_optional_text(payload, "project_id"))
+            project_id = _optional_text(payload, "project_id") or DEFAULT_PROJECT_ID
+            subproject_id = _optional_text(payload, "subproject_id")
+            projects.validate_assignment(project_id, subproject_id, required=True)
             item = store.add(
                 kind=_text(payload, "kind"), topic=_text(payload, "topic"), text=_text(payload, "text"),
                 tags=_optional_text(payload, "tags"),
+                project_id=project_id, subproject_id=subproject_id,
             )
-            projects.assign(object_id=str(item["id"]), project_id=_optional_text(payload, "project_id"))
             return JSONResponse(item, status_code=201)
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error:
             return _error(str(error), 400)
@@ -374,7 +377,9 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error("missing or invalid startup token", 403)
         try:
             payload = await request.json()
-            projects.validate_assignment(_optional_text(payload, "project_id"))
+            project_id = _optional_text(payload, "project_id") or DEFAULT_PROJECT_ID
+            subproject_id = _optional_text(payload, "subproject_id")
+            projects.validate_assignment(project_id, subproject_id, required=True)
             entry_id = _optional_text(payload, "id")
             if entry_id:
                 item, created = store.to_task_with_created(
@@ -382,15 +387,16 @@ def create_operator_app(database_path: Path) -> FastAPI:
                     description=_optional_text(payload, "description"),
                     priority=_optional_text(payload, "priority") or "normal",
                     due_date=_optional_text(payload, "due_date"),
+                    project_id=project_id, subproject_id=subproject_id,
                 )
                 item["created"] = created
             else:
                 item = store.create_task(
                     title=_text(payload, "title"), description=_text(payload, "description"),
                     priority=_optional_text(payload, "priority") or "normal", due_date=_optional_text(payload, "due_date"),
+                    project_id=project_id, subproject_id=subproject_id,
                 )
                 item["created"] = True
-            projects.assign(object_id=str(item["id"]), project_id=_optional_text(payload, "project_id"))
             return JSONResponse(item)
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error:
             return _error(str(error), 400)
@@ -412,12 +418,14 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error("missing or invalid startup token", 403)
         try:
             payload = await request.json()
-            projects.validate_assignment(_optional_text(payload, "project_id"))
+            project_id = _optional_text(payload, "project_id")
+            subproject_id = _optional_text(payload, "subproject_id")
+            projects.validate_assignment(project_id, subproject_id, required=True)
             item = store.edit_task(
                 task_id=task_id, title=_text(payload, "title"), description=_text(payload, "description"),
                 priority=_text(payload, "priority"), due_date=_optional_text(payload, "due_date"),
             )
-            projects.assign(object_id=task_id, project_id=_optional_text(payload, "project_id"))
+            projects.assign(object_id=task_id, project_id=project_id, subproject_id=subproject_id)
             return JSONResponse(item)
         except (KnowledgeError, ValueError, TypeError, json.JSONDecodeError) as error:
             return _error(str(error), 400)

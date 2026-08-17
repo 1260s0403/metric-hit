@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from metrichit_os.knowledge_store import KnowledgeError, KnowledgeStore
+from metrichit_os.project_scope import DEFAULT_PROJECT_ID
 
 
 def temporary_database(tmp_path: Path) -> Path:
@@ -41,6 +42,7 @@ def test_existing_and_new_tasks_have_safe_priority_and_due_date_defaults(tmp_pat
                     "knowledge_kind": "artem_recommendation",
                     "knowledge_tags": [],
                     "knowledge_topic": "Старая",
+                    "project_id": DEFAULT_PROJECT_ID,
                 }),
             ),
         )

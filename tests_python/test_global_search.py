@@ -97,10 +97,15 @@ def test_search_covers_tasks_facts_decisions_and_documents(tmp_path: Path) -> No
 def test_invalid_knowledge_metadata_does_not_break_other_search_results(tmp_path: Path) -> None:
     db = database(tmp_path)
     with sqlite3.connect(db) as connection:
+        trigger_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='trigger' AND name='scoped_entry_validate_insert'"
+        ).fetchone()[0]
+        connection.execute("DROP TRIGGER scoped_entry_validate_insert")
         connection.execute(
             "INSERT INTO documents (id,type,title,content,data_json,status,author) VALUES (?,?,?,?,?,'active','owner')",
             (str(uuid4()), "knowledge_entry", "legacy", "needle", None),
         )
+        connection.execute(trigger_sql)
         connection.execute(
             "INSERT INTO documents (id,type,title,content,data_json,status,author) VALUES (?,?,?,?,?,'active','owner')",
             (str(uuid4()), "memory_document", "document", "needle", "{}"),

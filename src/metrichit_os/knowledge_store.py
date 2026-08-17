@@ -7,6 +7,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
+from .project_scope import DEFAULT_PROJECT_ID
+
 
 KNOWLEDGE_KINDS = {
     "artem": "artem_recommendation",
@@ -63,6 +65,8 @@ class KnowledgeStore:
         author: str = "owner",
         source: str = "manual",
         status: str = "active",
+        project_id: str = DEFAULT_PROJECT_ID,
+        subproject_id: str | None = None,
     ) -> dict[str, object]:
         stored_kind = _kind(kind)
         stored_status = _status(status)
@@ -76,7 +80,9 @@ class KnowledgeStore:
             "tags": _tags(tags),
             "source": source.strip(),
             "knowledge_status": stored_status,
+            "project_id": project_id,
         }
+        if subproject_id: metadata["subproject_id"] = subproject_id
         document_status = "archived" if stored_status == "archived" else "active"
         with sqlite3.connect(self.path) as connection:
             connection.execute("PRAGMA foreign_keys = ON")
@@ -148,6 +154,7 @@ class KnowledgeStore:
     def _to_task(
         self, *, entry_id: str, title: str | None = None, description: str | None = None,
         priority: str = "normal", due_date: str | None = None,
+        project_id: str | None = None, subproject_id: str | None = None,
     ) -> dict[str, object]:
         due_date = self._normalize_due_date(due_date)
         self._validate_task_fields(title=title or "x", priority=priority, due_date=due_date)
@@ -186,7 +193,10 @@ class KnowledgeStore:
                 "knowledge_topic": metadata.get("topic", entry["title"]),
                 "priority": priority,
                 "due_date": due_date,
+                "project_id": project_id or metadata.get("project_id") or DEFAULT_PROJECT_ID,
             }
+            inherited_subproject = subproject_id or metadata.get("subproject_id")
+            if inherited_subproject: task_metadata["subproject_id"] = inherited_subproject
             task_title = title.strip() if title and title.strip() else _task_title(task_description)
             connection.execute(
                 """
@@ -214,29 +224,32 @@ class KnowledgeStore:
     def to_task(
         self, *, entry_id: str, title: str | None = None, description: str | None = None,
         priority: str = "normal", due_date: str | None = None,
+        project_id: str | None = None, subproject_id: str | None = None,
     ) -> dict[str, object]:
         task, _ = self._to_task(
-            entry_id=entry_id, title=title, description=description, priority=priority, due_date=due_date,
+            entry_id=entry_id, title=title, description=description, priority=priority, due_date=due_date, project_id=project_id, subproject_id=subproject_id,
         )
         return task
 
     def to_task_with_created(
         self, *, entry_id: str, title: str | None = None, description: str | None = None,
         priority: str = "normal", due_date: str | None = None,
+        project_id: str | None = None, subproject_id: str | None = None,
     ) -> tuple[dict[str, object], bool]:
         return self._to_task(
-            entry_id=entry_id, title=title, description=description, priority=priority, due_date=due_date,
+            entry_id=entry_id, title=title, description=description, priority=priority, due_date=due_date, project_id=project_id, subproject_id=subproject_id,
         )
 
     def create_task(
         self, *, title: str, description: str, priority: str = "normal", due_date: str | None = None,
-        author: str = "owner",
+        author: str = "owner", project_id: str = DEFAULT_PROJECT_ID, subproject_id: str | None = None,
     ) -> dict[str, object]:
         due_date = self._normalize_due_date(due_date)
         self._validate_task_fields(title=title, priority=priority, due_date=due_date)
         task_id = str(uuid4())
         created_at = _utc_text()
-        metadata = {"priority": priority, "due_date": due_date, "standalone": True}
+        metadata = {"priority": priority, "due_date": due_date, "standalone": True, "project_id": project_id}
+        if subproject_id: metadata["subproject_id"] = subproject_id
         with sqlite3.connect(self.path) as connection:
             connection.execute(
                 """INSERT INTO tasks
@@ -382,6 +395,8 @@ class KnowledgeStore:
             "created_at": row["created_at"],
             "id": row["id"],
             "kind": metadata["kind"],
+            "project_id": metadata.get("project_id"),
+            "subproject_id": metadata.get("subproject_id"),
             "source": metadata["source"],
             "status": metadata["knowledge_status"],
             "tags": metadata["tags"],
@@ -403,6 +418,7 @@ class KnowledgeStore:
             "display_title": display_title,
             "priority": metadata.get("priority", "normal"),
             "project_id": metadata.get("project_id"),
+            "subproject_id": metadata.get("subproject_id"),
             "due_date": metadata.get("due_date"),
             "created_at": row["created_at"],
             "id": row["id"],

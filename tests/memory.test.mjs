@@ -38,7 +38,7 @@ test('initialization is repeatable and creates the required schema', (t) => {
 
   const result = checkDatabase(databasePath);
   assert.deepEqual(result.tables, [...requiredTables].sort());
-  assert.equal(result.migrationCount, 8);
+  assert.equal(result.migrationCount, 9);
   assert.equal(result.integrity, 'ok');
 });
 
@@ -781,7 +781,7 @@ test('chat summary import is repeatable and keeps candidates pending', (t) => {
   const second = importChatSummaries(databasePath);
   assert.deepEqual(first.created, { sources: 3, documents: 3, versions: 3, candidates: 25 });
   assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
-  assert.deepEqual(second.totals, { sources: 3, documents: 3, versions: 3, candidates: 25 });
+  assert.deepEqual(second.totals, { sources: 3, documents: 5, versions: 3, candidates: 25 });
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
   const statuses = database.prepare(

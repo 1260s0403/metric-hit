@@ -30,6 +30,8 @@ from .editorial_workflow import EditorialWorkflowService
 from .knowledge_store import KnowledgeError, KnowledgeStore
 from .handoff import HandoffError, HandoffStore, format_handoff
 from .operator_panel import run_operator_panel
+from .project_scope import DEFAULT_PROJECT_ID
+from .project_store import ProjectStore
 from .services import current_context, editorial_status, memory_summary
 from .text_providers import ProviderError
 
@@ -121,6 +123,9 @@ def workflow_parser() -> argparse.ArgumentParser:
         if name != "knowledge-to-task":
             command.add_argument("--kind", choices=("artem", "idea"), required=True)
             command.add_argument("--limit", type=int, default=20)
+        if name in {"knowledge-add", "knowledge-to-task"}:
+            command.add_argument("--project-id", default=DEFAULT_PROJECT_ID)
+            command.add_argument("--subproject-id")
         if name == "knowledge-add":
             content = command.add_mutually_exclusive_group(required=True)
             content.add_argument("--text")
@@ -200,16 +205,20 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         return 0
     if arguments.command.startswith("knowledge-"):
         store = KnowledgeStore(database_path)
+        projects = ProjectStore(database_path)
         if arguments.command == "knowledge-add":
+            projects.validate_assignment(arguments.project_id, arguments.subproject_id, required=True)
             print_json(store.add(
                 kind=arguments.kind, text=sys.stdin.read() if arguments.stdin else arguments.text, topic=arguments.topic,
                 tags=arguments.tags, author=arguments.author, source=arguments.source,
                 status=arguments.status,
+                project_id=arguments.project_id, subproject_id=arguments.subproject_id,
             ))
         elif arguments.command == "knowledge-list":
             print_json(store.list(kind=arguments.kind, limit=arguments.limit))
         elif arguments.command == "knowledge-to-task":
-            print_json(store.to_task(entry_id=arguments.id, title=arguments.title))
+            projects.validate_assignment(arguments.project_id, arguments.subproject_id, required=True)
+            print_json(store.to_task(entry_id=arguments.id, title=arguments.title, project_id=arguments.project_id, subproject_id=arguments.subproject_id))
         else:
             print_json(store.search(kind=arguments.kind, query=arguments.query, limit=arguments.limit))
         return 0

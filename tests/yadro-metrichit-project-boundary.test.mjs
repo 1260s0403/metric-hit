@@ -8,6 +8,7 @@ import { DatabaseSync } from 'node:sqlite';
 
 import { applyOperatingContext } from '../scripts/apply-operating-context.mjs';
 import { applyYadroMetricHitProjectBoundary } from '../scripts/apply-yadro-metrichit-project-boundary.mjs';
+import { buildCurrentContext } from '../scripts/export-current-context.mjs';
 
 test('Yadro–MetricHit boundary explicitly evolves the core decision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-yadro-boundary-'));
@@ -29,8 +30,14 @@ test('Yadro–MetricHit boundary explicitly evolves the core decision and is ide
       assert.equal(data.metrichit_role, 'independent_project_managed_by_yadro');
       assert.equal(data.metrichit_is_department, false);
       assert.equal(data.metrichit_is_internal_technical_module, false);
-      assert.equal(data.metrichit_is_child_project_in_hierarchy, false);
-      assert.deepEqual(data.implementation_excluded, ['project_hierarchy', 'schema_change', 'ui_change', 'product_behavior_change', 'package_rename', 'data_migration']);
+      assert.equal(data.internal_core_project, 'Развитие Ядра');
+      assert.deepEqual(data.hierarchy, { max_subproject_depth: 1, cross_project_children_allowed: false });
+      assert.deepEqual(data.required_scope_for_new, ['task', 'artem_recommendation', 'owner_idea']);
+      assert.equal(data.default_project, 'MetricHit');
+      assert.equal(data.legacy_records_mass_reassigned, false);
+      const context = buildCurrentContext(databasePath, '2026-08-17T00:00:00.000Z');
+      assert.match(context, /«Развитие Ядра» — независимый внутренний проект/);
+      assert.doesNotMatch(context, /не реализует иерархию/);
     } finally { db.close(); }
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
