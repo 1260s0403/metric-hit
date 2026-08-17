@@ -47,6 +47,12 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.strategy.user_owned_sidebar_chat_creation_allowed, false);
       assert.equal(data.strategy.create_thread_allowed, false);
       assert.deepEqual(data.strategy.no_engineering_task_for, ['planning', 'analysis', 'context_reads', 'unapproved_proposals', 'pending_candidates']);
+      assert.deepEqual(data.strategy.executor_lifecycle_reporting.announce_after_launch, ['executor_name', 'exact_scope']);
+      assert.deepEqual(data.strategy.executor_lifecycle_reporting.publish_after_completion, ['completed_or_blocked', 'commit_if_any', 'checks', 'git_status', 'blocker_if_any']);
+      assert.equal(data.strategy.executor_lifecycle_reporting.periodic_statuses, false);
+      assert.equal(data.strategy.executor_lifecycle_reporting.scheduler, false);
+      assert.equal(data.strategy.executor_lifecycle_reporting.ui, false);
+      assert.equal(data.strategy.executor_lifecycle_reporting.new_functionality, false);
       assert.deepEqual(data.strategy.continuity.transition_triggers, ['chat_too_long', 'repeated_compaction', 'important_detail_loss', 'decision_confusion', 'material_context_waste']);
       assert.deepEqual(data.strategy.continuity.pre_transition_review, ['approved_memory', 'current_context', 'roadmap', 'significant_approved_decisions', 'plans', 'constraints', 'unfinished_tasks', 'immediate_next_steps']);
       assert.equal(data.strategy.continuity.synchronization_when_gap_found, 'separate_native_codex_task_thread');
@@ -76,7 +82,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 14);
+      assert.equal(data.revision, 15);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
