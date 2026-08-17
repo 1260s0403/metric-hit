@@ -10,6 +10,7 @@ from pathlib import Path
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .config import CURRENT_CONTEXT, MEMORY_DATABASE
 from .activity import list_activity
@@ -188,7 +189,7 @@ def _dashboard(store: KnowledgeStore, database_path: Path) -> dict[str, object]:
 
 
 
-from .operator_panel_ui import _page
+from .operator_panel_ui import OPERATOR_PANEL_ASSETS, _page
 
 def create_operator_app(database_path: Path) -> FastAPI:
     store = KnowledgeStore(database_path)
@@ -197,6 +198,7 @@ def create_operator_app(database_path: Path) -> FastAPI:
     memory_review = MemoryReviewStore(database_path, context_path)
     token = secrets.token_urlsafe(32)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
+    app.mount("/assets", StaticFiles(directory=OPERATOR_PANEL_ASSETS), name="operator-panel-assets")
 
     @app.get("/favicon.ico", status_code=204)
     def favicon() -> None:

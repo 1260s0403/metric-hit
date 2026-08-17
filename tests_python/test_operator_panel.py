@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import subprocess
@@ -9,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from metrichit_os.config import CURRENT_CONTEXT
 from metrichit_os.operator_panel import create_operator_app, run_operator_panel
+from metrichit_os.operator_panel_ui import _page
 
 
 def temporary_database(tmp_path):
@@ -21,8 +23,14 @@ def panel(tmp_path):
     database = temporary_database(tmp_path)
     client = TestClient(create_operator_app(database))
     page = client.get("/")
-    token = re.search(r'const token="([^"]+)"', page.text).group(1)
+    startup = re.search(r'<script id="operator-panel-startup" type="application/json">(.*?)</script>', page.text)
+    assert startup is not None
+    token = json.loads(startup.group(1))["token"]
     return client, token, database
+
+
+def presentation(client):
+    return client.get("/").text, client.get("/assets/operator-panel.css").text, client.get("/assets/operator-panel.js").text
 
 
 def add(client, token, kind, topic, text, tags=""):
@@ -70,6 +78,22 @@ def test_page_title_stays_metrichit_while_visual_heading_is_yadro(tmp_path):
     assert "<h1>Ядро</h1>" in page
 
 
+def test_page_loads_packaged_assets_and_safely_embeds_only_startup_data(tmp_path):
+    client, _, _ = panel(tmp_path)
+    page = client.get("/").text
+    stylesheet = client.get("/assets/operator-panel.css")
+    javascript = client.get("/assets/operator-panel.js")
+
+    assert '<link rel="stylesheet" href="/assets/operator-panel.css">' in page
+    assert '<script src="/assets/operator-panel.js" defer></script>' in page
+    assert "<style>" not in page and "style=" not in page
+    assert stylesheet.status_code == 200 and stylesheet.headers["content-type"].startswith("text/css")
+    assert javascript.status_code == 200 and "javascript" in javascript.headers["content-type"]
+    assert "__OPERATOR_PANEL_STARTUP__" not in page
+    assert "__OPERATOR_TOKEN__" not in javascript.text
+    assert "\\u003c/script\\u003e" in _page("</script>", None, "invalid")
+
+
 def test_dashboard_is_default_and_keeps_view_separate_from_kind(tmp_path):
     client, token, _ = panel(tmp_path)
     add(client, token, "artem", "Рекомендация", "Текст рекомендации").raise_for_status()
@@ -108,7 +132,7 @@ def test_memory_escapes_html_and_protects_review_actions(tmp_path):
     seed_memory(database, "<img src=x onerror=alert(1)>")
 
     assert "<img src=x onerror=alert(1)>" not in client.get("/").text
-    assert "content.textContent=item.content" in client.get("/").text
+    assert "content.textContent=item.content" in client.get("/assets/operator-panel.js").text
     assert any(route.path.startswith("/api/memory") and "POST" in route.methods for route in client.app.routes)
     assert client.post(
         "/api/memory/candidates/00000000-0000-0000-0000-000000000001/approve", json={}
@@ -350,11 +374,11 @@ def test_task_confirmation_and_details_are_local(tmp_path):
     first = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
     second = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
     task_item = client.get("/api/tasks").json()[0]
-    page = client.get("/").text
+    _, _, script = presentation(client)
 
     assert first["created"] is True and second["created"] is False and first["id"] == second["id"]
     assert task_item["description"] == "Полное описание исходной рекомендации"
-    assert "taskFeedback" in page and "Открыть задачу" in page and "Подробнее" in page
+    assert "taskFeedback" in script and "Открыть задачу" in script and "Подробнее" in script
 
 
 def test_existing_task_is_returned_with_exact_anchor_and_target_style(tmp_path):
@@ -363,11 +387,11 @@ def test_existing_task_is_returned_with_exact_anchor_and_target_style(tmp_path):
     created = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
 
     listed = client.get("/api/entries", params={"kind": "artem"}).json()[0]
-    page = client.get("/").text
+    _, stylesheet, script = presentation(client)
 
     assert listed["task"]["id"] == created["id"]
-    assert f"#task-${{result.id}}" in page
-    assert ".entry:target" in page
+    assert f"#task-${{result.id}}" in script
+    assert ".entry:target" in stylesheet
 
 
 def test_task_card_uses_short_description_and_keeps_full_text_in_details(tmp_path):
@@ -376,12 +400,12 @@ def test_task_card_uses_short_description_and_keeps_full_text_in_details(tmp_pat
     entry = add(client, token, "artem", "Панель", text).json()
     created = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"], "title": "Панель"}).json()
     item = client.get("/api/tasks").json()[0]
-    page = client.get("/").text
+    _, _, script = presentation(client)
 
     assert item["display_title"].startswith("Панель — ")
     assert item["description"] == text
-    assert "slice(0,160)" not in page and "details.className='hidden'" in page
-    assert created["id"] not in page.split("function renderTasks")[1].split("details.append")[0]
+    assert "slice(0,160)" not in script and "details.className='hidden'" in script
+    assert created["id"] not in script.split("function renderTasks")[1].split("details.append")[0]
 
 
 def test_focus_task_and_modal_markup_are_present(tmp_path):
@@ -390,12 +414,14 @@ def test_focus_task_and_modal_markup_are_present(tmp_path):
     task = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
 
     page = client.get("/", params={"view": "tasks", "focus_task": task["id"]}).text
+    script = client.get("/assets/operator-panel.js").text
+    startup = json.loads(re.search(r'<script id="operator-panel-startup" type="application/json">(.*?)</script>', page).group(1))
 
-    assert f'const focusTask="{task["id"]}"' in page
-    assert "focus_task=${encodeURIComponent(result.id)}#task-${result.id}" in page
-    assert "task-focused" in page and "focus-label" in page
+    assert startup == {"token": startup["token"], "focus_task": task["id"], "view": "tasks"}
+    assert "focus_task=${encodeURIComponent(result.id)}#task-${result.id}" in script
+    assert "task-focused" in script and "focus-label" in script
     assert 'role="dialog"' in page and 'id="modal-close"' in page
-    assert "document.body.style.overflow='hidden'" in page and "Escape" in page
+    assert "document.body.style.overflow='hidden'" in script and "Escape" in script
 
 
 def test_summary_and_plan_requests_work_for_both_sections(tmp_path):
@@ -416,10 +442,10 @@ def test_rejects_post_without_token_and_escapes_user_html(tmp_path):
     assert client.post("/api/entries", json={"kind": "idea", "topic": "Тема", "text": "Текст"}).status_code == 403
     text = "<img src=x onerror=alert(1)>"
     add(client, token, "idea", "Тема", text).raise_for_status()
-    page = client.get("/").text
+    page, stylesheet, script = presentation(client)
     assert text not in page
-    assert "textContent=item.text" in page
-    assert "color-scheme:dark" in page
+    assert "textContent=item.text" in script
+    assert "color-scheme:dark" in stylesheet
     created = task(client, token)
     assert client.post(f"/api/tasks/{created['id']}/status", json={"status": "completed"}).status_code == 403
 
@@ -430,12 +456,14 @@ def test_tasks_focus_view_is_server_selected_and_task_actions_are_compact(tmp_pa
     task = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": entry["id"]}).json()
 
     page = client.get(f"/?view=tasks&focus_task={task['id']}#task-{task['id']}").text
-    script = page.split("function renderTasks")[1]
+    javascript = client.get("/assets/operator-panel.js").text
+    script = javascript.split("function renderTasks")[1]
+    startup = json.loads(re.search(r'<script id="operator-panel-startup" type="application/json">(.*?)</script>', page).group(1))
 
-    assert 'data-view="tasks" data-testid="tab-tasks" class="active" aria-current="page"' in page
+    assert startup["view"] == "tasks"
     assert '<div id="knowledge" data-testid="knowledge-screen" class="hidden">' in page
-    assert f'const focusTask="{task["id"]}"' in page
-    assert "task-focused" in script and "focusCard" in page
+    assert startup["focus_task"] == task["id"]
+    assert "task-focused" in script and "focusCard" in javascript
     assert "box.append(title,meta,actions,details)" in script
     assert "details.append(full,origin,date,uuid)" in script
     assert "slice(0,160)" not in script

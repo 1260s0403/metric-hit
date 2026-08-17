@@ -27,6 +27,9 @@ metrichit-os = "metrichit_os.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+metrichit_os = ["operator_panel_assets/*.html", "operator_panel_assets/*.css", "operator_panel_assets/*.js"]
+
 [tool.pytest.ini_options]
 addopts = "-q"
 pythonpath = ["src"]
