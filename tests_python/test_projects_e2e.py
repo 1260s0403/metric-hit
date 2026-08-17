@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 
 def test_projects_create_edit_archive_in_browser(tmp_path: Path) -> None:
@@ -21,8 +21,24 @@ def test_projects_create_edit_archive_in_browser(tmp_path: Path) -> None:
         with sync_playwright() as p:
             browser=p.chromium.launch(channel='msedge',headless=True); page=browser.new_page(viewport={'width':390,'height':844}); errors=[]
             page.on('pageerror',lambda e:errors.append(str(e)));page.on('console',lambda m:errors.append(m.text) if m.type=='error' else None)
-            page.goto(f'http://127.0.0.1:{port}/?view=projects');page.wait_for_timeout(200);assert page.get_by_test_id('tab-projects').get_attribute('aria-current')=='page'
-            page.get_by_test_id('projects-new').click();page.get_by_test_id('project-title').fill('Проект Ёлка');page.get_by_test_id('project-description').fill('text');page.get_by_test_id('project-save').click();page.wait_for_timeout(200)
-            card=page.locator('[data-testid^="project-card-"]').filter(has_text='Проект Ёлка');assert card.count()==1;card.get_by_text('Архивировать').click();page.wait_for_timeout(150);assert 'archived' in card.inner_text();assert page.evaluate('document.documentElement.scrollWidth<=window.innerWidth') and not errors
+            page.goto(f'http://127.0.0.1:{port}/?view=projects');expect(page.get_by_test_id('projects-new')).to_be_visible();assert page.get_by_test_id('tab-projects').get_attribute('aria-current')=='page'
+            initial_ids = page.locator('[data-testid^="project-card-"]').evaluate_all("cards => cards.map(card => card.dataset.testid)")
+            assert len(initial_ids) == len(set(initial_ids))
+
+            page.get_by_test_id('projects-new').click();expect(page.get_by_test_id('project-parent')).to_be_visible()
+            page.get_by_test_id('project-title').fill('Проект Ёлка');page.get_by_test_id('project-description').fill('text');page.get_by_test_id('project-save').click()
+            card=page.locator('[data-testid^="project-card-"]').filter(has_text='Проект Ёлка');expect(card).to_have_count(1)
+            project_id=card.get_attribute('data-testid').removeprefix('project-card-')
+
+            page.reload();expect(page.locator('[data-testid^="project-card-"]').filter(has_text='Проект Ёлка')).to_have_count(1)
+            ids = page.locator('[data-testid^="project-card-"]').evaluate_all("cards => cards.map(card => card.dataset.testid)")
+            assert len(ids) == len(set(ids))
+            page.get_by_test_id(f'project-open-{project_id}').click();expect(page.locator(f'#project-{project_id} h2')).to_have_text('Проект Ёлка');assert page.url.endswith(f'#project-{project_id}')
+
+            page.goto(f'http://127.0.0.1:{port}/?view=projects');expect(page.get_by_test_id('projects-new')).to_be_visible();page.get_by_test_id('projects-new').click()
+            page.get_by_test_id('project-parent').select_option(project_id);page.get_by_test_id('project-title').fill('Подпроект Ёлка');page.get_by_test_id('project-description').fill('child');page.get_by_test_id('project-save').click()
+            child=page.locator('[data-testid^="project-card-"]').filter(has_text='Подпроект Ёлка');expect(child).to_have_count(1);expect(child.get_by_test_id('project-scope-kind')).to_contain_text('Проект Ёлка')
+            child.get_by_text('Редактировать').click();page.get_by_test_id('project-description').fill('updated');page.get_by_test_id('project-save').click();expect(child).to_contain_text('updated')
+            card=page.get_by_test_id(f'project-card-{project_id}');card.get_by_text('Архивировать').click();expect(card).to_contain_text('archived');assert page.evaluate('document.documentElement.scrollWidth<=window.innerWidth') and not errors
             browser.close()
     finally: process.terminate();process.wait(timeout=5)
