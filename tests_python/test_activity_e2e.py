@@ -6,7 +6,7 @@ import sys
 import time
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 
 from metrichit_os.knowledge_store import KnowledgeStore
 
@@ -32,7 +32,7 @@ def test_activity_browser_flow(tmp_path: Path) -> None:
             page.go_back(); page.wait_for_timeout(300); assert page.get_by_test_id("activity-type").input_value() == "all"
             page.get_by_test_id("activity-type").select_option("task"); page.get_by_test_id("activity-action").select_option("update"); page.get_by_test_id("activity-apply").click()
             page.locator('[data-testid^="activity-details-"]').first.click(); assert page.get_by_test_id("modal-overlay").is_visible(); assert "{" not in page.get_by_test_id("modal-markdown").inner_text()
-            page.get_by_test_id("modal-close").click(); page.locator('[data-testid^="activity-open-"]').first.click(); assert page.locator(".task-focused").count() == 1
+            page.get_by_test_id("modal-close").click(); page.locator('[data-testid^="activity-open-"]').first.click(); expect(page.locator(".task-focused")).to_have_count(1)
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth") and not errors
             browser.close()
     finally:

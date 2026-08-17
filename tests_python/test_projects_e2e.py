@@ -19,7 +19,7 @@ def test_projects_create_edit_archive_in_browser(tmp_path: Path) -> None:
                 with socket.create_connection(('127.0.0.1',port),timeout=.1): break
             except OSError: time.sleep(.1)
         with sync_playwright() as p:
-            browser=p.chromium.launch(channel='msedge',headless=True); page=browser.new_page(viewport={'width':390,'height':844}); errors=[]
+            browser=p.chromium.launch(channel='msedge',headless=True); page=browser.new_page(viewport={'width':390,'height':844}); page.set_default_timeout(5000); errors=[]
             page.on('pageerror',lambda e:errors.append(str(e)));page.on('console',lambda m:errors.append(m.text) if m.type=='error' else None)
             page.goto(f'http://127.0.0.1:{port}/?view=projects');expect(page.get_by_test_id('projects-new')).to_be_visible();assert page.get_by_test_id('tab-projects').get_attribute('aria-current')=='page'
             initial_ids = page.locator('[data-testid^="project-card-"]').evaluate_all("cards => cards.map(card => card.dataset.testid)")
@@ -30,15 +30,16 @@ def test_projects_create_edit_archive_in_browser(tmp_path: Path) -> None:
             card=page.locator('[data-testid^="project-card-"]').filter(has_text='Проект Ёлка');expect(card).to_have_count(1)
             project_id=card.get_attribute('data-testid').removeprefix('project-card-')
 
-            page.reload();expect(page.locator('[data-testid^="project-card-"]').filter(has_text='Проект Ёлка')).to_have_count(1)
+            page.reload();expect(page.locator('[data-testid^="project-card-"]').filter(has_text='Проект Ёлка')).to_have_count(1);page.wait_for_timeout(300)
             ids = page.locator('[data-testid^="project-card-"]').evaluate_all("cards => cards.map(card => card.dataset.testid)")
             assert len(ids) == len(set(ids))
-            page.get_by_test_id(f'project-open-{project_id}').click();expect(page.locator(f'#project-{project_id} h2')).to_have_text('Проект Ёлка');assert page.url.endswith(f'#project-{project_id}')
+            page.get_by_test_id(f'project-card-{project_id}').locator(':scope > .row-disclosure > summary').click();page.get_by_test_id(f'project-open-{project_id}').click();expect(page.locator(f'#project-{project_id} h2')).to_have_text('Проект Ёлка');assert page.url.endswith(f'#project-{project_id}')
 
-            page.goto(f'http://127.0.0.1:{port}/?view=projects');expect(page.get_by_test_id('projects-new')).to_be_visible();page.get_by_test_id('projects-new').click()
+            page.goto(f'http://127.0.0.1:{port}/?view=projects');expect(page.get_by_test_id('projects-new')).to_be_visible();page.wait_for_timeout(300);page.get_by_test_id('projects-new').click()
             page.get_by_test_id('project-parent').select_option(project_id);page.get_by_test_id('project-title').fill('Подпроект Ёлка');page.get_by_test_id('project-description').fill('child');page.get_by_test_id('project-save').click()
+            card=page.get_by_test_id(f'project-card-{project_id}');page.wait_for_timeout(300);card.locator('.subproject-disclosure > summary').click()
             child=page.locator('[data-testid^="project-card-"]').filter(has_text='Подпроект Ёлка');expect(child).to_have_count(1);expect(child.get_by_test_id('project-scope-kind')).to_contain_text('Проект Ёлка')
-            child.get_by_text('Редактировать').click();page.get_by_test_id('project-description').fill('updated');page.get_by_test_id('project-save').click();expect(child).to_contain_text('updated')
-            card=page.get_by_test_id(f'project-card-{project_id}');card.get_by_text('Архивировать').click();expect(card).to_contain_text('archived');assert page.evaluate('document.documentElement.scrollWidth<=window.innerWidth') and not errors
+            child_id=child.get_attribute('data-testid').removeprefix('project-card-');child.locator('.row-disclosure > summary').click();child.get_by_text('Редактировать').click();page.get_by_test_id('project-description').fill('updated');page.get_by_test_id('project-save').click();page.goto(f'http://127.0.0.1:{port}/?view=projects&project_id={child_id}#project-{child_id}');expect(page.locator(f'#project-{child_id} > p')).to_have_text('updated')
+            page.goto(f'http://127.0.0.1:{port}/?view=projects');page.wait_for_timeout(300);card=page.get_by_test_id(f'project-card-{project_id}');card.locator(':scope > .row-disclosure > summary').click();card.get_by_text('Архивировать').click();expect(card.get_by_text('Архивный')).to_be_visible();assert page.evaluate('document.documentElement.scrollWidth<=window.innerWidth') and not errors
             browser.close()
     finally: process.terminate();process.wait(timeout=5)

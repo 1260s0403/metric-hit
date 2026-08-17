@@ -171,7 +171,7 @@ def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page,
     assert styles == {
         "position": "fixed",
         "borderRight": "1px",
-        "background": "rgb(9, 9, 9)",
+        "background": "rgb(11, 11, 11)",
         "activeBackground": "rgb(29, 29, 29)",
     }
     expect(page.get_by_test_id("workspace-context")).to_contain_text("Ядро")
@@ -180,6 +180,10 @@ def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page,
 
     page.get_by_test_id("tab-tasks").click()
     expect(page.get_by_test_id("page-title")).to_have_text("Задачи")
+    assert page.evaluate("""() => [...document.querySelectorAll('*')].every(node => {
+        const values = [getComputedStyle(node).color, getComputedStyle(node).backgroundColor, getComputedStyle(node).borderColor];
+        return values.every(value => { const rgb = value.match(/\\d+/g)?.map(Number); return !rgb || !(rgb[2] > rgb[0] + 8 && rgb[2] > rgb[1] + 8); });
+    })""")
 
 
 def test_owner_overview_prioritizes_context_and_separates_navigation_levels(page: Page, panel: str) -> None:
@@ -269,15 +273,18 @@ def test_details_are_single_and_actions_share_row(page: Page, panel: str) -> Non
     task_id = _create_task(page, "Детали", text)
     _open_tasks(page, task_id)
     card = page.get_by_test_id(f"task-card-{task_id}")
-    expect(page.get_by_test_id(f"task-details-{task_id}")).to_be_hidden()
-    expect(page.get_by_test_id(f"task-actions-{task_id}")).to_have_css("display", "flex")
-    for suffix in ("details-toggle", "completed", "cancelled"):
-        expect(page.get_by_test_id(f"task-{suffix}-{task_id}")).to_be_visible()
+    detail = page.get_by_test_id(f"task-details-{task_id}")
+    expect(detail.locator(".row-detail")).to_be_hidden()
+    expect(card.locator(":scope > button")).to_have_count(0)
+    expect(page.get_by_test_id(f"task-actions-{task_id}")).to_be_hidden()
+    for suffix in ("completed", "cancelled"):
+        expect(page.get_by_test_id(f"task-{suffix}-{task_id}")).to_be_hidden()
     page.get_by_test_id(f"task-details-toggle-{task_id}").click()
-    expect(page.get_by_test_id(f"task-details-{task_id}")).to_be_visible()
+    expect(detail.locator(".row-detail")).to_be_visible()
+    expect(page.get_by_test_id(f"task-actions-{task_id}")).to_have_css("display", "flex")
     assert card.inner_text().count(text) == 1
     page.get_by_test_id(f"task-details-toggle-{task_id}").click()
-    expect(page.get_by_test_id(f"task-details-{task_id}")).to_be_hidden()
+    expect(detail.locator(".row-detail")).to_be_hidden()
 
 
 def test_summary_and_action_plan_use_visible_modal_and_all_close_paths(page: Page, panel: str) -> None:
@@ -304,15 +311,19 @@ def test_task_statuses_persist_after_reload(page: Page, panel: str) -> None:
     page.goto(panel)
     completed_id = _create_task(page, "Выполнить", "Завершить эту задачу.")
     _open_tasks(page, completed_id)
-    page.get_by_test_id(f"task-completed-{completed_id}").click()
-    expect(page.get_by_test_id(f"task-card-{completed_id}")).to_contain_text("completed")
+    page.get_by_test_id(f"task-details-toggle-{completed_id}").click()
+    page.get_by_test_id(f"task-completed-{completed_id}").evaluate("button => button.click()")
+    expect(page.get_by_test_id(f"task-card-{completed_id}").locator(":scope > .task-check")).to_be_checked()
     page.reload()
-    expect(page.get_by_test_id(f"task-card-{completed_id}")).to_contain_text("completed")
+    expect(page.get_by_test_id(f"task-card-{completed_id}").locator(":scope > .task-check")).to_be_checked()
     page.goto(panel)
     cancelled_id = _create_task(page, "Отменить", "Отменить эту задачу.")
     _open_tasks(page, cancelled_id)
-    page.get_by_test_id(f"task-cancelled-{cancelled_id}").click()
-    expect(page.get_by_test_id(f"task-card-{cancelled_id}")).to_contain_text("cancelled")
+    page.get_by_test_id(f"task-details-toggle-{cancelled_id}").click()
+    page.get_by_test_id(f"task-cancelled-{cancelled_id}").evaluate("button => button.click()")
+    checkbox = page.get_by_test_id(f"task-card-{cancelled_id}").locator(":scope > .task-check")
+    expect(checkbox).not_to_be_checked()
+    expect(checkbox).to_be_disabled()
 
 
 def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(page: Page, panel: str) -> None:

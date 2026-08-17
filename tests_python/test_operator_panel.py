@@ -84,8 +84,8 @@ def test_page_loads_packaged_assets_and_safely_embeds_only_startup_data(tmp_path
     stylesheet = client.get("/assets/operator-panel.css")
     javascript = client.get("/assets/operator-panel.js")
 
-    assert '<link rel="stylesheet" href="/assets/operator-panel.css">' in page
-    assert '<script src="/assets/operator-panel.js" defer></script>' in page
+    assert re.search(r'<link rel="stylesheet" href="/assets/operator-panel\.css\?v=\d+">', page)
+    assert re.search(r'<script src="/assets/operator-panel\.js\?v=\d+" defer></script>', page)
     assert "<style>" not in page and "style=" not in page
     assert stylesheet.status_code == 200 and stylesheet.headers["content-type"].startswith("text/css")
     assert javascript.status_code == 200 and "javascript" in javascript.headers["content-type"]
@@ -457,13 +457,29 @@ def test_tasks_focus_view_is_server_selected_and_task_actions_are_compact(tmp_pa
 
     page = client.get(f"/?view=tasks&focus_task={task['id']}#task-{task['id']}").text
     javascript = client.get("/assets/operator-panel.js").text
-    script = javascript.split("function renderTasks")[1]
     startup = json.loads(re.search(r'<script id="operator-panel-startup" type="application/json">(.*?)</script>', page).group(1))
 
     assert startup["view"] == "tasks"
     assert '<div id="knowledge" data-testid="knowledge-screen" class="hidden">' in page
     assert startup["focus_task"] == task["id"]
-    assert "task-focused" in script and "focusCard" in javascript
-    assert "box.append(title,meta,actions,details)" in script
-    assert "details.append(full,origin,date,uuid)" in script
-    assert "slice(0,160)" not in script
+    assert "task-linear-row" in javascript and "focusCard" in javascript
+    assert "toolbar.append(project,status,create)" in javascript
+    assert "row.append(check,body,disclosure)" in javascript
+    assert "row-detail-actions" in javascript
+    assert "slice(0,160)" not in javascript
+
+
+def test_canonical_workspace_dom_and_palette_are_linear_and_monochrome(tmp_path):
+    client, _, _ = panel(tmp_path)
+    stylesheet = client.get("/assets/operator-panel.css").text
+    javascript = client.get("/assets/operator-panel.js").text
+
+    assert "max-width:1260px" in stylesheet
+    assert "--canvas:#0b0b0b" in stylesheet
+    assert "background:#f1f1ef" not in stylesheet
+    assert "#fff" not in stylesheet
+    assert "accent-color:#777" in stylesheet
+    assert "project-linear-row" in javascript
+    assert "task-linear-row" in javascript
+    assert "memory-linear-group" in javascript
+    assert "['Контекст',1]" not in javascript  # groups are derived from real API data
