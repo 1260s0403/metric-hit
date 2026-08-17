@@ -127,8 +127,17 @@ def check_memory_database(path: Path = MEMORY_DATABASE) -> dict[str, object]:
 
 
 def check_editorial_database(path: Path = EDITORIAL_DATABASE) -> dict[str, object]:
-    return _check_database(
+    if not path.is_file():
+        return {
+            "exists": False,
+            "state": "paused",
+            "integrity": "not_applicable",
+            "migration_count": 0,
+            "tables": [],
+        }
+    checked = _check_database(
         path, EDITORIAL_MIGRATIONS, EDITORIAL_TABLES,
         EDITORIAL_PROTECTIVE_TRIGGERS, False,
         EDITORIAL_MIGRATIONS.parent / "pending-migrations",
     )
+    return {"exists": True, "state": "active", **checked}

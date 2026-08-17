@@ -25,6 +25,18 @@ function temporaryEditorialDatabase(t) {
   return { directory, databasePath: join(directory, 'editorial.sqlite') };
 }
 
+test('absent editorial database is an explicit paused state', (t) => {
+  const { databasePath } = temporaryEditorialDatabase(t);
+  assert.deepEqual(checkEditorialDatabase(databasePath), {
+    databasePath,
+    exists: false,
+    state: 'paused',
+    migrations: 0,
+    tables: 0,
+    integrity: 'not_applicable',
+  });
+});
+
 test('editorial database initializes repeatably with the required schema', (t) => {
   const { databasePath } = temporaryEditorialDatabase(t);
   const first = initializeEditorialDatabase(databasePath);

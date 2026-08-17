@@ -38,6 +38,20 @@ function memorySnapshot() {
 function editorialSnapshot() {
   const path = join(repositoryRoot, 'data', 'editorial', 'editorial.sqlite');
   const checked = checkEditorialDatabase(path);
+  const emptyEntities = Object.fromEntries(
+    ['editorial_runs', 'daily_plans', 'materials', 'approvals', 'publication_jobs']
+      .map((table) => [table, { count: 0, statuses: {} }]),
+  );
+  if (!checked.exists) {
+    return {
+      exists: false,
+      state: 'paused',
+      integrity: 'not_applicable',
+      migration_count: 0,
+      tables: [],
+      entities: emptyEntities,
+    };
+  }
   const database = new DatabaseSync(path, { readOnly: true });
   const entities = {};
   try {
@@ -49,6 +63,8 @@ function editorialSnapshot() {
       };
     }
     return {
+      exists: true,
+      state: 'active',
       integrity: checked.integrity,
       migration_count: checked.migrations,
       tables: database.prepare(
@@ -62,7 +78,8 @@ function editorialSnapshot() {
 }
 
 function contextSnapshot() {
-  const content = readFileSync(join(repositoryRoot, 'knowledge', 'approved', 'current-context.md'), 'utf8');
+  const content = readFileSync(join(repositoryRoot, 'knowledge', 'approved', 'current-context.md'), 'utf8')
+    .replaceAll(repositoryRoot, '.');
   return {
     exists: true,
     sha256: createHash('sha256').update(content).digest('hex'),

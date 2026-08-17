@@ -4,7 +4,7 @@ import hashlib
 from pathlib import Path
 
 from .checks import check_editorial_database, check_memory_database
-from .config import CURRENT_CONTEXT, EDITORIAL_DATABASE, MEMORY_DATABASE
+from .config import CURRENT_CONTEXT, EDITORIAL_DATABASE, MEMORY_DATABASE, REPOSITORY_ROOT
 from .database import read_only_database
 
 
@@ -38,6 +38,11 @@ def editorial_status(path: Path = EDITORIAL_DATABASE) -> dict[str, object]:
     entity_tables = [
         "editorial_runs", "daily_plans", "materials", "approvals", "publication_jobs"
     ]
+    if not checked["exists"]:
+        checked["entities"] = {
+            table: {"count": 0, "statuses": {}} for table in entity_tables
+        }
+        return checked
     with read_only_database(path) as database:
         checked["entities"] = {
             table: {
@@ -52,7 +57,7 @@ def editorial_status(path: Path = EDITORIAL_DATABASE) -> dict[str, object]:
 def current_context(path: Path = CURRENT_CONTEXT) -> dict[str, object]:
     if not path.is_file():
         return {"exists": False, "sha256": None, "content": None}
-    content = path.read_text(encoding="utf-8")
+    content = path.read_text(encoding="utf-8").replace(str(REPOSITORY_ROOT), ".")
     return {
         "exists": True,
         "sha256": hashlib.sha256(content.encode("utf-8")).hexdigest(),

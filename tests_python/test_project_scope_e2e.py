@@ -10,7 +10,7 @@ from pathlib import Path
 
 from playwright.sync_api import expect, sync_playwright
 
-from metrichit_os.project_scope import DEFAULT_PROJECT_ID, YADRO_DEVELOPMENT_PROJECT_ID
+from metrichit_os.project_scope import DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID
 from metrichit_os.project_store import ProjectStore
 
 
@@ -19,7 +19,7 @@ def test_edge_creates_scoped_task_recommendation_and_idea_and_rejects_cross_proj
     subprocess.run(["node", "scripts/init-memory.mjs", str(database)], check=True, capture_output=True)
     projects = ProjectStore(database)
     metric_child, _ = projects.create(name="MetricHit SEO", description="SEO", parent_project_id=DEFAULT_PROJECT_ID)
-    core_child, _ = projects.create(name="Core infra", description="Core", parent_project_id=YADRO_DEVELOPMENT_PROJECT_ID)
+    core_child, _ = projects.create(name="Core infra", description="Core", parent_project_id=YADRO_CONTROL_PLANE_PROJECT_ID)
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         port = probe.getsockname()[1]

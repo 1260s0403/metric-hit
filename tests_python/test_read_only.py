@@ -36,10 +36,25 @@ def test_python_checks_do_not_change_database_bytes():
 
 
 def test_database_connections_reject_writes():
-    for path in (MEMORY_DATABASE, EDITORIAL_DATABASE):
+    for path in (MEMORY_DATABASE,):
         with read_only_database(path) as database:
             with pytest.raises(sqlite3.OperationalError):
                 database.execute("CREATE TABLE forbidden_write(value TEXT)")
+
+
+def test_absent_editorial_database_is_reported_as_paused():
+    assert not EDITORIAL_DATABASE.exists()
+    assert editorial_status() == {
+        "exists": False,
+        "state": "paused",
+        "integrity": "not_applicable",
+        "migration_count": 0,
+        "tables": [],
+        "entities": {
+            table: {"count": 0, "statuses": {}}
+            for table in ("editorial_runs", "daily_plans", "materials", "approvals", "publication_jobs")
+        },
+    }
 
 
 def test_repository_path_rejects_traversal():

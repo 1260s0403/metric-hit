@@ -24,12 +24,15 @@ def _name(value: str) -> str:
     return " ".join(value.casefold().replace("ё", "е").split())
 
 
+TOP_LEVEL_SCOPE_TYPES = {"control_plane", "managed_project"}
+
+
 class ProjectStore:
     def __init__(self, path: Path): self.path = path.resolve()
 
     def _project(self, row: sqlite3.Row | dict[str, object]) -> dict[str, object]:
         metadata = _meta(row["data_json"])
-        return {"id": row["id"], "name": row["title"], "description": row["content"], "status": row["status"], "scope_type": metadata.get("scope_type", "independent"), "parent_project_id": metadata.get("parent_project_id"), "default_for_new": bool(metadata.get("default_for_new")), "created_at": row["created_at"], "updated_at": row["updated_at"]}
+        return {"id": row["id"], "name": row["title"], "description": row["content"], "status": row["status"], "scope_type": metadata.get("scope_type", "managed_project"), "parent_project_id": metadata.get("parent_project_id"), "default_for_new": bool(metadata.get("default_for_new")), "created_at": row["created_at"], "updated_at": row["updated_at"]}
 
     def validate_assignment(self, project_id: str | None, subproject_id: str | None = None, *, required: bool = False) -> tuple[str | None, str | None]:
         if not project_id:
@@ -38,8 +41,8 @@ class ProjectStore:
             return None, None
         with read_only_database(self.path) as db:
             row = db.execute("SELECT status,data_json FROM documents WHERE id=? AND type='project'", (project_id,)).fetchone()
-            if not row or row["status"] != "active" or _meta(row["data_json"]).get("scope_type", "independent") != "independent":
-                raise KnowledgeError("project must be an active independent project")
+            if not row or row["status"] != "active" or _meta(row["data_json"]).get("scope_type") not in TOP_LEVEL_SCOPE_TYPES:
+                raise KnowledgeError("project must be an active top-level project")
             if subproject_id:
                 child = db.execute("SELECT status,data_json FROM documents WHERE id=? AND type='project'", (subproject_id,)).fetchone()
                 child_meta = _meta(child["data_json"]) if child else {}
@@ -52,6 +55,13 @@ class ProjectStore:
             rows = db.execute("SELECT id,title,content,data_json,status,created_at,updated_at FROM documents WHERE type='project' ORDER BY status,title COLLATE NOCASE,id").fetchall()
             projects = [self._project(row) for row in rows]
             objects = db.execute("SELECT data_json,status,type FROM tasks UNION ALL SELECT data_json,status,type FROM documents WHERE type='knowledge_entry'").fetchall()
+        role_order = {"control_plane": 0, "managed_project": 1, "subproject": 2}
+        projects.sort(key=lambda item: (
+            item["status"] != "active",
+            role_order.get(str(item["scope_type"]), 3),
+            _name(str(item["name"])),
+            str(item["id"]),
+        ))
         for project in projects:
             project.update(open_tasks=0, artem=0, ideas=0)
         by_id = {str(item["id"]): item for item in projects}
@@ -94,7 +104,7 @@ class ProjectStore:
             db.row_factory = sqlite3.Row; db.execute("BEGIN IMMEDIATE")
             for row in db.execute("SELECT id,title,content,data_json,status,created_at,updated_at FROM documents WHERE type='project' AND status='active'"):
                 if _name(str(row["title"])) == _name(name): return self._project(row), False
-            now, project_id = _utc(), str(uuid4()); metadata_dict = {"kind":"project", "scope_type":"subproject" if parent_project_id else "independent"}
+            now, project_id = _utc(), str(uuid4()); metadata_dict = {"kind":"project", "scope_type":"subproject" if parent_project_id else "managed_project"}
             if parent_project_id: metadata_dict["parent_project_id"] = parent_project_id
             metadata = json.dumps(metadata_dict, ensure_ascii=False, sort_keys=True)
             db.execute("INSERT INTO documents (id,type,title,content,data_json,status,author,created_at,updated_at,access_level,version) VALUES (?, 'project', ?, ?, ?, 'active', ?, ?, ?, 'internal', 1)", (project_id,name.strip(),description,metadata,author,now,now))

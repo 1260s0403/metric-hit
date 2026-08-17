@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -15,7 +15,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
     execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
     const first = applyDecisionGovernancePolicy(databasePath);
     const second = applyDecisionGovernancePolicy(databasePath);
-    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 2 });
     assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
 
     const db = new DatabaseSync(databasePath, { readOnly: true });
@@ -31,6 +31,36 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.target_overhead, 'few_percent_or_less');
       assert.equal(data.execution.implementation, 'native_codex_task_thread');
       assert.deepEqual(data.execution.canonical_path, ['strategy', 'native_codex_task_thread', 'commit_result']);
+      assert.deepEqual(data.execution.small_change_fast_path.eligible, ['isolated_ui_css_text', 'narrow_fix', 'documentation', 'approved_memory_rule_sync']);
+      assert.equal(data.execution.small_change_fast_path.strategy_full_startup_completed_once, true);
+      assert.deepEqual(data.execution.small_change_fast_path.handoff_context, ['owner_approval', 'exact_scope_acceptance', 'branch_head_status', 'relevant_canonical_references']);
+      assert.deepEqual(data.execution.small_change_fast_path.executor_reads, ['agents_rules', 'branch_head_status', 'scope_files_and_contracts', 'targeted_read_only_memory']);
+      assert.equal(data.execution.small_change_fast_path.repeat_full_context_required, false);
+      assert.equal(data.execution.small_change_fast_path.repo_side_handoff_required, false);
+      assert.equal(data.execution.small_change_fast_path.additional_task_or_agent_required, false);
+      assert.equal(data.execution.small_change_fast_path.planning_artifact_required, false);
+      assert.equal(data.execution.small_change_fast_path.significant_memory_uses_same_executor_and_idempotent_workflow, true);
+      assert.equal(data.execution.small_change_fast_path.responsible_executors, 1);
+      assert.equal(data.execution.small_change_fast_path.commits, 1);
+      assert.deepEqual(data.execution.small_change_fast_path.excluded, ['architecture', 'sqlite_schema_or_migrations', 'business_logic', 'authorization', 'security', 'backup_restore', 'data_integrity', 'multi_module_scope', 'unclear_scope_or_approval', 'overlapping_dirty_worktree', 'head_or_context_mismatch', 'material_contradiction']);
+      assert.equal(data.platform_boundary.managed_sandbox_is_external, true);
+      assert.equal(data.platform_boundary.repository_can_grant_full_access_or_disable_approval, false);
+      assert.equal(data.platform_boundary.repository_can_bypass_git_index_lock_denial, false);
+      assert.deepEqual(data.platform_boundary.on_denial, ['report_exact_blocked_operation_immediately', 'identify_external_blocker', 'use_platform_approval_if_available', 'continue_same_executor_after_approval']);
+      assert.deepEqual(data.platform_boundary.forbidden_reactions, ['spawn_replacement_executor', 'retry_loop', 'claim_git_database_or_server_failure_without_evidence']);
+      assert.deepEqual(data.owner_gates_preserved, ['deletion', 'force_operations', 'access_changes', 'publication', 'spending', 'strategy_changes', 'memory_changes', 'settings_changes', 'other_dangerous_actions']);
+      const operationsCandidates = db.prepare('SELECT status,data_json,content FROM memory_candidates WHERE semantic_key=?').all(first.operationsSemanticKey);
+      assert.equal(operationsCandidates.length, 1);
+      assert.equal(operationsCandidates[0].status, 'approved');
+      const operations = JSON.parse(operationsCandidates[0].data_json);
+      assert.equal(operations.revision, 3);
+      assert.equal(operations.strategy.owner_visible, true);
+      assert.equal(operations.strategy.read_only, true);
+      assert.equal(operations.repository_mutation.responsible_executors, 1);
+      assert.equal(operations.repository_mutation.commits, 1);
+      assert.equal(operations.small_change_fast_path.repo_side_handoff_required, false);
+      assert.equal(operations.platform_boundary.managed_sandbox_is_external, true);
+      assert.match(operationsCandidates[0].content, /репозиторий не может гарантировать Full access/);
       assert.equal(data.strategy.mode, 'read_only');
       assert.deepEqual(data.strategy.primary_role, ['product', 'architecture', 'priorities', 'development']);
       assert.deepEqual(data.strategy.pre_decision_context, ['approved_memory', 'current_context', 'operating_context', 'roadmap', 'git_state']);
@@ -87,7 +117,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 16);
+      assert.equal(data.revision, 17);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
@@ -95,6 +125,26 @@ test('decision governance policy is approved, exact and idempotent', () => {
   } finally {
     rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
+});
+
+test('canonical workflow documents preserve the small-change fast path and sandbox boundary', () => {
+  const agents = readFileSync(resolve('AGENTS.md'), 'utf8');
+  const decision = readFileSync(resolve('knowledge/decisions/decision-governance-policy-2026-08-15.md'), 'utf8');
+  const operating = readFileSync(resolve('documents/operating-context.md'), 'utf8');
+  const roadmap = readFileSync(resolve('documents/roadmap.md'), 'utf8');
+  const serverWorkflow = readFileSync(resolve('documents/server-workflow.md'), 'utf8');
+
+  for (const document of [agents, decision, operating, roadmap]) {
+    assert.match(document, /fast path/i);
+    assert.match(document, /один[^\r\n]*executor/i);
+    assert.match(document, /managed sandbox/i);
+    assert.match(document, /\.git\/index\.lock/i);
+  }
+  assert.match(agents, /Strategy[^\r\n]*read-only/i);
+  assert.match(decision, /owner-gates[^\r\n]*сохраняются/i);
+  assert.match(serverWorkflow, /Executor[^\r\n]*fast path/i);
+  assert.doesNotMatch(operating, /режиме Full access \+ Never ask/);
+  assert.doesNotMatch(roadmap, /режиме Full access \+ Never ask/);
 });
 
 test('decision governance workflow refuses a competing approved truth', () => {

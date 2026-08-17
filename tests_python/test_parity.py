@@ -23,7 +23,7 @@ def node_snapshot() -> dict[str, object]:
 def parity_snapshots():
     before = {
         "memory": sha256_file(MEMORY_DATABASE),
-        "editorial": sha256_file(EDITORIAL_DATABASE),
+        "editorial": sha256_file(EDITORIAL_DATABASE) if EDITORIAL_DATABASE.exists() else None,
     }
     snapshots = {
         "node": node_snapshot(),
@@ -35,7 +35,7 @@ def parity_snapshots():
     }
     after = {
         "memory": sha256_file(MEMORY_DATABASE),
-        "editorial": sha256_file(EDITORIAL_DATABASE),
+        "editorial": sha256_file(EDITORIAL_DATABASE) if EDITORIAL_DATABASE.exists() else None,
     }
     assert after == before
     return snapshots
@@ -49,5 +49,6 @@ def test_python_matches_node_editorial_contract(parity_snapshots):
     assert parity_snapshots["python"]["editorial"] == parity_snapshots["node"]["editorial"]
 
 
-def test_python_matches_node_current_context_bytes(parity_snapshots):
+def test_python_matches_node_redacted_current_context(parity_snapshots):
     assert parity_snapshots["python"]["context"] == parity_snapshots["node"]["context"]
+    assert "C:\\" not in parity_snapshots["python"]["context"]["content"]

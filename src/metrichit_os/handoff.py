@@ -390,8 +390,9 @@ class HandoffStore:
             result = self._attested_result(connection, dict(row), metadata, handoff)
             lifecycle = handoff["lifecycle"]
             if result["status"] == "completed":
-                if (lifecycle.get("commit_hash") != commit_hash or lifecycle.get("claimed_by") != developer_id
-                        or lifecycle.get("result") != result_text):
+                if lifecycle.get("commit_hash") != commit_hash:
+                    raise HandoffError("completed handoff is already linked to a different commit hash")
+                if lifecycle.get("claimed_by") != developer_id or lifecycle.get("result") != result_text:
                     raise HandoffError("completed handoff is already linked to a different result")
                 return result
             if result["status"] != "in_progress":

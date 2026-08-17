@@ -35,5 +35,10 @@ class EntityStatus(BaseModel):
     statuses: dict[str, int]
 
 
-class EditorialStatusResponse(DatabaseStatus):
+class EditorialStatusResponse(BaseModel):
+    exists: bool
+    state: Literal["active", "paused"]
+    integrity: Literal["ok", "not_applicable"]
+    migration_count: int
+    tables: list[str]
     entities: dict[str, EntityStatus]

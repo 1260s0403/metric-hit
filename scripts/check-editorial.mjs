@@ -36,7 +36,16 @@ function expectedProtectiveTriggers(migrations) {
 
 export function checkEditorialDatabase(databasePath = defaultDatabasePath, options = {}) {
   const migrationsPath = options.migrationsPath ?? defaultMigrationsPath;
-  if (!existsSync(databasePath)) throw new Error(`Editorial database does not exist: ${databasePath}`);
+  if (!existsSync(databasePath)) {
+    return {
+      databasePath,
+      exists: false,
+      state: 'paused',
+      migrations: 0,
+      tables: 0,
+      integrity: 'not_applicable',
+    };
+  }
   const database = new DatabaseSync(databasePath, { readOnly: true });
   try {
     database.exec('PRAGMA query_only = ON; PRAGMA foreign_keys = ON;');
@@ -75,7 +84,14 @@ export function checkEditorialDatabase(databasePath = defaultDatabasePath, optio
         throw new Error(`Protective trigger is invalid: ${name}`);
       }
     }
-    return { databasePath, migrations: applied.length, tables: tables.length, integrity: 'ok' };
+    return {
+      databasePath,
+      exists: true,
+      state: 'active',
+      migrations: applied.length,
+      tables: tables.length,
+      integrity: 'ok',
+    };
   } finally {
     database.close();
   }
@@ -88,8 +104,12 @@ function isMainModule() {
 if (isMainModule()) {
   try {
     const result = checkEditorialDatabase(process.argv[2] ? resolve(process.argv[2]) : defaultDatabasePath);
-    console.log(`Editorial database is valid and read-only check passed: ${result.databasePath}`);
-    console.log(`Migrations: ${result.migrations}; tables: ${result.tables}; integrity: ${result.integrity}`);
+    if (!result.exists) {
+      console.log('Editorial department is paused; database is not initialized.');
+    } else {
+      console.log(`Editorial database is valid and read-only check passed: ${result.databasePath}`);
+      console.log(`Migrations: ${result.migrations}; tables: ${result.tables}; integrity: ${result.integrity}`);
+    }
   } catch (error) {
     console.error(`check-editorial: ${error.message}`);
     process.exitCode = 1;

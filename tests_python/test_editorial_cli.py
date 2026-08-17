@@ -8,7 +8,6 @@ import sys
 import pytest
 
 from metrichit_os.config import EDITORIAL_DATABASE, MEMORY_DATABASE
-from metrichit_os.database import sha256_file
 from metrichit_os.editorial_store import (
     EditorialStore,
     WorkflowError,
@@ -51,11 +50,11 @@ def test_cli_initializes_explicit_database_and_returns_json(tmp_path):
 
 
 def test_cli_refuses_working_editorial_database(tmp_path):
-    before = sha256_file(EDITORIAL_DATABASE)
+    assert not EDITORIAL_DATABASE.exists()
     result = run_cli("init-editorial-db", "--db", str(EDITORIAL_DATABASE), check=False)
     assert result.returncode == 2
     assert json.loads(result.stdout)["error"] == "WorkingDatabaseWriteError"
-    assert sha256_file(EDITORIAL_DATABASE) == before
+    assert not EDITORIAL_DATABASE.exists()
 
 
 def test_all_working_database_family_paths_are_protected():

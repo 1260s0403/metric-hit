@@ -12,7 +12,7 @@ from fastapi.testclient import TestClient
 
 from metrichit_os.knowledge_store import KnowledgeError, KnowledgeStore
 from metrichit_os.operator_panel import create_operator_app
-from metrichit_os.project_scope import DEFAULT_PROJECT_ID, YADRO_DEVELOPMENT_PROJECT_ID
+from metrichit_os.project_scope import DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID
 from metrichit_os.project_store import ProjectStore
 
 
@@ -28,10 +28,12 @@ def test_default_projects_and_one_level_parent_validation(tmp_path: Path) -> Non
     listed = {item["id"]: item for item in projects.list()}
     assert listed[DEFAULT_PROJECT_ID]["name"] == "MetricHit"
     assert listed[DEFAULT_PROJECT_ID]["default_for_new"] is True
-    assert listed[YADRO_DEVELOPMENT_PROJECT_ID]["name"] == "Развитие Ядра"
+    assert listed[YADRO_CONTROL_PLANE_PROJECT_ID]["name"] == "Ядро"
+    assert listed[YADRO_CONTROL_PLANE_PROJECT_ID]["scope_type"] == "control_plane"
+    assert listed[DEFAULT_PROJECT_ID]["scope_type"] == "managed_project"
 
     metric_child, _ = projects.create(name="SEO", description="MetricHit SEO", parent_project_id=DEFAULT_PROJECT_ID)
-    core_child, _ = projects.create(name="Инфраструктура", description="Core", parent_project_id=YADRO_DEVELOPMENT_PROJECT_ID)
+    core_child, _ = projects.create(name="Инфраструктура", description="Core", parent_project_id=YADRO_CONTROL_PLANE_PROJECT_ID)
     assert metric_child["scope_type"] == "subproject"
     projects.validate_assignment(DEFAULT_PROJECT_ID, str(metric_child["id"]), required=True)
     with pytest.raises(KnowledgeError, match="belong"):
@@ -43,14 +45,14 @@ def test_default_projects_and_one_level_parent_validation(tmp_path: Path) -> Non
 def test_new_objects_default_to_metrichit_and_reject_cross_project_child(tmp_path: Path) -> None:
     path = initialized(tmp_path)
     projects, knowledge = ProjectStore(path), KnowledgeStore(path)
-    child, _ = projects.create(name="Core child", description="x", parent_project_id=YADRO_DEVELOPMENT_PROJECT_ID)
+    child, _ = projects.create(name="Core child", description="x", parent_project_id=YADRO_CONTROL_PLANE_PROJECT_ID)
     idea = knowledge.add(kind="idea", topic="Idea", text="Text")
     task = knowledge.create_task(title="Task", description="Text")
     converted = knowledge.to_task(entry_id=str(idea["id"]))
     assert idea["project_id"] == task["project_id"] == converted["project_id"] == DEFAULT_PROJECT_ID
     with pytest.raises(KnowledgeError, match="belong"):
         projects.validate_assignment(DEFAULT_PROJECT_ID, str(child["id"]), required=True)
-    scoped = knowledge.create_task(title="Core scoped", description="x", project_id=YADRO_DEVELOPMENT_PROJECT_ID, subproject_id=str(child["id"]))
+    scoped = knowledge.create_task(title="Core scoped", description="x", project_id=YADRO_CONTROL_PLANE_PROJECT_ID, subproject_id=str(child["id"]))
     child_summary = next(item for item in projects.list() if item["id"] == child["id"])
     assert child_summary["open_tasks"] == 1
     assert projects.detail(str(child["id"]))["tasks"][0]["id"] == scoped["id"]
@@ -70,13 +72,13 @@ def test_panel_defaults_scope_and_protects_invalid_scope_actions(tmp_path: Path)
     created = client.post("/api/entries", headers=headers, json={"kind": "idea", "topic": "Scoped", "text": "Text"})
     assert created.status_code == 201 and created.json()["project_id"] == DEFAULT_PROJECT_ID
     assert client.post("/api/tasks", json={"title": "No token", "description": "x"}).status_code == 403
-    invalid = client.post("/api/tasks", headers=headers, json={"title": "Bad", "description": "x", "project_id": YADRO_DEVELOPMENT_PROJECT_ID, "subproject_id": DEFAULT_PROJECT_ID})
+    invalid = client.post("/api/tasks", headers=headers, json={"title": "Bad", "description": "x", "project_id": YADRO_CONTROL_PLANE_PROJECT_ID, "subproject_id": DEFAULT_PROJECT_ID})
     assert invalid.status_code == 400
 
 
 def test_cli_defaults_new_knowledge_to_metrichit_and_validates_child(tmp_path: Path) -> None:
     path = initialized(tmp_path)
-    child, _ = ProjectStore(path).create(name="Core CLI", description="x", parent_project_id=YADRO_DEVELOPMENT_PROJECT_ID)
+    child, _ = ProjectStore(path).create(name="Core CLI", description="x", parent_project_id=YADRO_CONTROL_PLANE_PROJECT_ID)
     created = subprocess.run(
         [sys.executable, "-m", "metrichit_os", "knowledge-add", "--db", str(path), "--kind", "artem", "--topic", "CLI", "--text", "Text"],
         check=True, capture_output=True, text=True, encoding="utf-8",
@@ -89,7 +91,7 @@ def test_cli_defaults_new_knowledge_to_metrichit_and_validates_child(tmp_path: P
     assert invalid.returncode == 2 and "belong" in invalid.stdout
 
 
-def test_migration_keeps_legacy_objects_and_audit_unchanged(tmp_path: Path) -> None:
+def test_migration_keeps_legacy_scope_and_records_only_targeted_role_audit(tmp_path: Path) -> None:
     path = tmp_path / "legacy.sqlite"
     migrations = Path("data/database/migrations")
     with sqlite3.connect(path) as db:
@@ -104,13 +106,25 @@ def test_migration_keeps_legacy_objects_and_audit_unchanged(tmp_path: Path) -> N
             "INSERT INTO tasks(id,type,title,content,data_json,status,author,access_level) VALUES(?, 'standalone_task','Legacy','legacy','{\"priority\":\"normal\"}','pending','owner','internal')",
             ("90000000-0000-4000-a000-000000000002",),
         )
+        db.execute(
+            "INSERT INTO tasks(id,type,title,content,data_json,status,author,access_level) VALUES(?, 'knowledge_task','задачи на 17.08',?,'{\"priority\":\"normal\"}','pending','owner','internal')",
+            (
+                "a1023db2-32d7-4286-b635-03c27fef6a35",
+                "Другая задача\nРазделение: ядро - самостоятельный проект. а метрикхит это подпроект в нем",
+            ),
+        )
         before = db.execute("SELECT data_json,version FROM tasks WHERE title='Legacy'").fetchone()
         audit_before = db.execute("SELECT count(*) FROM audit_log").fetchone()[0]
     subprocess.run(["node", "scripts/init-memory.mjs", str(path)], check=True, capture_output=True)
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT data_json,version FROM tasks WHERE title='Legacy'").fetchone() == before
-        assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == audit_before
-        assert db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 9
+        assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == audit_before + 3
+        assert db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 10
+        corrected = db.execute(
+            "SELECT content,data_json FROM tasks WHERE id='a1023db2-32d7-4286-b635-03c27fef6a35'"
+        ).fetchone()
+        assert "а не подпроект" in corrected[0]
+        assert corrected[1] == '{"priority":"normal"}'
     subprocess.run(["node", "scripts/init-memory.mjs", str(path)], check=True, capture_output=True)
     with sqlite3.connect(path) as db:
-        assert db.execute("SELECT count(*) FROM documents WHERE type='project' AND id IN (?,?)", (DEFAULT_PROJECT_ID, YADRO_DEVELOPMENT_PROJECT_ID)).fetchone()[0] == 2
+        assert db.execute("SELECT count(*) FROM documents WHERE type='project' AND id IN (?,?)", (DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID)).fetchone()[0] == 2

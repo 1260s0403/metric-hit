@@ -15,7 +15,7 @@ def db(tmp_path: Path) -> Path:
 
 def test_project_lifecycle_assignment_and_counts(tmp_path: Path) -> None:
     path=db(tmp_path); projects=ProjectStore(path); knowledge=KnowledgeStore(path)
-    first, created=projects.create(name="Ёлка",description="one"); assert created
+    first, created=projects.create(name="Ёлка",description="one"); assert created and first["scope_type"] == "managed_project"
     same, created=projects.create(name=" елка ",description="two"); assert not created and same["id"]==first["id"]
     task=knowledge.create_task(title="Task",description="x"); entry=knowledge.add(kind="idea",topic="Idea",text="x")
     projects.assign(object_id=str(task["id"]),project_id=str(first["id"])); projects.assign(object_id=str(entry["id"]),project_id=str(first["id"]))

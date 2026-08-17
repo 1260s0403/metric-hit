@@ -18,7 +18,12 @@ def test_cli_check_commands_are_deterministic_json():
         first = run_cli(command).stdout
         second = run_cli(command).stdout
         assert first == second
-        assert json.loads(first)["integrity"] == "ok"
+        result = json.loads(first)
+        if command in {"check-editorial", "editorial-status"}:
+            assert result["state"] == "paused"
+            assert result["integrity"] == "not_applicable"
+        else:
+            assert result["integrity"] == "ok"
         assert "C:\\" not in first
 
 

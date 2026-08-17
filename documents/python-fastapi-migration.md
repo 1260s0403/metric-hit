@@ -31,6 +31,7 @@
 Все команды выполняются только проектным интерпретатором:
 
 ```powershell
+.venv\Scripts\python.exe -m pip install --no-deps -e .
 .venv\Scripts\python.exe -m metrichit_os check-memory
 .venv\Scripts\python.exe -m metrichit_os check-editorial
 .venv\Scripts\python.exe -m metrichit_os memory-summary

@@ -264,7 +264,11 @@ def build_current_context(database_path: Path, generated_at: str | None = None) 
             f"""
             SELECT title,content FROM (
               SELECT title,content,semantic_key,
-                     ROW_NUMBER() OVER (PARTITION BY semantic_key ORDER BY reviewed_at DESC,updated_at DESC,id DESC) revision_rank
+                     ROW_NUMBER() OVER (
+                       PARTITION BY semantic_key
+                       ORDER BY coalesce(json_extract(data_json, '$.revision'), 0) DESC,
+                                reviewed_at DESC,updated_at DESC,id DESC
+                     ) revision_rank
               FROM memory_candidates c
               WHERE status='approved' AND type IN ({placeholders})
                 AND NOT EXISTS (
