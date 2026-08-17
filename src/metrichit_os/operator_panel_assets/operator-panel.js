@@ -85,3 +85,74 @@ async function enhance(){scopes=await originalApi('/api/projects');addContext();
 window.metricHitRefreshProjects=async(form,current)=>{scopes=await originalApi('/api/projects');ensurePair(form,'task');const project=form.elements.project_id;project.replaceChildren();for(const item of scopes)if(item.status==='active'&&item.scope_type==='independent')project.append(new Option(item.name,item.id));project.value=current&&[...project.options].some(x=>x.value===current)?current:DEFAULT;project.onchange?.()};new MutationObserver(()=>enhance().catch(()=>{})).observe(document.body,{childList:true,subtree:true});enhance().catch(error=>show(error.message,true))})();
 
 (()=>{const titles={overview:['Обзор','Спокойная сводка того, что требует внимания сейчас.'],search:['Поиск','Найдите запись, задачу или знание по смыслу и перейдите к первоисточнику.'],projects:['Проекты','Рабочие направления и их компактное текущее состояние.'],activity:['Активность','Последние подтверждённые изменения в рабочем контуре.'],artem:['Рекомендации Артёма','Новые материалы и решения для последующей проработки.'],idea:['Мои идеи','Личные заметки, которые можно превратить в задачу.'],tasks:['Задачи','Линейный список текущей работы — без лишнего шума.'],memory:['Память','Утверждённые знания, решения и записи на рассмотрении.']};const title=document.querySelector('[data-testid="page-title"]'),description=document.querySelector('[data-testid="page-description"]'),viewLabel=document.querySelector('[data-testid="workspace-view"]');function heading(name){const [label,text]=titles[name]||titles.overview;title.textContent=label;description.textContent=text;viewLabel.textContent=label}function taskRows(){for(const card of document.querySelectorAll('[data-testid^="task-card-"]')){if(card.querySelector('.task-row-head'))continue;const taskTitle=card.querySelector('strong');if(!taskTitle)continue;const head=document.createElement('div');head.className='task-row-head';const check=document.createElement('input');check.type='checkbox';check.className='task-check';check.setAttribute('aria-label',`Отметить задачу «${taskTitle.textContent}» выполненной`);const complete=card.querySelector('[data-testid^="task-completed-"]');check.checked=!complete;check.disabled=!complete;check.onchange=()=>{if(check.checked)complete?.click()};head.append(check,taskTitle);card.insertBefore(head,card.firstChild)}}function rowShapes(){taskRows();document.querySelectorAll('[data-testid^="project-card-"]').forEach(card=>card.classList.add('project-row'));document.querySelectorAll('#memory-items .entry').forEach(card=>card.classList.add('memory-row'))}heading(view);new MutationObserver(rowShapes).observe(document.body,{childList:true,subtree:true});rowShapes();for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',()=>heading(tab.dataset.view));setTimeout(()=>{if(view==='tasks')load()},0)})();
+
+/* Owner workspace layout: keep the existing controls and API contract, but present
+   the three operational views as calm, linear working lists. */
+(()=>{
+  const projects=document.querySelector('#projects'),entries=document.querySelector('#entries'),memoryScreen=document.querySelector('#memory');
+  const node=(tag,text,cls)=>{const el=document.createElement(tag);if(text!==undefined)el.textContent=text;if(cls)el.className=cls;return el};
+  let shapingProjects=false;
+  async function shapeProjects(){
+    if(view!=='projects'||shapingProjects||!projects.querySelector('[data-testid^="project-card-"]'))return;
+    shapingProjects=true;
+    try{
+      const items=await api('/api/projects');
+      if(view!=='projects')return;
+      const byId=Object.fromEntries(items.map(item=>[item.id,item]));
+      let toolbar=projects.querySelector('.projects-toolbar');
+      const add=projects.querySelector('[data-testid="projects-new"]');
+      if(add&&!toolbar){toolbar=node('div',undefined,'projects-toolbar');const hint=node('span','Рабочие направления','meta');add.before(toolbar);toolbar.append(hint,add)}
+      for(const card of projects.querySelectorAll('[data-testid^="project-card-"]')){
+        const id=card.dataset.testid.slice('project-card-'.length),item=byId[id];
+        if(!item||card.dataset.linear==='1')continue;
+        card.dataset.linear='1';
+        const meta=[...card.querySelectorAll('.meta')].find(value=>!value.dataset.testid);
+        if(meta)meta.textContent=`${item.open_tasks||0} задач · ${item.artem||0} рекомендаций · ${item.ideas||0} идей`;
+        const description=card.querySelector('p');
+        if(description&&!description.textContent.trim())description.textContent='Без описания';
+      }
+      for(const parent of items.filter(item=>item.scope_type==='independent')){
+        const parentCard=projects.querySelector(`[data-testid="project-card-${parent.id}"]`);
+        const children=items.filter(item=>item.parent_project_id===parent.id).map(item=>projects.querySelector(`[data-testid="project-card-${item.id}"]`)).filter(Boolean);
+        if(!parentCard||!children.length||parentCard.dataset.subprojectsGrouped==='1')continue;
+        const toggle=node('button',`Подпроекты · ${children.length}`,'project-toggle');toggle.type='button';toggle.setAttribute('aria-expanded','false');
+        const group=node('div',undefined,'project-subprojects');group.hidden=false;toggle.setAttribute('aria-expanded','true');toggle.textContent=`Подпроекты · ${children.length} — скрыть`;
+        toggle.onclick=()=>{group.hidden=!group.hidden;toggle.setAttribute('aria-expanded',String(!group.hidden));toggle.textContent=`Подпроекты · ${children.length}${group.hidden?'':' — скрыть'}`};
+        parentCard.append(toggle);parentCard.after(group);children.forEach(child=>group.append(child));parentCard.dataset.subprojectsGrouped='1';
+      }
+    }finally{shapingProjects=false}
+  }
+  function shapeTasks(items){
+    const controls=document.querySelector('#task-controls');
+    if(controls&&!controls.classList.contains('tasks-toolbar'))controls.classList.add('tasks-toolbar');
+    const projectFilters=[...document.querySelectorAll('[data-testid="task-project-filter"]')];
+    projectFilters.slice(1).forEach(filter=>filter.remove());
+    const scopes=Object.fromEntries((window.metricHitProjectScope||[]).map(item=>[item.id,item]));
+    for(const item of items){
+      const card=document.getElementById(`task-${item.id}`);if(!card||card.dataset.linear==='1')continue;
+      card.dataset.linear='1';
+      const status=card.querySelector('.meta');if(status)status.textContent=`${item.status==='open'?'Открыта':item.status==='completed'?'Выполнена':'Отменена'} · ${item.priority}${item.due_date?` · ${item.due_date}`:''}`;
+      const project=scopes[item.project_id];
+      const existing=card.querySelector('[data-testid^="project-link-"]');
+      if(existing){existing.classList.add('task-project-meta');existing.textContent=`${project?.name||existing.textContent.replace('Проект: ','')}${item.subproject_id&&scopes[item.subproject_id]?` / ${scopes[item.subproject_id].name}`:''}`}
+      if(item.due_date){const due=node('div',`Срок: ${item.due_date}`,'meta task-due-meta');card.querySelector('.task-actions')?.before(due)}
+    }
+  }
+  const priorTasks=renderTasks;
+  renderTasks=items=>{priorTasks(items);api('/api/projects').then(scopes=>{window.metricHitProjectScope=scopes;shapeTasks(items)}).catch(()=>shapeTasks(items))};
+  const priorMemory=renderMemory;
+  renderMemory=items=>{priorMemory(items);for(const card of memoryScreen.querySelectorAll('#memory-items .entry'))card.classList.add('memory-row')};
+  function shapeMemory(){
+    if(view!=='memory')return;
+    const tabs=memoryScreen.querySelector('.local-tabs');
+    if(tabs&&!tabs.dataset.concise){tabs.dataset.concise='1';for(const button of tabs.querySelectorAll('[data-memory]')){const labels={context:'Текущий контекст',candidates:'Открытые вопросы',conflicts:'Конфликты',facts:'Факты',decisions:'Решения',documents:'Документы'};button.textContent=labels[button.dataset.memory]||button.textContent}}
+    const context=memoryScreen.querySelector('#memory-context');
+    if(context&&!context.classList.contains('hidden')&&!memoryScreen.querySelector('.memory-context-label')){const label=node('h3','Контекст','memory-group-title memory-context-label');context.before(label)}
+  }
+  new MutationObserver(()=>{
+    [...document.querySelectorAll('[data-testid="task-project-filter"]')].slice(1).forEach(filter=>filter.remove());
+    shapeProjects().catch(()=>{});shapeMemory()
+  }).observe(document.body,{childList:true,subtree:true});
+  for(const tab of document.querySelectorAll('[data-view]'))tab.addEventListener('click',()=>setTimeout(()=>{shapeProjects().catch(()=>{});shapeMemory()},0));
+  setTimeout(()=>{shapeProjects().catch(()=>{});shapeMemory()},40);
+})();
