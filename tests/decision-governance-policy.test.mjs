@@ -43,6 +43,14 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.small_change_fast_path.responsible_executors, 1);
       assert.equal(data.execution.small_change_fast_path.commits, 1);
       assert.deepEqual(data.execution.small_change_fast_path.excluded, ['architecture', 'sqlite_schema_or_migrations', 'business_logic', 'authorization', 'security', 'backup_restore', 'data_integrity', 'multi_module_scope', 'unclear_scope_or_approval', 'overlapping_dirty_worktree', 'head_or_context_mismatch', 'material_contradiction']);
+      assert.equal(data.execution.risk_routing.classifier_must_use_actual_risk, true);
+      assert.equal(data.execution.risk_routing.ui_text_css_narrow_fix_are_not_architecture_by_default, true);
+      assert.equal(data.execution.risk_routing.ordinary_tasks_use_default_terra_without_separate_confirmation, true);
+      assert.deepEqual(data.execution.risk_routing.small.checks, ['targeted_tests', 'git_diff_check']);
+      assert.deepEqual(data.execution.risk_routing.standard.checks, ['affected_module_tests', 'ui_e2e_when_ui_changes']);
+      assert.deepEqual(data.execution.risk_routing.major.checks, ['full_startup_context', 'applicable_special_model_approval', 'full_regression', 'integrity_checks']);
+      assert.deepEqual(data.execution.risk_routing.full_regression_required_for, ['major_change', 'stage_delivery']);
+      assert.equal(data.execution.risk_routing.full_regression_automatic_for_every_small_change, false);
       assert.equal(data.platform_boundary.managed_sandbox_is_external, true);
       assert.equal(data.platform_boundary.repository_can_grant_full_access_or_disable_approval, false);
       assert.equal(data.platform_boundary.repository_can_bypass_git_index_lock_denial, false);
@@ -53,12 +61,13 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 3);
+      assert.equal(operations.revision, 4);
       assert.equal(operations.strategy.owner_visible, true);
       assert.equal(operations.strategy.read_only, true);
       assert.equal(operations.repository_mutation.responsible_executors, 1);
       assert.equal(operations.repository_mutation.commits, 1);
       assert.equal(operations.small_change_fast_path.repo_side_handoff_required, false);
+      assert.equal(operations.risk_routing.ordinary_tasks_use_default_terra_without_separate_confirmation, true);
       assert.equal(operations.platform_boundary.managed_sandbox_is_external, true);
       assert.match(operationsCandidates[0].content, /репозиторий не может гарантировать Full access/);
       assert.equal(data.strategy.mode, 'read_only');
@@ -117,7 +126,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 17);
+      assert.equal(data.revision, 18);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
@@ -141,6 +150,9 @@ test('canonical workflow documents preserve the small-change fast path and sandb
     assert.match(document, /\.git\/index\.lock/i);
   }
   assert.match(agents, /Strategy[^\r\n]*read-only/i);
+  assert.match(agents, /Стандартное изменение/);
+  assert.match(decision, /Strategy маршрутизирует каждую утверждённую доработку по реальному риску/);
+  assert.match(operating, /Утверждённые изменения маршрутизируются по риску/);
   assert.match(decision, /owner-gates[^\r\n]*сохраняются/i);
   assert.match(serverWorkflow, /Executor[^\r\n]*fast path/i);
   assert.doesNotMatch(operating, /режиме Full access \+ Never ask/);
