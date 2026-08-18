@@ -338,8 +338,8 @@ class KnowledgeStore:
         return next((task for task in self.list_tasks() if task["knowledge_entry_id"] == entry_id), None)
 
     def set_task_status(self, *, task_id: str, status: str) -> dict[str, object]:
-        if status not in {"completed", "cancelled"}:
-            raise KnowledgeError("status must be completed or cancelled")
+        if status not in {"open", "completed", "cancelled"}:
+            raise KnowledgeError("status must be open, completed, or cancelled")
         with sqlite3.connect(self.path) as connection:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
@@ -360,13 +360,19 @@ class KnowledgeStore:
                 raise KnowledgeError("knowledge task was not found")
             if task["status"] == status:
                 return self._task(dict(task))
-            if task["status"] not in {"pending", "in_progress"}:
-                raise KnowledgeError("closed task cannot change status")
+            if status == "open":
+                if task["status"] != "completed":
+                    raise KnowledgeError("only completed task can be reopened")
+                stored_status = "pending"
+            else:
+                if task["status"] not in {"pending", "in_progress"}:
+                    raise KnowledgeError("closed task cannot change status")
+                stored_status = status
             updated_at = _utc_text()
             new_version = task["version"] + 1
             connection.execute(
                 "UPDATE tasks SET status=?, updated_at=?, version=? WHERE id=?",
-                (status, updated_at, new_version, task_id),
+                (stored_status, updated_at, new_version, task_id),
             )
             connection.execute(
                 """
@@ -384,7 +390,7 @@ class KnowledgeStore:
                 ),
             )
             changed = dict(task)
-            changed.update(status=status, updated_at=updated_at, version=new_version)
+            changed.update(status=stored_status, updated_at=updated_at, version=new_version)
             return self._task(changed)
 
     @staticmethod

@@ -201,3 +201,14 @@ def test_blank_due_date_is_normalized_to_none_for_filters_and_today(tmp_path: Pa
     assert changed["due_date"] is None
     assert [item["id"] for item in store.list_tasks(due="none")] == [task["id"]]
     assert [item["id"] for item in store.today_tasks()] == [task["id"]]
+
+
+def test_completed_task_can_be_reopened(tmp_path: Path) -> None:
+    store = KnowledgeStore(temporary_database(tmp_path))
+    task = create_task(store, topic="Вернуть в работу", text="Снять отметку выполнения")
+
+    store.set_task_status(task_id=str(task["id"]), status="completed")
+    reopened = store.set_task_status(task_id=str(task["id"]), status="open")
+
+    assert reopened["status"] == "open"
+    assert store.list_tasks(status="open")[0]["id"] == task["id"]
