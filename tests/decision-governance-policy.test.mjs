@@ -56,18 +56,25 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.platform_boundary.repository_can_bypass_git_index_lock_denial, false);
       assert.deepEqual(data.platform_boundary.on_denial, ['report_exact_blocked_operation_immediately', 'identify_external_blocker', 'use_platform_approval_if_available', 'continue_same_executor_after_approval']);
       assert.deepEqual(data.platform_boundary.forbidden_reactions, ['spawn_replacement_executor', 'retry_loop', 'claim_git_database_or_server_failure_without_evidence']);
+      assert.equal(data.implementation_authorization.owner_in_scope_request_is_standing_authorization, true);
+      assert.deepEqual(data.implementation_authorization.includes, ['implementation', 'tests', 'ordinary_git_staging', 'one_commit']);
+      assert.equal(data.implementation_authorization.redundant_intermediate_confirmation_required, false);
+      assert.deepEqual(data.implementation_authorization.separate_owner_decision_required_for, ['deletion', 'force_operations', 'external_publication', 'spending', 'access_or_permission_changes', 'strategy_changes', 'memory_policy_changes', 'settings_or_global_system_changes', 'material_scope_expansion']);
+      assert.equal(data.implementation_authorization.managed_sandbox_prompts_removable, false);
       assert.deepEqual(data.owner_gates_preserved, ['deletion', 'force_operations', 'access_changes', 'publication', 'spending', 'strategy_changes', 'memory_changes', 'settings_changes', 'other_dangerous_actions']);
       const operationsCandidates = db.prepare('SELECT status,data_json,content FROM memory_candidates WHERE semantic_key=?').all(first.operationsSemanticKey);
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 4);
+      assert.equal(operations.revision, 5);
       assert.equal(operations.strategy.owner_visible, true);
       assert.equal(operations.strategy.read_only, true);
       assert.equal(operations.repository_mutation.responsible_executors, 1);
       assert.equal(operations.repository_mutation.commits, 1);
       assert.equal(operations.small_change_fast_path.repo_side_handoff_required, false);
       assert.equal(operations.risk_routing.ordinary_tasks_use_default_terra_without_separate_confirmation, true);
+      assert.equal(operations.repository_mutation.in_scope_owner_request_is_authorization, true);
+      assert.equal(operations.repository_mutation.redundant_intermediate_confirmation_required, false);
       assert.equal(operations.platform_boundary.managed_sandbox_is_external, true);
       assert.match(operationsCandidates[0].content, /репозиторий не может гарантировать Full access/);
       assert.equal(data.strategy.mode, 'read_only');
@@ -126,7 +133,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 18);
+      assert.equal(data.revision, 19);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
@@ -154,6 +161,9 @@ test('canonical workflow documents preserve the small-change fast path and sandb
   assert.match(decision, /Strategy маршрутизирует каждую утверждённую доработку по реальному риску/);
   assert.match(operating, /Утверждённые изменения маршрутизируются по риску/);
   assert.match(decision, /owner-gates[^\r\n]*сохраняются/i);
+  assert.match(agents, /постоянным разрешением на in-scope реализацию/);
+  assert.match(decision, /standing authorization/i);
+  assert.match(operating, /standing authorization/i);
   assert.match(serverWorkflow, /Executor[^\r\n]*fast path/i);
   assert.doesNotMatch(operating, /режиме Full access \+ Never ask/);
   assert.doesNotMatch(roadmap, /режиме Full access \+ Never ask/);

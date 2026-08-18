@@ -11,11 +11,12 @@ const semanticKey = 'architecture.decision_governance_policy';
 const operationsSemanticKey = 'operations.server_strategy_workflow';
 const reviewedAt = '2026-08-17T00:00:00.000Z';
 const owner = 'owner';
-const revision = 18;
-const operationsRevision = 4;
+const revision = 19;
+const operationsRevision = 5;
 const operationsSupersededCandidateIds = new Set([
   '93280439-9cda-48b9-a84f-90914eb4ab36',
   '39f80dbe-092b-4f63-a8a1-3e13aa09592b',
+  ...Array.from({ length: operationsRevision - 2 }, (_, index) => uuid(`candidate:${operationsSemanticKey}:${index + 3}`)),
 ]);
 
 function uuid(key) {
@@ -42,6 +43,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   content += ' Для небольшой изолированной и явно утверждённой правки действует fast path: Strategy выполняет полный startup protocol один раз и передаёт одному executor-у owner approval, точный scope/acceptance, branch/HEAD/status и релевантные ссылки. Executor читает AGENTS, проверяет Git, читает только относящиеся файлы/контракты и извлекает только релевантную память read-only CLI; повторная загрузка всего current context, operating context и roadmap, repo-side handoff, дополнительная задача/agent и плановый артефакт не требуются. Один набор repository mutations выполняет один ответственный executor и завершает одним commit. Значимое правило тот же executor сохраняет штатным идемпотентным memory workflow; техническая мелкая правка в память не записывается. Fast path не применяется к архитектуре, SQLite-схеме/миграциям, бизнес-логике, авторизации, security, backup/restore, целостности данных, многомодульному или неясному scope, затрагивающему scope dirty worktree и расхождениям HEAD/контекста. Действующие owner-gates сохраняются.';
   content += ' Утверждённые изменения маршрутизируются по реальному риску: малое (локальные UI/CSS/текстовые правки, документация, узкие исправления и синхронизация правила памяти) исполняется одним executor-ом сразу на default Terra с целевыми тестами и git diff --check; стандартное — в ограниченном scope одного модуля с точным acceptance, без повторного полного context, с тестами затронутого модуля и E2E при изменении UI; крупное (архитектура, SQLite schema/migrations, security/auth, backup/restore, data integrity или сквозной многомодульный scope) требует полного startup/context, применимого подтверждения special model по действующей policy и полной регрессии/integrity-проверок. Strategy не относит UI-текст, CSS или узкое исправление к архитектуре без фактического основания. Полная регрессия нужна для крупного изменения и этапной поставки, но не автоматически после каждого малого изменения. Во всех режимах сохраняются single writer/executor, один commit, чистый Git и относящийся UI E2E.';
   content += ' Managed sandbox является внешней границей платформы: репозиторий не может предоставить Full access, отключить approval или обойти запрет на создание .git/index.lock. При таком отказе executor сразу сообщает точную заблокированную операцию и внешний blocker, использует штатный platform approval flow, если он доступен, и после разрешения продолжает в том же thread без нового executor-а, циклов повторных попыток или неподтверждённого вывода о неисправности Git, БД либо сервера.';
+  content += ' Запрос владельца изменить или построить в названном scope является standing authorization на in-scope реализацию, тесты, обычный git staging и один commit; Strategy не запрашивает повторное промежуточное подтверждение. Отдельное явное решение требуется только для удаления, force-операций, внешней публикации, расходов, изменений доступов/прав, стратегии, политики памяти, настроек/глобальной системы или существенного расширения scope. Managed-sandbox prompts отменить нельзя и они сообщаются только при возникновении.';
   content += ' Strategy — основной human-language координатор продукта, архитектуры, приоритетов и разработки: до решений он читает approved memory, current context, operating context, roadmap и фактический Git, отмечает существенные пробелы и противоречия и предлагает ближайшие MVP-шаги. Он не требует повторять известный контекст и не считает историю чата канонической истиной. Если чат стал слишком длинным, регулярно требует сжатия, теряет важные детали, путает решения или заметно расходует контекст, Strategy сам предлагает новый чат. Перед переходом он read-only сверяет approved memory, current context и roadmap на полноту значимых утверждённых решений, планов, ограничений, незавершённых задач и ближайших следующих шагов. При пробеле отдельный native task-thread синхронизирует канонический контекст; после сверки Strategy подтверждает, что новый чат продолжит работу по startup protocol без старой истории.';
   const policyData = JSON.stringify({
     belongs_to: 'central_core',
@@ -97,6 +99,14 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
       on_denial: ['report_exact_blocked_operation_immediately', 'identify_external_blocker', 'use_platform_approval_if_available', 'continue_same_executor_after_approval'],
       forbidden_reactions: ['spawn_replacement_executor', 'retry_loop', 'claim_git_database_or_server_failure_without_evidence'],
     },
+    implementation_authorization: {
+      owner_in_scope_request_is_standing_authorization: true,
+      includes: ['implementation', 'tests', 'ordinary_git_staging', 'one_commit'],
+      redundant_intermediate_confirmation_required: false,
+      separate_owner_decision_required_for: ['deletion', 'force_operations', 'external_publication', 'spending', 'access_or_permission_changes', 'strategy_changes', 'memory_policy_changes', 'settings_or_global_system_changes', 'material_scope_expansion'],
+      managed_sandbox_prompts_removable: false,
+      managed_sandbox_prompts_reported: 'only_when_they_occur',
+    },
     owner_gates_preserved: ['deletion', 'force_operations', 'access_changes', 'publication', 'spending', 'strategy_changes', 'memory_changes', 'settings_changes', 'other_dangerous_actions'],
     strategy: { mode: 'read_only', primary_role: ['product', 'architecture', 'priorities', 'development'], pre_decision_context: ['approved_memory', 'current_context', 'operating_context', 'roadmap', 'git_state'], proactively_flags: ['material_gaps', 'contradictions', 'mvp_next_steps'], owner_repeats_known_context: false, chat_history_is_canonical_truth: false, visible_project_chat: 'strategy_only', permitted_actions: ['discuss', 'analyze', 'read_approved_memory', 'read_git', 'read_documents', 'create_internal_native_task_thread'], repository_file_modifications_allowed: false, repository_file_modification_scope: ['memory', 'docs', 'config', 'code', 'tests'], repository_file_modification_size_exception: false, repository_file_modifications_require: 'separate_native_task_thread', engineering_task_creation_requires: 'explicit_owner_approved_repository_change', user_owned_sidebar_chat_creation_allowed: false, create_thread_allowed: false, no_engineering_task_for: ['planning', 'analysis', 'context_reads', 'unapproved_proposals', 'pending_candidates'], executor_lifecycle_reporting: { announce_after_launch: ['executor_name', 'exact_scope'], active_executor: { keep_user_work_turn_open: true, final_completion_answer_allowed: false, interim_communication: 'clearly_marked_in_progress_comment_only' }, publish_final_outcome_only_after: ['commit_or_result', 'verified_clean_git_status'], final_outcome_on_real_blocker: true, publish_after_completion: ['completed_or_blocked', 'commit_if_any', 'checks', 'git_status', 'blocker_if_any'], periodic_statuses: false, scheduler: false, ui: false, new_functionality: false }, continuity: { transition_triggers: ['chat_too_long', 'repeated_compaction', 'important_detail_loss', 'decision_confusion', 'material_context_waste'], pre_transition_review: ['approved_memory', 'current_context', 'roadmap', 'significant_approved_decisions', 'plans', 'constraints', 'unfinished_tasks', 'immediate_next_steps'], synchronization_when_gap_found: 'separate_native_codex_task_thread', new_chat_confirmation: 'startup_protocol_recovers_context_without_old_transcript', new_chat_inherits_role_via: 'startup_protocol' } },
     handoff: { create_command: 'handoff-create', next_command: 'handoff-next', claim_command: 'handoff-claim', complete_command: 'handoff-complete', task_type: 'standalone_task', atomic_decision_task_link: true, native_task_thread: 'internal_execution_mechanism', repo_side_role: 'decision_task_context_and_result_audit', repo_side_is_execution_queue: false, permanent_developer_chat_required: false, user_workflow_requires_lifecycle_commands: false, lifecycle: ['ready', 'in_progress', 'completed'], claim_complete_idempotent: true, completion_links_commit_hash: true, one_native_thread_per_user_engineering_decision: true, strategy_checks_existing_thread_by_user_turn_or_decision_before_create: true, repeated_user_turn_routing_is_idempotent: true, existing_thread_response_includes_id_and_status: true, existing_thread_prevents_second_creation: true, new_engineering_task_requires_new_native_thread: true, strategy_may_replace_existing_or_completed_thread_scope: false, active_engineering_thread_blocks_second_thread: true, maximum_active_executors: 1, active_thread_requires_wait_or_owner_explicit_cancellation: true, thread_closed_after_commit_result_and_clean_git_status: true, completed_thread_reuse_allowed: false },
@@ -113,11 +123,12 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     supersedes_candidate_id: uuid(`candidate:${operationsSemanticKey}:${operationsRevision - 1}`),
     primary_workspace: 'C:\\MetricHit\\workspace',
     strategy: { owner_visible: true, read_only: true, permanent_project_chat: true },
-    repository_mutation: { responsible_executors: 1, commits: 1, explicit_owner_approval_required: true },
+    repository_mutation: { responsible_executors: 1, commits: 1, in_scope_owner_request_is_authorization: true, redundant_intermediate_confirmation_required: false },
     small_change_fast_path: policy.execution.small_change_fast_path,
     risk_routing: policy.execution.risk_routing,
     platform_boundary: policy.platform_boundary,
     owner_gates_preserved: policy.owner_gates_preserved,
+    implementation_authorization: policy.implementation_authorization,
     evidence: { path: decisionPath },
   });
   const metadata = JSON.stringify({
@@ -139,7 +150,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     'cdf62d9d-76e3-4280-a2c0-a319c2e1809e',
     'e7629ceb-86fe-41d0-a21d-101a0c33f552',
     'b99868df-1b4d-4598-ab48-fecb476022ac',
-    ...Array.from({ length: revision - 2 }, (_, index) => uuid(`candidate:${semanticKey}:${index + 2}`)),
+    ...Array.from({ length: revision - 1 }, (_, index) => uuid(`candidate:${semanticKey}:${index + 2}`)),
   ]);
   const db = new DatabaseSync(databasePath);
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
