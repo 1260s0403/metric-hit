@@ -176,7 +176,7 @@ def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page,
         "position": "fixed",
         "borderRight": "1px",
         "background": "rgb(16, 17, 18)",
-        "activeBackground": "rgb(38, 40, 43)",
+        "activeBackground": "rgb(40, 42, 45)",
     }
     expect(page.get_by_test_id("workspace-context")).to_contain_text("Ядро")
     expect(page.get_by_test_id("page-title")).to_have_text("Обзор")
@@ -197,8 +197,10 @@ def test_owner_overview_prioritizes_context_and_separates_navigation_levels(page
     overview_cards = page.locator('[data-testid="overview-screen"] > .overview-grid > .overview-card')
     expect(overview_cards.nth(0)).to_have_attribute("data-testid", "overview-today-priority")
     expect(overview_cards.nth(1)).to_have_attribute("data-testid", "overview-pending-decisions")
-    expect(overview_cards.nth(2)).to_have_attribute("data-testid", "overview-nearest-tasks")
-    expect(overview_cards.nth(3)).to_have_attribute("data-testid", "overview-recent-activity")
+    expect(overview_cards.nth(2)).to_have_attribute("data-testid", "overview-high-priority")
+    expect(overview_cards.nth(3)).to_have_attribute("data-testid", "overview-nearest-tasks")
+    expect(overview_cards.nth(4)).to_have_attribute("data-testid", "overview-focus-today")
+    expect(overview_cards.nth(5)).to_have_attribute("data-testid", "overview-recent-activity")
     expect(page.locator(".global-nav")).to_be_visible()
     expect(page.get_by_test_id("tab-overview")).to_have_attribute("aria-current", "page")
 

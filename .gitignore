@@ -57,6 +57,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest-intake-*-tmp/
+.pytest-overview-*/
 .pytest-projects-ui-*/
 work/ui-review/
 .ruff_cache/

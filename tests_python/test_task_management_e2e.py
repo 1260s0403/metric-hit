@@ -261,8 +261,8 @@ def test_overview_is_default_shows_counts_and_uses_existing_actions(page: Page, 
     assert page.locator('[data-view].active').count() == 1
     expect(page.get_by_test_id("overview-screen")).to_be_visible()
     expect(page.get_by_test_id("knowledge-screen")).to_be_hidden()
-    expect(page.get_by_test_id("overview-today-priority")).to_contain_text("urgent")
-    expect(page.get_by_test_id("overview-nearest-tasks")).to_contain_text("important")
+    expect(page.get_by_test_id("overview-focus-today")).to_contain_text("urgent")
+    expect(page.get_by_test_id("overview-focus-today")).to_contain_text("important")
     assert page.locator('[data-testid^="overview-task-"]').count() <= 6
 
     page.get_by_test_id(f"overview-open-{overdue['id']}").first.click()
