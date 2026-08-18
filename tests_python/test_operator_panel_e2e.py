@@ -190,6 +190,21 @@ def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page,
     })""")
 
 
+def test_reference_sidebar_exposes_the_full_navigation_without_footer_controls(page: Page, panel: str) -> None:
+    page.set_viewport_size({"width": 1674, "height": 952})
+    page.goto(panel)
+
+    positions = page.locator(".global-nav > button:not([data-testid='tab-decisions'])").evaluate_all(
+        "nodes => nodes.map(node => node.getBoundingClientRect().y)",
+    )
+    assert [label for _, label in sorted(zip(positions, page.locator(".global-nav > button:not([data-testid='tab-decisions']) span").all_text_contents()))] == [
+        "Обзор", "Поиск", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память",
+    ]
+    assert page.locator(".panel-header").evaluate("node => getComputedStyle(node).width") == "350px"
+    assert page.locator(".nav-footer").evaluate("node => getComputedStyle(node).display") == "none"
+    assert page.locator("[data-testid='tab-overview'] svg").evaluate("node => getComputedStyle(node).width") == "27px"
+
+
 def test_owner_overview_prioritizes_context_and_separates_navigation_levels(page: Page, panel: str) -> None:
     page.goto(panel)
 
