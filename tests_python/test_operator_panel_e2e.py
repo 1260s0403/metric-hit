@@ -356,6 +356,31 @@ def test_task_edit_persists_subproject_once_and_renders_it_in_project_detail(pag
     expect(page.locator(".focus-label")).to_have_count(0)
 
 
+def test_subproject_workspace_keeps_global_menu_and_switches_real_scoped_tabs(page: Page, panel: str) -> None:
+    page.set_viewport_size({"width": 1674, "height": 952})
+    page.goto(panel)
+    parent = _panel_post(page, "/api/projects", {"name": "Рабочий проект", "description": "Родитель"})
+    child = _panel_post(page, "/api/projects", {"name": "Панель E2E", "description": "Контекст подпроекта", "parent_project_id": parent["id"]})
+    task = _panel_post(page, "/api/tasks", {"title": "Задача подпроекта", "description": "Проверка вкладок", "priority": "high", "project_id": parent["id"], "subproject_id": child["id"]})
+
+    page.goto(f"{panel}/?view=projects&project_id={child['id']}")
+    expect(page.get_by_test_id(f"project-workspace-{child['id']}")).to_be_visible()
+    expect(page.get_by_test_id("project-tab-overview")).to_have_attribute("aria-current", "page")
+    nav = page.locator(".global-nav > button:not([data-testid='tab-decisions'])")
+    positions = nav.evaluate_all("nodes => nodes.map(node => node.getBoundingClientRect().y)")
+    assert [label for _, label in sorted(zip(positions, nav.locator("span").all_text_contents()))] == ["Обзор", "Поиск", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память"]
+    expect(page.locator(".subproject-summary-card")).to_contain_text("1")
+
+    page.get_by_test_id("project-tab-tasks").click()
+    expect(page.get_by_test_id("project-tab-tasks")).to_have_attribute("aria-current", "page")
+    expect(page.get_by_test_id(f"task-card-{task['id']}")).to_contain_text("Задача подпроекта")
+    expect(page).to_have_url(re.compile(r"project_tab=tasks"))
+
+    page.get_by_test_id("project-tab-artem").click()
+    expect(page.get_by_test_id("project-tab-artem")).to_have_attribute("aria-current", "page")
+    expect(page.locator(".subproject-entry-list")).to_be_visible()
+
+
 def test_details_are_single_and_actions_share_row(page: Page, panel: str) -> None:
     page.goto(panel)
     text = "Полное описание должно быть видно только после открытия подробностей, поэтому этот длинный контекст не должен целиком повторяться в заголовке задачи."
