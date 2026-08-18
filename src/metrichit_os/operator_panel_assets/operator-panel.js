@@ -183,7 +183,7 @@ window.metricHitRefreshProjects=async(form,current,currentSubproject='')=>{scope
   }).observe(projectsScreen,{childList:true});
 
   async function setTaskStatus(id,status){
-    try{await api(`/api/tasks/${encodeURIComponent(id)}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});await load()}
+    try{const updated=await api(`/api/tasks/${encodeURIComponent(id)}/status`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({status})});if(updated.id!==id||updated.status!==status)throw new Error('Статус задачи не был сохранён.');canonicalTaskSignature='';await load()}
     catch(error){show(error.message,true)}
   }
   function taskRow(item,scopes){
@@ -274,3 +274,26 @@ window.metricHitRefreshProjects=async(form,current,currentSubproject='')=>{scope
 })();
 
 (()=>{const more=document.querySelector('.nav-more'),active=more?.querySelector('[data-view].active');if(active)more.open=true;const decisions=document.querySelector('[data-memory-target="decisions"]');if(decisions)decisions.addEventListener('click',()=>{memoryView='decisions';const params=new URLSearchParams(location.search);params.set('view','memory');params.set('memory_tab','decisions');history.replaceState(null,'',`/?${params}`);document.querySelectorAll('[data-memory]').forEach(tab=>tab.classList.toggle('active',tab.dataset.memory==='decisions'));setTimeout(()=>loadMemory(),0)});const collapse=document.querySelector('[data-testid="nav-collapse"]');if(collapse)collapse.onclick=()=>{document.body.classList.toggle('nav-collapsed');collapse.setAttribute('aria-label',document.body.classList.contains('nav-collapsed')?'Развернуть навигацию':'Свернуть навигацию')};const settings=document.querySelector('[data-testid="nav-settings"]');if(settings)settings.onclick=()=>show('Настройки доступны в конфигурации Ядра.')})();
+
+/* A task focus is an explicit deep-link state, never a sticky navigation state. */
+(()=>{
+  const originalFocusCard=focusCard;
+  focusCard=()=>{if(focusTask)originalFocusCard()};
+  function clearFocusForNavigation(nextView){
+    focusTask=null;
+    window.metricHitTaskFeedbackId=null;
+    document.querySelectorAll('.task-focused').forEach(card=>card.classList.remove('task-focused'));
+    document.querySelectorAll('.focus-label').forEach(label=>label.remove());
+    const params=new URLSearchParams(location.search);
+    params.set('view',nextView);
+    params.delete('focus_task');
+    params.delete('focus_entry');
+    if(nextView!=='projects')params.delete('project_id');
+    if(nextView!=='memory')params.delete('memory_tab');
+    history.replaceState(null,'',`/?${params}`);
+  }
+  document.addEventListener('click',event=>{
+    const tab=event.target.closest('[data-view]');
+    if(tab)clearFocusForNavigation(tab.dataset.view);
+  },true);
+})();

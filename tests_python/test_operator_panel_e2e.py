@@ -401,11 +401,15 @@ def test_task_statuses_persist_after_reload(page: Page, panel: str) -> None:
     completed_id = _create_task(page, "Выполнить", "Завершить эту задачу.")
     _open_tasks(page, completed_id)
     page.get_by_test_id(f"task-details-toggle-{completed_id}").click()
-    page.get_by_test_id(f"task-completed-{completed_id}").evaluate("button => button.click()")
+    with page.expect_response(lambda response: response.url.endswith(f"/api/tasks/{completed_id}/status") and response.request.method == "POST") as completed_response:
+        page.get_by_test_id(f"task-completed-{completed_id}").evaluate("button => button.click()")
+    assert completed_response.value.json()["status"] == "completed"
     expect(page.get_by_test_id(f"task-card-{completed_id}").locator(":scope > .task-check")).to_be_checked()
     page.reload()
     expect(page.get_by_test_id(f"task-card-{completed_id}").locator(":scope > .task-check")).to_be_checked()
-    page.get_by_test_id(f"task-card-{completed_id}").locator(":scope > .task-check").uncheck()
+    with page.expect_response(lambda response: response.url.endswith(f"/api/tasks/{completed_id}/status") and response.request.method == "POST") as reopened_response:
+        page.get_by_test_id(f"task-card-{completed_id}").locator(":scope > .task-check").uncheck()
+    assert reopened_response.value.json()["status"] == "open"
     reopened = page.get_by_test_id(f"task-card-{completed_id}").locator(":scope > .task-check")
     expect(reopened).not_to_be_checked()
     expect(reopened).to_be_enabled()
@@ -419,6 +423,22 @@ def test_task_statuses_persist_after_reload(page: Page, panel: str) -> None:
     checkbox = page.get_by_test_id(f"task-card-{cancelled_id}").locator(":scope > .task-check")
     expect(checkbox).not_to_be_checked()
     expect(checkbox).to_be_disabled()
+
+
+def test_task_focus_is_only_kept_for_explicit_open_action(page: Page, panel: str) -> None:
+    page.goto(panel)
+    task_id = _create_task(page, "Явно открыть", "Проверка навигации без липкого фокуса.")
+    _open_tasks(page, task_id)
+    focused = page.get_by_test_id(f"task-card-{task_id}")
+    expect(focused).to_have_class(re.compile(r"\btask-focused\b"))
+    expect(focused.locator(".focus-label")).to_have_text("Открытая задача")
+
+    page.get_by_test_id("tab-projects").click()
+    expect(page).not_to_have_url(re.compile(r"focus_task"))
+    page.get_by_test_id("tab-tasks").click()
+    expect(page).not_to_have_url(re.compile(r"focus_task"))
+    expect(page.locator(".focus-label")).to_have_count(0)
+    expect(page.get_by_test_id(f"task-card-{task_id}")).not_to_have_class(re.compile(r"\btask-focused\b"))
 
 
 def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(page: Page, panel: str) -> None:
