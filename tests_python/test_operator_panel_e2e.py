@@ -137,6 +137,23 @@ def _open_tasks(page: Page, task_id: str) -> None:
     expect(page.get_by_test_id("tab-tasks")).to_have_attribute("aria-current", "page")
 
 
+def _panel_post(page: Page, path: str, payload: dict[str, object]) -> dict[str, object]:
+    return page.evaluate(
+        """async ({path, payload}) => {
+            const token = JSON.parse(document.querySelector('#operator-panel-startup').textContent).token;
+            const response = await fetch(path, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-Operator-Token': token},
+                body: JSON.stringify(payload),
+            });
+            const body = await response.json();
+            if (!response.ok) throw new Error(body.message);
+            return body;
+        }""",
+        {"path": path, "payload": payload},
+    )
+
+
 def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
     page.goto(panel)
     for view in ("overview", "search", "artem", "idea", "tasks", "memory"):
@@ -291,6 +308,43 @@ def test_task_creation_is_idempotent_and_focuses_visible_card(page: Page, panel:
     expect(card).to_have_class(re.compile(r"\btask-focused\b"))
     assert card.evaluate("node => getComputedStyle(node).backgroundColor") == "rgb(32, 34, 37)"
     expect(card).to_contain_text("Открытая задача")
+
+
+def test_task_edit_persists_subproject_once_and_renders_it_in_project_detail(page: Page, panel: str) -> None:
+    page.goto(panel)
+    parent = _panel_post(page, "/api/projects", {"name": "E2E родитель", "description": "Родитель для задачи"})
+    child = _panel_post(page, "/api/projects", {"name": "E2E подпроект", "description": "Подпроект для задачи", "parent_project_id": parent["id"]})
+    task = _panel_post(page, "/api/tasks", {
+        "title": "E2E задача подпроекта",
+        "description": "Проверка назначения подпроекта.",
+        "priority": "normal",
+        "project_id": parent["id"],
+    })
+    task_id = str(task["id"])
+
+    page.goto(f"{panel}/?view=tasks")
+    page.get_by_test_id(f"task-details-toggle-{task_id}").click()
+    page.get_by_test_id(f"task-edit-{task_id}").click()
+    expect(page.get_by_test_id("task-project").locator("option")).to_have_count(3)
+    page.get_by_test_id("task-project").select_option(str(parent["id"]))
+    expect(page.get_by_test_id("task-subproject")).to_have_value("")
+    page.get_by_test_id("task-subproject").select_option(str(child["id"]))
+    expect(page.get_by_test_id("task-subproject")).to_have_value(str(child["id"]))
+    request_payloads: list[str] = []
+    page.on("request", lambda request: request_payloads.append(request.post_data or "") if request.url.endswith(f"/api/tasks/{task_id}/edit") else None)
+    page.get_by_test_id("task-save").click()
+    expect(page.get_by_test_id("task-modal")).to_be_hidden()
+    assert str(child["id"]) in request_payloads[-1]
+
+    feedback = page.get_by_test_id(f"task-edit-feedback-{task_id}")
+    expect(feedback).to_have_count(1)
+    expect(feedback).to_have_text("Изменения сохранены")
+    expect(page.get_by_test_id(f"task-relationship-{task_id}")).to_have_text("E2E родитель / E2E подпроект")
+
+    page.reload()
+    expect(page.get_by_test_id(f"task-relationship-{task_id}")).to_have_text("E2E родитель / E2E подпроект")
+    page.goto(f"{panel}/?view=projects&project_id={child['id']}")
+    expect(page.get_by_test_id(f"project-open-task-{task_id}")).to_have_text("E2E задача подпроекта")
 
 
 def test_details_are_single_and_actions_share_row(page: Page, panel: str) -> None:

@@ -59,6 +59,7 @@ __pycache__/
 .pytest-intake-*-tmp/
 .pytest-overview-*/
 .pytest-projects-ui-*/
+.pytest-operator-panel-e2e-subproject-fix*/
 work/ui-review/
 .ruff_cache/
 .mypy_cache/
