@@ -64,6 +64,7 @@ __pycache__/
 work/subproject-menu-verified.png
 work/subproject-*.png
 work/activity-v4-*.png
+work/activity-filter-fixes-*.png
 work/ui-review/
 .ruff_cache/
 .mypy_cache/

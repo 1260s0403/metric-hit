@@ -270,9 +270,9 @@ def create_operator_app(database_path: Path) -> FastAPI:
             return _error(str(error), 400)
 
     @app.get("/api/activity")
-    def activity(period: str = "all", item_type: str = "all", action: str = "all", offset: int = 0) -> JSONResponse:
+    def activity(period: str = "all", item_type: str = "all", action: str = "all", project: str = "all", offset: int = 0) -> JSONResponse:
         try:
-            return JSONResponse(list_activity(database_path, period=period, item_type=item_type, action=action, offset=offset))
+            return JSONResponse(list_activity(database_path, period=period, item_type=item_type, action=action, project=project, offset=offset))
         except ValueError as error:
             return _error(str(error), 400)
 

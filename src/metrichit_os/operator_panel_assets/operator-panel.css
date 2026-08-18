@@ -284,6 +284,20 @@ body[data-view-name="project-workspace"] .workspace-context,body[data-view-name=
 /* Scoped workspace follows the approved reference grid.  These selectors are
    deliberately limited to the project workspace: global navigation and every
    existing top-level screen retain their current rules. */
+/* Activity details occupy the actual unused workspace on wide screens.  The
+   list keeps its original 900px geometry, so a selected row never jumps. */
+.activity-v4-corrected{max-width:900px}
+#activity:has(.activity-v4-corrected.is-detail){max-width:none}
+body:has(.activity-v4-corrected.is-detail)[data-view-name="activity"] .workspace{width:calc(100vw - 442px)}
+.activity-v4-corrected.is-detail{display:grid;grid-template-columns:minmax(0,900px) minmax(0,1fr);column-gap:30px;align-items:start;max-width:none}
+.activity-v4-corrected.is-detail .activity-v4-filters,.activity-v4-corrected.is-detail .activity-v4-list{grid-column:1}
+.activity-v4-corrected.is-detail .activity-v4-filters{grid-row:1}
+.activity-v4-corrected.is-detail .activity-v4-list{grid-row:2;padding-top:74px}
+.activity-v4-corrected.is-detail .activity-v4-drawer{position:sticky;z-index:1;top:24px;right:auto;bottom:auto;grid-column:2;grid-row:1 / span 2;width:100%;max-height:calc(100vh - 48px);min-height:calc(100vh - 48px);padding:60px 23px 24px}
+.activity-v4-corrected.is-detail .activity-v4-row{box-sizing:border-box}
+@media(max-width:1250px){.activity-v4-corrected.is-detail{display:block;max-width:900px}.activity-v4-corrected.is-detail .activity-v4-drawer{position:fixed;top:4px;right:4px;bottom:4px;left:auto;width:min(356px,calc(100vw - 28px));min-height:0;max-height:none}}
+@media(max-width:800px){.activity-v4-corrected.is-detail .activity-v4-drawer{top:auto;right:0;bottom:0;left:0;width:100%;height:min(71vh,560px);min-height:0;border-radius:9px 9px 0 0}}
+
 body[data-view-name="project-workspace"] .workspace{width:min(1230px,calc(100vw - 442px));padding-top:55px}
 .subproject-workspace{width:calc(100% + 40px);margin:-55px -20px 0;padding:0 0 20px}
 .subproject-topbar{height:80px;padding:0 20px;gap:23px;border-bottom-color:#292c2f}
@@ -352,5 +366,6 @@ body[data-view-name="activity"] .activity-v4-filters{gap:16px;margin-bottom:22px
 body[data-view-name="activity"] .activity-v4-segment{height:42px}
 body[data-view-name="activity"] .activity-v4-filter{min-width:0;padding:0 21.5px;font-size:14px}
 body[data-view-name="activity"] .activity-v4-row{grid-template-columns:30px 205px minmax(170px,1fr) 120px 52px 18px;min-height:56px;padding:0 10px}
-body:has(.activity-v4-drawer)[data-view-name="activity"] #activity{max-width:calc(100vw - 770px)}
+body:has(.activity-v4-drawer):not(:has(.activity-v4-corrected.is-detail))[data-view-name="activity"] #activity{max-width:calc(100vw - 770px)}
+body:has(.activity-v4-corrected.is-detail)[data-view-name="activity"] #activity{max-width:none}
 @media(max-width:800px){body[data-view-name="activity"] .workspace{padding-top:0}body[data-view-name="activity"] .page-header h2{font-size:30px}body:has(.activity-v4-drawer)[data-view-name="activity"] #activity{max-width:none}}
