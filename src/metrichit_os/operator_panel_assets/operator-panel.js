@@ -327,3 +327,7 @@ window.metricHitRefreshProjects=async(form,current,currentSubproject='')=>{scope
     if(tab)clearFocusForNavigation(tab.dataset.view);
   },true);
 })();
+
+/* Keep the approved Activity filter vocabulary aligned with the stream while
+   preserving the existing URL-driven filtering behaviour. */
+(()=>{const update=()=>{const button=document.querySelector('.activity-v4-filter[data-type="memory"]');if(!button||button.dataset.projectFilter)return;button.dataset.projectFilter='1';button.dataset.type='project';button.textContent='Проекты';const hidden=document.querySelector('[data-testid="activity-type"]');if(hidden&&!hidden.querySelector('option[value="project"]'))hidden.append(new Option('Проекты','project'));button.onclick=()=>{const params=new URLSearchParams(location.search);params.set('view','activity');params.set('type','project');history.pushState(null,'',`/?${params}`);window.dispatchEvent(new PopStateEvent('popstate'))}};new MutationObserver(update).observe(document.querySelector('#activity'),{childList:true,subtree:true});update()})();

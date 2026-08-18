@@ -339,3 +339,18 @@ body[data-view-name="project-workspace"] .workspace{width:min(1230px,calc(100vw 
 .subproject-tags{display:flex;min-height:100px;margin-top:15px;padding:18px;align-items:center;gap:12px}.subproject-tags h3{margin:0 8px 0 0;font-size:18px}.subproject-tags span{padding:6px 10px;border-color:#393c40;border-radius:3px;font-size:14px}.subproject-tags .subproject-no-tags{border:0;padding-left:0;color:var(--muted)}
 @media(max-width:1050px){body[data-view-name="project-workspace"] .workspace{width:calc(100vw - 350px)}.subproject-workspace{width:100%;margin-left:0;margin-right:0}.subproject-top-grid,.subproject-bottom-grid{grid-template-columns:1fr}.subproject-summary-card,.subproject-activity-card,.subproject-mini-card{height:auto;min-height:0}.subproject-bottom-grid{margin-top:12px}}
 @media(max-width:800px){.subproject-workspace{margin-top:0}.subproject-topbar{padding:0;gap:14px}.subproject-title-chevron{font-size:22px}.subproject-tabs{padding-left:0}.subproject-tabs a{padding:0 14px}.subproject-tabs a+a{padding-left:14px}.subproject-crumbs{margin-left:0;margin-right:0}.subproject-top-grid,.subproject-bottom-grid{grid-template-columns:1fr}.subproject-summary-card,.subproject-activity-card,.subproject-mini-card{height:auto;min-height:0}.subproject-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}.subproject-tags{min-height:0;margin-top:12px}.subproject-status-body{grid-template-columns:130px minmax(0,1fr)}}
+
+/* Activity is the compact audit workspace.  These overrides are deliberately
+   scoped to this one screen, so the established shell and every other view
+   keep their geometry unchanged. */
+body[data-view-name="activity"] .workspace{padding-top:22px}
+body[data-view-name="activity"] .page-header{margin:15px 0 23px}
+body[data-view-name="activity"] .page-header h2{margin:0;font-size:30px;font-weight:520;letter-spacing:-.04em;line-height:1.2}
+body[data-view-name="activity"] .page-header p{display:none}
+body[data-view-name="activity"] #activity{max-width:900px}
+body[data-view-name="activity"] .activity-v4-filters{gap:16px;margin-bottom:22px}
+body[data-view-name="activity"] .activity-v4-segment{height:42px}
+body[data-view-name="activity"] .activity-v4-filter{min-width:0;padding:0 21.5px;font-size:14px}
+body[data-view-name="activity"] .activity-v4-row{grid-template-columns:30px 205px minmax(170px,1fr) 120px 52px 18px;min-height:56px;padding:0 10px}
+body:has(.activity-v4-drawer)[data-view-name="activity"] #activity{max-width:calc(100vw - 770px)}
+@media(max-width:800px){body[data-view-name="activity"] .workspace{padding-top:0}body[data-view-name="activity"] .page-header h2{font-size:30px}body:has(.activity-v4-drawer)[data-view-name="activity"] #activity{max-width:none}}

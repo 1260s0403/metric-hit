@@ -44,7 +44,7 @@ def _changes(payload: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def list_activity(database_path: Path, *, period: str = "all", item_type: str = "all", action: str = "all", offset: int = 0, limit: int = 50) -> dict[str, object]:
-    if period not in {"today", "7", "30", "all"} or item_type not in {"all", "task", "artem", "idea", "memory"} or action not in {"all", "create", "update", "completed", "cancelled"} or offset < 0 or not 1 <= limit <= 50:
+    if period not in {"today", "7", "30", "all"} or item_type not in {"all", "task", "artem", "idea", "memory", "project"} or action not in {"all", "create", "update", "completed", "cancelled"} or offset < 0 or not 1 <= limit <= 50:
         raise ValueError("invalid activity filter")
     cutoff = None
     if period != "all": cutoff = (datetime.now(timezone.utc) - timedelta(days=0 if period == "today" else int(period))).strftime("%Y-%m-%dT00:00:00.000Z")
