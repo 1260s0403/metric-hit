@@ -62,6 +62,7 @@ __pycache__/
 .pytest-operator-panel-e2e-subproject-fix*/
 .pytest-project-menu-*/
 work/subproject-menu-verified.png
+work/subproject-*.png
 work/ui-review/
 .ruff_cache/
 .mypy_cache/

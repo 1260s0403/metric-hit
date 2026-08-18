@@ -370,6 +370,22 @@ def test_subproject_workspace_keeps_global_menu_and_switches_real_scoped_tabs(pa
     positions = nav.evaluate_all("nodes => nodes.map(node => node.getBoundingClientRect().y)")
     assert [label for _, label in sorted(zip(positions, nav.locator("span").all_text_contents()))] == ["Обзор", "Поиск", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память"]
     expect(page.locator(".subproject-summary-card")).to_contain_text("1")
+    expect(page.locator(".subproject-top-grid")).to_be_visible()
+    expect(page.locator(".subproject-bottom-grid")).to_be_visible()
+    expect(page.locator(".subproject-tags")).to_be_visible()
+    geometry = page.evaluate("""() => {
+      const box = selector => document.querySelector(selector).getBoundingClientRect();
+      const top = box('.subproject-top-grid'), bottom = box('.subproject-bottom-grid'), tags = box('.subproject-tags');
+      const cards = [...document.querySelectorAll('.subproject-bottom-grid > .subproject-mini-card')].map(node => node.getBoundingClientRect());
+      return {top, bottom, tags, cards};
+    }""")
+    assert geometry["top"]["y"] == pytest.approx(186, abs=1)
+    assert geometry["top"]["height"] == pytest.approx(343, abs=1)
+    assert geometry["bottom"]["y"] == pytest.approx(545, abs=1)
+    assert geometry["bottom"]["height"] == pytest.approx(260, abs=1)
+    assert geometry["tags"]["y"] == pytest.approx(820, abs=1)
+    assert geometry["cards"][0]["width"] > geometry["cards"][1]["width"]
+    assert geometry["cards"][2]["width"] > geometry["cards"][0]["width"]
 
     page.get_by_test_id("project-tab-tasks").click()
     expect(page.get_by_test_id("project-tab-tasks")).to_have_attribute("aria-current", "page")
