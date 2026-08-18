@@ -1,0 +1,88 @@
+name: Stabilize landing load
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  stabilize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Patch index.html
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path('index.html')
+          s = p.read_text(encoding='utf-8')
+
+          # 1) Контент не должен зависеть от JavaScript-анимации.
+          s = s.replace(
+              '.reveal{opacity:0;transform:translateY(18px);transition:opacity .55s ease,transform .55s ease}.reveal.visible{opacity:1;transform:none}',
+              '.reveal{opacity:1;transform:none;transition:none}.reveal.visible{opacity:1;transform:none}'
+          )
+
+          # 2) Пять кейсов загружаем сразу, без lazy-loading.
+          s = s.replace(' loading="lazy"', '')
+
+          # 3) Убираем IntersectionObserver как условие отображения секций.
+          s = re.sub(
+              r"\n\s*const revealEls=\[\.\.\.document\.querySelectorAll\('\.reveal'\)\];.*?revealEls\.forEach\(el=>el\.classList\.add\('visible'\)\);\}\n",
+              "\n    // Контент всегда видим: JavaScript не является условием отображения страницы.\n    document.querySelectorAll('.reveal').forEach(el=>el.classList.add('visible'));\n",
+              s,
+              flags=re.S
+          )
+
+          # 4) Метрика стартует только после полной загрузки основного документа и изображений.
+          metrika = '''<!-- Yandex.Metrika counter -->
+  <script type="text/javascript">
+    window.addEventListener('load', function(){
+      (function(m,e,t,r,i,k,a){
+        m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();
+        for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}
+        k=e.createElement(t);a=e.getElementsByTagName(t)[0];k.async=1;k.src=r;a.parentNode.insertBefore(k,a);
+      })(window,document,'script','https://mc.yandex.ru/metrika/tag.js?id=111490221','ym');
+      window.ym(111490221,'init',{ssr:true,webvisor:true,clickmap:true,ecommerce:"dataLayer",referrer:document.referrer,url:location.href,accurateTrackBounce:true,trackLinks:true});
+    },{once:true});
+  </script>
+  <noscript><div><img src="https://mc.yandex.ru/watch/111490221" style="position:absolute; left:-9999px;" alt=""></div></noscript>
+  <!-- /Yandex.Metrika counter -->'''
+          s = re.sub(
+              r'<!-- Yandex\.Metrika counter -->.*?<!-- /Yandex\.Metrika counter -->',
+              metrika,
+              s,
+              flags=re.S
+          )
+
+          p.write_text(s, encoding='utf-8')
+          PY
+
+      - name: Basic checks
+        run: |
+          grep -q '<html lang="ru">' index.html
+          grep -q 'id="calculator"' index.html
+          grep -q 'data-amount="250000"' index.html
+          ! grep -q 'loading="lazy"' index.html
+          ! grep -q '.reveal{opacity:0' index.html
+
+      - name: Commit patch
+        run: |
+          if git diff --quiet -- index.html; then
+            echo "No patch needed"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git commit -m "Стабилизировать загрузку лендинга"
+          git push origin HEAD:main
