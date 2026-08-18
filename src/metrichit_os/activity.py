@@ -51,19 +51,22 @@ def list_activity(database_path: Path, *, period: str = "all", item_type: str = 
     items: list[dict[str, object]] = []
     with read_only_database(database_path) as db:
         project_names = {str(row["id"]): str(row["title"]) for row in db.execute("SELECT id,title FROM documents WHERE type='project'")}
-        rows = db.execute("SELECT id,type,title,data_json,entity_type,entity_id,action,created_at FROM audit_log ORDER BY created_at DESC, id DESC").fetchall()
+        rows = db.execute("SELECT id,type,title,data_json,author,entity_type,entity_id,action,created_at FROM audit_log ORDER BY created_at DESC, id DESC").fetchall()
         for row in rows:
             if cutoff and str(row["created_at"]) < cutoff: continue
             payload = _data(row["data_json"]); entity = str(row["entity_type"]); target_type = "unknown"
             title = str(row["title"]); target_view = None; target_id = str(row["entity_id"]); current = None
+            project_id = None
             if entity == "task":
                 target_type, target_view = "task", "tasks"
-                current = db.execute("SELECT title FROM tasks WHERE id=?", (target_id,)).fetchone(); title = str(current["title"]) if current else title
+                current = db.execute("SELECT title,data_json FROM tasks WHERE id=?", (target_id,)).fetchone(); title = str(current["title"]) if current else title
+                if current: project_id = _data(current["data_json"]).get("project_id")
             elif entity in {"knowledge_entry", "document"}:
                 kind = _kind(payload.get("new", payload))
                 if kind:
                     target_type, target_view = kind, kind
-                    current = db.execute("SELECT title FROM documents WHERE id=?", (target_id,)).fetchone(); title = str(current["title"]) if current else title
+                current = db.execute("SELECT title,data_json FROM documents WHERE id=?", (target_id,)).fetchone(); title = str(current["title"]) if current else title
+                if current: project_id = _data(current["data_json"]).get("project_id")
             elif entity == "memory_item":
                 target_type = "memory"
                 current = db.execute("SELECT title FROM memory_items WHERE id=?", (target_id,)).fetchone(); title = str(current["title"]) if current else title
@@ -71,6 +74,11 @@ def list_activity(database_path: Path, *, period: str = "all", item_type: str = 
                 target_type, target_view = "project", "projects"
                 current = db.execute("SELECT title FROM documents WHERE id=? AND type='project'", (target_id,)).fetchone(); title = str(current["title"]) if current else title
             changes = _changes(payload)
+            # Keep the project filter grounded in the recorded change when an
+            # object has since moved or is no longer available.
+            for state in (payload.get("new"), payload.get("old"), payload):
+                if not project_id and isinstance(state, dict) and state.get("project_id"):
+                    project_id = state["project_id"]
             for change in changes:
                 if change["field"] == "Проект":
                     change["old"] = project_names.get(change["old"], "Без проекта" if change["old"] == "—" else "Недоступен")
@@ -82,6 +90,6 @@ def list_activity(database_path: Path, *, period: str = "all", item_type: str = 
             if item_type != "all" and target_type != item_type: continue
             if action != "all" and event_action != action: continue
             labels = {"create": "Создано", "update": "Изменено", "completed": "Задача выполнена", "cancelled": "Задача отменена"}
-            items.append({"id": str(row["id"]), "object_type": target_type, "title": title, "date": str(row["created_at"]), "action": event_action, "label": labels[event_action], "changes": changes, "available": current is not None, "target_id": target_id, "target_view": target_view})
+            items.append({"id": str(row["id"]), "object_type": target_type, "title": title, "date": str(row["created_at"]), "action": event_action, "label": labels[event_action], "changes": changes, "available": current is not None, "target_id": target_id, "target_view": target_view, "project_id": str(project_id) if project_id else None, "project_name": project_names.get(str(project_id)) if project_id else None, "author": str(row["author"] or "—")})
     page = items[offset:offset + limit + 1]
     return {"items": page[:limit], "has_more": len(page) > limit, "next_offset": offset + limit}

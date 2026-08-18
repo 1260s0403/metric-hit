@@ -63,6 +63,7 @@ __pycache__/
 .pytest-project-menu-*/
 work/subproject-menu-verified.png
 work/subproject-*.png
+work/activity-v4-*.png
 work/ui-review/
 .ruff_cache/
 .mypy_cache/
