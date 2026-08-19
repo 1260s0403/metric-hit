@@ -144,6 +144,8 @@ def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_acti
 
     page.goto(f"{panel}/?view=idea")
     expect(page.get_by_test_id("ideas-summary")).to_be_visible()
+    expect(page.get_by_test_id("ideas-summary")).to_have_count(1)
+    expect(page.get_by_test_id("ideas-feed")).to_have_count(1)
     expect(page.get_by_test_id("ideas-feed").locator('[data-testid^="idea-feed-"]')).to_have_count(22)
     assert page.get_by_test_id("ideas-feed").evaluate("node => getComputedStyle(node).overflowY") == "auto"
     expect(page.get_by_test_id("ideas-tasks-by-project")).to_contain_text("Задачи по проектам")
