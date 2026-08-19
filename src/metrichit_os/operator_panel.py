@@ -223,8 +223,8 @@ def create_operator_app(database_path: Path) -> FastAPI:
     def ideas_dashboard() -> JSONResponse:
         """Actual data for the single, scrollable owner-idea feed.
 
-        ``converted`` counts owner ideas with a task.  The donut is intentionally
-        based on every task's explicit project assignment, not on idea counts.
+        ``converted`` counts owner ideas with a task. The idea dashboard groups
+        its chart by each idea's explicit project assignment.
         """
         ideas = store.list_all(kind="idea")
         tasks = store.list_tasks(sort="newest")

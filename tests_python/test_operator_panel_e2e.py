@@ -142,7 +142,14 @@ def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_acti
     console_errors: list[str] = []
     page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
     page.goto(panel)
-    entries = [_panel_post(page, "/api/entries", {"kind": "idea", "topic": f"Идея {index}", "text": f"Описание {index}"}) for index in range(22)]
+    secondary_project = _panel_post(page, "/api/projects", {"name": "Второй проект", "description": "Для распределения идей"})
+    entries = [
+        _panel_post(page, "/api/entries", {
+            "kind": "idea", "topic": f"Идея {index}", "text": f"Описание {index}",
+            **({"project_id": secondary_project["id"]} if index >= 3 else {}),
+        })
+        for index in range(22)
+    ]
     task = _panel_post(page, "/api/tasks", {"id": entries[0]["id"]})
 
     page.goto(f"{panel}/?view=idea")
@@ -154,7 +161,31 @@ def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_acti
     expect(page.get_by_test_id("ideas-feed").locator('[data-testid^="idea-feed-"]')).to_have_count(22)
     assert page.get_by_test_id("ideas-feed").evaluate("node => getComputedStyle(node).overflowY") == "auto"
     assert page.locator(".ideas-dashboard-grid").evaluate("node => getComputedStyle(node).gridTemplateColumns.split(' ').length") == 2
-    expect(page.get_by_test_id("ideas-tasks-by-project")).to_contain_text("Задачи по проектам")
+    chart = page.get_by_test_id("ideas-by-project")
+    expect(chart).to_contain_text("Идеи по проектам")
+    expect(chart).to_contain_text("22")
+    expect(chart).to_contain_text("идей")
+    expect(chart).to_contain_text("Второй проект")
+    expect(chart).to_contain_text("3")
+    expect(chart).to_contain_text("19")
+    expect(chart).not_to_contain_text("Задачи по проектам")
+    for test_id in ("ideas-summary-new-icon", "ideas-summary-tasks-icon", "ideas-summary-unassigned-icon"):
+        expect(page.get_by_test_id(test_id)).to_be_visible()
+        expect(page.get_by_test_id(test_id).locator("svg")).to_have_count(1)
+        assert page.get_by_test_id(test_id).evaluate("node => getComputedStyle(node).width") == "25px"
+    legend_layout = chart.locator(".ideas-donut-line").evaluate_all("""lines => lines.map(line => {
+        const label = line.querySelector('span').getBoundingClientRect();
+        const count = line.querySelector('strong').getBoundingClientRect();
+        return {fontSize: getComputedStyle(line).fontSize, countFontSize: getComputedStyle(line.querySelector('strong')).fontSize, countStartsAfterLabel: count.left > label.right};
+    })""")
+    assert all(item == {"fontSize": "16px", "countFontSize": "17px", "countStartsAfterLabel": True} for item in legend_layout)
+    assert page.locator(".page-header p").evaluate("node => getComputedStyle(node).fontSize") == "16px"
+    feed_header = page.locator(".ideas-feed-head")
+    assert feed_header.evaluate("node => getComputedStyle(node).minHeight") == "52px"
+    assert feed_header.locator("h3").evaluate("node => getComputedStyle(node).marginTop") == "0px"
+    first_idea = page.get_by_test_id("ideas-feed").locator('[data-testid^="idea-feed-"]').first
+    assert first_idea.locator(".ideas-feed-copy strong").evaluate("node => getComputedStyle(node).fontSize") == "16px"
+    assert first_idea.locator(".ideas-feed-copy p").evaluate("node => getComputedStyle(node).fontSize") == "13px"
     expect(page.get_by_test_id(f"idea-open-task-{task['id']}")).to_be_visible()
     page.screenshot(path=str(tmp_path / "ideas-dashboard-wide.png"), full_page=True)
 
