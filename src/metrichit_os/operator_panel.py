@@ -219,6 +219,18 @@ def create_operator_app(database_path: Path) -> FastAPI:
         except KnowledgeError as error:
             return _error(str(error), 400)
 
+    @app.get("/api/ideas-dashboard")
+    def ideas_dashboard() -> JSONResponse:
+        """Actual data for the single, scrollable owner-idea feed.
+
+        ``converted`` counts owner ideas with a task.  The donut is intentionally
+        based on every task's explicit project assignment, not on idea counts.
+        """
+        ideas = store.list_all(kind="idea")
+        tasks = store.list_tasks(sort="newest")
+        by_entry = {str(task.get("knowledge_entry_id")): task for task in tasks if task.get("knowledge_entry_id")}
+        return JSONResponse({"ideas": [{**item, "task": by_entry.get(str(item["id"]))} for item in ideas], "tasks": tasks, "projects": projects.list()})
+
     @app.get("/api/dashboard")
     def dashboard() -> JSONResponse:
         return JSONResponse(_dashboard(store, database_path))

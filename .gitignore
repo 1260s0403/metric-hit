@@ -61,6 +61,7 @@ __pycache__/
 .pytest-projects-ui-*/
 .pytest-operator-panel-e2e-subproject-fix*/
 .pytest-project-menu-*/
+.pytest-ideas-*/
 work/subproject-menu-verified.png
 work/subproject-*.png
 work/activity-v4-*.png

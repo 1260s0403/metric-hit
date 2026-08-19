@@ -128,6 +128,26 @@ class KnowledgeStore:
             ).fetchall()
         return [self._entry(dict(row)) for row in rows]
 
+    def list_all(self, *, kind: str) -> list[dict[str, object]]:
+        """Return the complete chronological stream for an operational screen.
+
+        The ideas dashboard deliberately has one internally scrollable feed rather
+        than pagination, so it must not inherit the compact-list limit above.
+        """
+        stored_kind = _kind(kind)
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT id, title, content, data_json, author, created_at
+                FROM documents
+                WHERE type='knowledge_entry' AND json_extract(data_json, '$.kind')=?
+                ORDER BY created_at DESC, id DESC
+                """,
+                (stored_kind,),
+            ).fetchall()
+        return [self._entry(dict(row)) for row in rows]
+
     def search(self, *, kind: str, query: str, limit: int = 20) -> list[dict[str, object]]:
         stored_kind = _kind(kind)
         if not query.strip():

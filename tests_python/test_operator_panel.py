@@ -78,6 +78,18 @@ def test_page_title_stays_metrichit_while_visual_heading_is_yadro(tmp_path):
     assert "<h1>Ядро</h1>" in page
 
 
+def test_ideas_dashboard_returns_every_idea_and_separates_converted_tasks(tmp_path):
+    client, token, _ = panel(tmp_path)
+    ideas = [add(client, token, "idea", f"Идея {index}", f"Описание {index}").json() for index in range(24)]
+    task = client.post("/api/tasks", headers={"X-Operator-Token": token}, json={"id": ideas[0]["id"]}).json()
+
+    data = client.get("/api/ideas-dashboard").json()
+
+    assert len(data["ideas"]) == 24
+    assert next(item for item in data["ideas"] if item["id"] == ideas[0]["id"])["task"]["id"] == task["id"]
+    assert any(item["id"] == task["id"] for item in data["tasks"])
+
+
 def test_page_loads_packaged_assets_and_safely_embeds_only_startup_data(tmp_path):
     client, _, _ = panel(tmp_path)
     page = client.get("/").text

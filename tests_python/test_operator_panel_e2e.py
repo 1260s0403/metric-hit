@@ -137,6 +137,32 @@ def _open_tasks(page: Page, task_id: str) -> None:
     expect(page.get_by_test_id("tab-tasks")).to_have_attribute("aria-current", "page")
 
 
+def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_actions(page: Page, panel: str, tmp_path: Path) -> None:
+    page.goto(panel)
+    entries = [_panel_post(page, "/api/entries", {"kind": "idea", "topic": f"Идея {index}", "text": f"Описание {index}"}) for index in range(22)]
+    task = _panel_post(page, "/api/tasks", {"id": entries[0]["id"]})
+
+    page.goto(f"{panel}/?view=idea")
+    expect(page.get_by_test_id("ideas-summary")).to_be_visible()
+    expect(page.get_by_test_id("ideas-feed").locator('[data-testid^="idea-feed-"]')).to_have_count(22)
+    assert page.get_by_test_id("ideas-feed").evaluate("node => getComputedStyle(node).overflowY") == "auto"
+    expect(page.get_by_test_id("ideas-tasks-by-project")).to_contain_text("Задачи по проектам")
+    expect(page.get_by_test_id(f"idea-open-task-{task['id']}")).to_be_visible()
+    page.screenshot(path=str(tmp_path / "ideas-dashboard-wide.png"), full_page=True)
+
+    page.get_by_test_id("ideas-summary-new").click()
+    expect(page).to_have_url(re.compile(r"idea_filter=new"))
+    expect(page.get_by_test_id("ideas-feed").locator('[data-testid^="idea-feed-"]')).to_have_count(21)
+    page.get_by_test_id("ideas-summary-tasks").click()
+    expect(page).to_have_url(re.compile(r"view=tasks.*source=ideas"))
+    expect(page.get_by_test_id(f"task-card-{task['id']}")).to_be_visible()
+
+    page.goto(f"{panel}/?view=idea")
+    page.get_by_test_id(f"create-task-{entries[1]['id']}").click()
+    expect(page.get_by_test_id(f"idea-feed-{entries[1]['id']}").locator('button')).to_have_text("Открыть задачу")
+    expect(page.get_by_test_id("ideas-summary-tasks")).to_contain_text("2")
+
+
 def _panel_post(page: Page, path: str, payload: dict[str, object]) -> dict[str, object]:
     return page.evaluate(
         """async ({path, payload}) => {
