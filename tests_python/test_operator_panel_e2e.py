@@ -215,7 +215,7 @@ def test_reference_sidebar_exposes_the_full_navigation_without_footer_controls(p
         "nodes => nodes.map(node => node.getBoundingClientRect().y)",
     )
     assert [label for _, label in sorted(zip(positions, page.locator(".global-nav > button:not([data-testid='tab-decisions']) span").all_text_contents()))] == [
-        "Обзор", "Поиск", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память",
+        "Обзор", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память", "Поиск",
     ]
     assert page.locator(".panel-header").evaluate("node => getComputedStyle(node).width") == "350px"
     assert page.locator(".nav-footer").evaluate("node => getComputedStyle(node).display") == "none"
@@ -368,7 +368,7 @@ def test_subproject_workspace_keeps_global_menu_and_switches_real_scoped_tabs(pa
     expect(page.get_by_test_id("project-tab-overview")).to_have_attribute("aria-current", "page")
     nav = page.locator(".global-nav > button:not([data-testid='tab-decisions'])")
     positions = nav.evaluate_all("nodes => nodes.map(node => node.getBoundingClientRect().y)")
-    assert [label for _, label in sorted(zip(positions, nav.locator("span").all_text_contents()))] == ["Обзор", "Поиск", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память"]
+    assert [label for _, label in sorted(zip(positions, nav.locator("span").all_text_contents()))] == ["Обзор", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память", "Поиск"]
     expect(page.locator(".subproject-summary-card")).to_contain_text("1")
     expect(page.locator(".subproject-top-grid")).to_be_visible()
     expect(page.locator(".subproject-bottom-grid")).to_be_visible()
