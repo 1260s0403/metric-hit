@@ -138,6 +138,9 @@ def _open_tasks(page: Page, task_id: str) -> None:
 
 
 def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_actions(page: Page, panel: str, tmp_path: Path) -> None:
+    page.set_viewport_size({"width": 1536, "height": 1024})
+    console_errors: list[str] = []
+    page.on("console", lambda message: console_errors.append(message.text) if message.type == "error" else None)
     page.goto(panel)
     entries = [_panel_post(page, "/api/entries", {"kind": "idea", "topic": f"Идея {index}", "text": f"Описание {index}"}) for index in range(22)]
     task = _panel_post(page, "/api/tasks", {"id": entries[0]["id"]})
@@ -145,9 +148,12 @@ def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_acti
     page.goto(f"{panel}/?view=idea")
     expect(page.get_by_test_id("ideas-summary")).to_be_visible()
     expect(page.get_by_test_id("ideas-summary")).to_have_count(1)
+    expect(page.locator(".ideas-dashboard-grid")).to_have_count(1)
+    expect(page.locator(".ideas-analytics")).to_have_count(1)
     expect(page.get_by_test_id("ideas-feed")).to_have_count(1)
     expect(page.get_by_test_id("ideas-feed").locator('[data-testid^="idea-feed-"]')).to_have_count(22)
     assert page.get_by_test_id("ideas-feed").evaluate("node => getComputedStyle(node).overflowY") == "auto"
+    assert page.locator(".ideas-dashboard-grid").evaluate("node => getComputedStyle(node).gridTemplateColumns.split(' ').length") == 2
     expect(page.get_by_test_id("ideas-tasks-by-project")).to_contain_text("Задачи по проектам")
     expect(page.get_by_test_id(f"idea-open-task-{task['id']}")).to_be_visible()
     page.screenshot(path=str(tmp_path / "ideas-dashboard-wide.png"), full_page=True)
@@ -163,6 +169,15 @@ def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_acti
     page.get_by_test_id(f"create-task-{entries[1]['id']}").click()
     expect(page.get_by_test_id(f"idea-feed-{entries[1]['id']}").locator('button')).to_have_text("Открыть задачу")
     expect(page.get_by_test_id("ideas-summary-tasks")).to_contain_text("2")
+
+    page.get_by_test_id("idea-topic").fill("Идея из панели")
+    page.get_by_test_id("idea-description").fill("Проверка основной формы создания идеи")
+    page.get_by_test_id("idea-submit").click()
+    expect(page.get_by_test_id("ideas-feed").locator('[data-testid^="idea-feed-"]')).to_have_count(23)
+    page.get_by_test_id("ideas-summary-unassigned").click()
+    expect(page).to_have_url(re.compile(r"idea_filter=unassigned"))
+    expect(page.get_by_test_id("ideas-feed")).to_be_visible()
+    assert not console_errors
 
 
 def _panel_post(page: Page, path: str, payload: dict[str, object]) -> dict[str, object]:
