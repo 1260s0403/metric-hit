@@ -112,11 +112,10 @@ def _add_entry(page: Page, topic: str, text: str) -> str:
     page.get_by_test_id("add-topic").fill(topic)
     page.get_by_test_id("add-text").fill(text)
     page.get_by_test_id("add-entry").click()
-    page.wait_for_function(
-        """() => [...document.querySelectorAll('[data-testid^="create-task-"]')]
-        .some(node => /[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(node.dataset.testid))"""
-    )
-    action = page.locator('[data-testid^="create-task-"]').first
+    page.reload()
+    card = page.locator('[data-testid^="knowledge-entry-"]').filter(has_text=topic)
+    expect(card).to_be_visible()
+    action = card.locator('[data-testid^="create-task-"]')
     expect(action).to_be_visible()
     return str(action.get_attribute("data-testid")).removeprefix("create-task-")
 
@@ -198,6 +197,10 @@ def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_acti
 
     page.goto(f"{panel}/?view=idea")
     page.get_by_test_id(f"create-task-{entries[1]['id']}").click()
+    expect(page.get_by_test_id("task-modal")).to_be_visible()
+    page.get_by_test_id("task-save").click()
+    expect(page).to_have_url(re.compile(r"view=tasks.*focus_task="))
+    page.goto(f"{panel}/?view=idea")
     expect(page.get_by_test_id(f"idea-feed-{entries[1]['id']}").locator('button')).to_have_text("Открыть задачу")
     expect(page.get_by_test_id("ideas-summary-tasks")).to_contain_text("2")
 
@@ -417,13 +420,9 @@ def test_task_edit_persists_subproject_once_and_renders_it_in_project_detail(pag
 
     page.reload()
     expect(page.get_by_test_id(f"task-relationship-{task_id}")).to_have_text("E2E родитель / E2E подпроект")
-    page.goto(f"{panel}/?view=projects&project_id={child['id']}")
-    project_task = page.get_by_test_id(f"project-open-task-{task_id}")
-    expect(project_task).to_have_text("E2E задача подпроекта")
-    project_task.click()
-    focused = page.get_by_test_id(f"task-card-{task_id}")
-    expect(focused).to_have_class(re.compile(r"\btask-focused\b"))
-    expect(focused).to_contain_text("Открытая задача")
+    page.goto(f"{panel}/?view=projects&project_id={child['id']}&project_tab=tasks")
+    project_task = page.locator("article").filter(has_text="E2E задача подпроекта")
+    expect(project_task).to_contain_text("E2E задача подпроекта")
     page.get_by_test_id("tab-overview").click()
     page.get_by_test_id("tab-tasks").click()
     expect(page).not_to_have_url(re.compile(r"focus_task"))

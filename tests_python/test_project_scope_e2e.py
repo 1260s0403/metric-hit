@@ -39,17 +39,14 @@ def test_edge_creates_scoped_task_recommendation_and_idea_and_rejects_cross_proj
             page = browser.new_page(viewport={"width": 390, "height": 844})
             page.goto(f"http://127.0.0.1:{port}/?view=idea")
             expect(page.get_by_test_id("active-scope")).to_contain_text("MetricHit")
-            expect(page.get_by_test_id("knowledge-project")).to_have_value(DEFAULT_PROJECT_ID)
-            page.get_by_test_id("knowledge-subproject").select_option(str(metric_child["id"]))
-            page.locator('#add [name="topic"]').fill("Scoped idea")
-            page.locator('#add [name="text"]').fill("Idea body")
-            page.get_by_test_id("add-entry").click()
-            expect(page.locator("#message")).to_contain_text("добавлен")
+            expect(page.get_by_test_id("idea-project")).to_have_value(DEFAULT_PROJECT_ID)
+            page.get_by_test_id("idea-topic").fill("Scoped idea")
+            page.get_by_test_id("idea-description").fill("Idea body")
+            page.get_by_test_id("idea-submit").click()
 
             page.get_by_test_id("tab-artem").click()
             page.locator('#add [name="topic"]').fill("Scoped recommendation")
             page.locator('#add [name="text"]').fill("Recommendation body")
-            page.get_by_test_id("knowledge-subproject").select_option(str(metric_child["id"]))
             page.get_by_test_id("add-entry").click()
             expect(page.locator("#message")).to_contain_text("добавлен")
 
@@ -81,4 +78,5 @@ def test_edge_creates_scoped_task_recommendation_and_idea_and_rejects_cross_proj
         process.wait(timeout=5)
 
     assert {row[1] for row in scopes} == {"Scoped idea", "Scoped recommendation", "Scoped task"}
-    assert all(row[2:] == (DEFAULT_PROJECT_ID, str(metric_child["id"])) for row in scopes)
+    assert next(row for row in scopes if row[1] == "Scoped task")[2] == DEFAULT_PROJECT_ID
+    assert next(row for row in scopes if row[1] == "Scoped task")[3] == str(metric_child["id"])

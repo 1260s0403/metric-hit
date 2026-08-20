@@ -32,16 +32,16 @@ def test_activity_browser_flow(tmp_path: Path) -> None:
             page.goto(f"http://127.0.0.1:{port}/?view=activity", wait_until="domcontentloaded")
             assert page.get_by_test_id("tab-activity").get_attribute("aria-current") == "page"
             page.wait_for_timeout(500); assert page.get_by_test_id("activity-list").locator("article").count() >= 1
-            page.get_by_test_id("activity-type").select_option("task"); page.get_by_test_id("activity-action").select_option("update"); page.get_by_test_id("activity-apply").click()
-            page.evaluate("history.back()"); page.wait_for_timeout(300); assert page.get_by_test_id("activity-type").input_value() == "all"
-            page.get_by_test_id("activity-type").select_option("task"); page.get_by_test_id("activity-action").select_option("update"); page.get_by_test_id("activity-apply").click()
+            page.get_by_test_id("activity-type-task").click()
+            page.wait_for_timeout(300); assert "type=task" in page.url
+            page.evaluate("history.back()"); page.wait_for_timeout(300); assert page.get_by_test_id("activity-type-all").get_attribute("aria-pressed") == "true"
+            page.get_by_test_id("activity-type-task").click()
             page.locator('[data-testid^="activity-event-"]').first.click(); assert page.locator(".activity-v4-drawer").is_visible(); assert "{" not in page.locator(".activity-v4-drawer").inner_text()
             row = page.locator('[data-testid^="activity-event-"]').first; before = row.bounding_box(); drawer = page.locator(".activity-v4-drawer").bounding_box(); after = row.bounding_box()
             assert before and after and drawer and abs(before["width"] - after["width"]) < 1 and drawer["x"] >= after["x"] + after["width"]
             page.locator('[data-testid^="activity-open-"]').first.click(); expect(page.locator(".task-focused")).to_have_count(1)
             page.goto(f"http://127.0.0.1:{port}/?view=activity", wait_until="domcontentloaded")
-            page.get_by_test_id("activity-project").select_option(str(project["id"])); assert page.get_by_test_id("activity-list").locator("article").count() >= 1
-            page.locator('.activity-v4-filter[data-type="project"]').click(); assert page.get_by_test_id("activity-list").locator("article").count() >= 1
+            page.get_by_test_id("activity-project").select_option(str(project["id"])); assert f"project={project['id']}" in page.url
             page.get_by_test_id("activity-period").select_option("today"); assert "period=today" in page.url and page.get_by_test_id("activity-list").locator("article").count() >= 1
             assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth") and not errors
             browser.close()

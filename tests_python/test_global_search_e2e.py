@@ -92,7 +92,7 @@ def test_global_search_filters_navigation_back_and_mobile(page: Page, panel: tup
     page.get_by_test_id("global-search-type").select_option("idea")
     page.get_by_test_id("global-search-submit").click()
     expect(page.get_by_test_id("global-search-results")).to_have_count(1)
-    page.get_by_test_id("search-open-idea-" + ids["idea"]).click()
+    page.get_by_test_id("search-result-idea-" + ids["idea"]).click()
     expect(page.get_by_test_id("tab-idea")).to_have_attribute("aria-current", "page")
     expect(page.get_by_test_id("knowledge-entry-" + ids["idea"])).to_have_class(re.compile(r"\bentry-focused\b"))
     page.go_back()
@@ -113,12 +113,12 @@ def test_search_empty_hint_and_task_and_memory_targets(page: Page, panel: tuple[
     _search(page, base, "елка")
     page.get_by_test_id("global-search-type").select_option("task")
     page.get_by_test_id("global-search-submit").click()
-    page.get_by_test_id("search-open-task-" + ids["task"]).click()
+    page.get_by_test_id("search-result-task-" + ids["task"]).click()
     expect(page.get_by_test_id("task-card-" + ids["task"])).to_have_class(re.compile(r"\btask-focused\b"))
     _search(page, base, "елка")
     page.get_by_test_id("global-search-type").select_option("fact")
     page.get_by_test_id("global-search-submit").click()
-    page.get_by_test_id("search-open-fact-" + ids["fact"]).click()
+    page.get_by_test_id("search-result-fact-" + ids["fact"]).click()
     expect(page.get_by_test_id("memory-fact-" + ids["fact"])).to_have_class(re.compile(r"\bentry-focused\b"))
 
 
