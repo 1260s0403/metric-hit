@@ -160,7 +160,7 @@ function Get-BackupFileInventory {
 }
 
 function Test-BackupBytesContainSecret {
-    param([Parameter(Mandatory = $true)][byte[]]$Bytes)
+    param([Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes)
 
     if ($Bytes.Length -eq 0) { return $false }
     $patterns = @(
@@ -194,7 +194,7 @@ function Test-BackupFileContainsSecret {
 
 function Test-BackupBytesOrArchiveContainSecret {
     param(
-        [Parameter(Mandatory = $true)][byte[]]$Bytes,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][byte[]]$Bytes,
         [Parameter(Mandatory = $true)][string]$Label,
         [int]$Depth = 0
     )

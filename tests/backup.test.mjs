@@ -57,11 +57,15 @@ test('backup content policy detects representative secret formats', () => {
     New-Item -ItemType Directory -Path $testRoot | Out-Null
     try {
       $safe = Join-Path $testRoot 'safe.txt'
+      $empty = Join-Path $testRoot 'empty.txt'
       $unsafe = Join-Path $testRoot 'neutral.txt'
       Set-Content -LiteralPath $safe -Value 'Documentation mentions passwords without storing one.'
+      [IO.File]::WriteAllBytes($empty, [byte[]]@())
       $secretName = 'client_' + 'secret'
       Set-Content -LiteralPath $unsafe -Value ($secretName + ' = ' + 'abcdefghijklmnop')
       if (Test-BackupFileContainsSecret $safe) { throw 'Safe documentation was rejected.' }
+      if (Test-BackupFileContainsSecret $empty) { throw 'Empty file was rejected.' }
+      if (Test-BackupBytesOrArchiveContainSecret -Bytes ([byte[]]@()) -Label 'empty bytes') { throw 'Empty byte array was rejected.' }
       if (-not (Test-BackupFileContainsSecret $unsafe)) { throw 'Representative secret was not detected.' }
     } finally {
       Remove-Item -LiteralPath $testRoot -Recurse -Force
