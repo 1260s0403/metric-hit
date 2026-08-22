@@ -31,6 +31,7 @@ from .knowledge_store import KnowledgeError, KnowledgeStore
 from .handoff import HandoffError, HandoffStore, format_handoff
 from .operator_panel import run_operator_panel
 from .project_scope import DEFAULT_PROJECT_ID
+from .project_migration import build_migration_plan, migration_plan_summary
 from .project_store import ProjectStore
 from .services import current_context, editorial_status, memory_summary
 from .text_providers import ProviderError
@@ -84,6 +85,9 @@ def workflow_parser() -> argparse.ArgumentParser:
     panel = subparsers.add_parser("operator-panel")
     panel.add_argument("--db", required=True)
     panel.add_argument("--port", type=int, required=True)
+    migration_plan = subparsers.add_parser("project-migration-plan")
+    migration_plan.add_argument("--db", required=True)
+    migration_plan.add_argument("--summary-only", action="store_true")
     handoff_create = subparsers.add_parser("handoff-create")
     handoff_create.add_argument("--db", required=True)
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
@@ -172,6 +176,10 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         return 0
     if arguments.command == "operator-panel":
         run_operator_panel(database_path, port=arguments.port)
+        return 0
+    if arguments.command == "project-migration-plan":
+        plan = build_migration_plan(database_path)
+        print_json(migration_plan_summary(plan) if arguments.summary_only else plan)
         return 0
     if arguments.command == "handoff-create":
         raw = sys.stdin.read() if arguments.stdin else arguments.data
