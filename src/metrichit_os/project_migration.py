@@ -16,6 +16,28 @@ from .project_scope import DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID
 PLAN_SCHEMA_VERSION = 1
 OWNERSHIP_BATCH_VERSION = 1
 OWNERSHIP_BATCH_KEY = "approved-project-ownership-2026-08-22-v1"
+DECISION_OWNERSHIP_BATCH_KEY = "approved-decision-ownership-2026-08-22-v2"
+DECISION_OWNERSHIP_TARGET_IDS_SHA256 = "a1cde640339df73dc41a44672d3df1e263e231f5acbc50aa4abb1f9a3cbf59fe"
+DECISION_OWNERSHIP_SPECIAL_ID = "eef8ad32-e84d-45ea-ab3e-cbb53695c268"
+DECISION_OWNERSHIP_SPECIAL_INVALID_PROJECT_ID = "canonical_lowercase_uuid_v4"
+DECISION_OWNERSHIP_METRICHIT_IDS = frozenset({
+    "2ee09a09-26f1-49b5-a015-dc4414196b68",
+    "50c17c61-948f-41c0-a2be-af68fa1c8a37",
+    "8b8dd140-c03a-42f7-a7c0-a964cb92de24",
+    "944424ed-f5fb-40af-a7c2-82a5f5e978f0",
+    "bc74082f-f78f-46ad-accb-cc8336f512d2",
+    "c32a89d3-b34d-4970-a4c3-76e23514ec1f",
+    "d912991a-53bf-476e-a2c2-f09c6c5f7f08",
+})
+DECISION_OWNERSHIP_METRICHIT_KEYS = {
+    "2ee09a09-26f1-49b5-a015-dc4414196b68": "content.editorial_directness_policy",
+    "50c17c61-948f-41c0-a2be-af68fa1c8a37": "editorial.longform_separate_workstream",
+    "8b8dd140-c03a-42f7-a7c0-a964cb92de24": "editorial.mvp_speed_and_scalability_policy",
+    "944424ed-f5fb-40af-a7c2-82a5f5e978f0": "editorial.mvp_speed_and_scalability_policy",
+    "bc74082f-f78f-46ad-accb-cc8336f512d2": "operations.marketing_skills_evaluation_and_installation",
+    "c32a89d3-b34d-4970-a4c3-76e23514ec1f": "naming.landing_vs_account",
+    "d912991a-53bf-476e-a2c2-f09c6c5f7f08": "product.landing_development_integration",
+}
 CLASS_CORE = "core"
 CLASS_PROJECT = "managed_project"
 CLASS_UNRESOLVED = "unresolved"
@@ -139,14 +161,23 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
         by_id.setdefault(row["id"], []).append(index)
 
     ownership_events: dict[tuple[str, str], list[str]] = {}
+    metadata_corrections: dict[tuple[str, str, str], set[str]] = {}
     for row in rows:
         metadata = row["metadata"]
-        if row["table"] == "audit_log" and row["entityType"] == "project_scope_assignment":
+        if row["table"] == "audit_log" and row["entityType"] in {
+            "project_scope_assignment", "project_scope_metadata_correction",
+        }:
             table = metadata.get("table")
             entity_id = metadata.get("entityId")
             project_id = metadata.get("project_id")
             if isinstance(table, str) and isinstance(entity_id, str) and isinstance(project_id, str):
                 ownership_events.setdefault((table, entity_id), []).append(project_id)
+            correction = metadata.get("correction")
+            if row["entityType"] == "project_scope_metadata_correction" and isinstance(correction, dict):
+                field = correction.get("field")
+                invalid_value = correction.get("invalidValue")
+                if all(isinstance(value, str) for value in (table, entity_id, field, invalid_value)):
+                    metadata_corrections.setdefault((table, entity_id, field), set()).add(invalid_value)
 
     results: list[tuple[str, str | None, list[str]]] = []
     for row in rows:
@@ -156,7 +187,9 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
         if row["table"] == "documents" and row["entityType"] == "project":
             signals.append(_signal(row["id"], projects))
         metadata = row["metadata"]
-        if metadata.get("project_id"):
+        if metadata.get("project_id") and str(metadata["project_id"]) not in metadata_corrections.get(
+            (row["table"], row["id"], "project_id"), set()
+        ):
             signals.append(_signal(str(metadata["project_id"]), projects))
         if metadata.get("subproject_id"):
             signals.append(_signal(str(metadata["subproject_id"]), projects))
@@ -247,6 +280,13 @@ def migration_plan_summary(plan: dict[str, Any]) -> dict[str, Any]:
 
 def _audit_id(table: str, entity_id: str, project_id: str) -> str:
     return str(uuid5(NAMESPACE_URL, f"metrichit:{OWNERSHIP_BATCH_KEY}:{table}:{entity_id}:{project_id}"))
+
+
+def _decision_audit_id(entity_id: str, project_id: str) -> str:
+    return str(uuid5(
+        NAMESPACE_URL,
+        f"metrichit:{DECISION_OWNERSHIP_BATCH_KEY}:memory_candidates:{entity_id}:{project_id}",
+    ))
 
 
 def _approved_targets(plan: dict[str, Any]) -> list[dict[str, str]]:
@@ -444,6 +484,294 @@ def apply_approved_ownership_batch(
         "applied": 35,
         "alreadyApplied": 0,
         "auditRows": 35,
+        "rollbackManifest": str(rollback_path),
+        "sourceSha256Before": expected_source_sha256,
+        "sourceSha256After": after["sourceSha256"],
+        "planManifestSha256After": after["manifestSha256"],
+        "counts": after["counts"],
+        "unresolvedCategories": after["unresolvedCategories"],
+    }
+
+
+def _decision_target_ids_sha256(entity_ids: list[str]) -> str:
+    payload = "\n".join(sorted(entity_ids)) + "\n"
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _approved_decision_targets(plan: dict[str, Any]) -> list[dict[str, str]]:
+    records = [
+        record for record in plan["records"]
+        if record["table"] == "memory_candidates"
+        and record["entityType"] == "decision"
+        and record["classification"] == CLASS_UNRESOLVED
+    ]
+    entity_ids = [record["id"] for record in records]
+    if len(entity_ids) != 62:
+        raise RuntimeError(f"approved decision selector mismatch: expected 62, found {len(entity_ids)}")
+    if _decision_target_ids_sha256(entity_ids) != DECISION_OWNERSHIP_TARGET_IDS_SHA256:
+        raise RuntimeError("approved decision selector ID set mismatch")
+    by_id = {record["id"]: record for record in records}
+    special = by_id.get(DECISION_OWNERSHIP_SPECIAL_ID)
+    if special is None or special["reasons"] != ["unknown_project_link"]:
+        raise RuntimeError("special project-storage decision no longer has the approved invalid-link state")
+    ordinary = [record for record in records if record["id"] != DECISION_OWNERSHIP_SPECIAL_ID]
+    if any(record["reasons"] != ["legacy_unscoped"] for record in ordinary):
+        raise RuntimeError("ordinary approved decision target is no longer legacy-unscoped")
+    if not DECISION_OWNERSHIP_METRICHIT_IDS < set(entity_ids):
+        raise RuntimeError("approved MetricHit decision ID set is incomplete")
+    targets = []
+    for record in records:
+        project_id = (
+            DEFAULT_PROJECT_ID
+            if record["id"] in DECISION_OWNERSHIP_METRICHIT_IDS
+            else YADRO_CONTROL_PLANE_PROJECT_ID
+        )
+        targets.append({
+            "table": "memory_candidates",
+            "entityType": "decision",
+            "id": record["id"],
+            "projectId": project_id,
+        })
+    actual = Counter(target["projectId"] for target in targets)
+    if actual != Counter({YADRO_CONTROL_PLANE_PROJECT_ID: 55, DEFAULT_PROJECT_ID: 7}):
+        raise RuntimeError("approved decision split does not match 54 core / 7 MetricHit / 1 special core")
+    return sorted(targets, key=lambda item: item["id"])
+
+
+def _completed_decision_batch(connection: sqlite3.Connection) -> list[dict[str, str]] | None:
+    rows = connection.execute(
+        "SELECT id,type,data_json,entity_type,entity_id FROM audit_log "
+        "WHERE json_extract(data_json,'$.batchKey')=? ORDER BY id",
+        (DECISION_OWNERSHIP_BATCH_KEY,),
+    ).fetchall()
+    if not rows:
+        return None
+    if len(rows) != 62:
+        raise RuntimeError(f"partial decision ownership batch detected: expected 62 audit rows, found {len(rows)}")
+    targets: list[dict[str, str]] = []
+    for row in rows:
+        data = json.loads(row["data_json"])
+        entity_id = data.get("entityId")
+        project_id = data.get("project_id")
+        if not isinstance(entity_id, str) or not isinstance(project_id, str):
+            raise RuntimeError("decision ownership batch contains invalid audit metadata")
+        expected_type = (
+            "project_scope_metadata_correction"
+            if entity_id == DECISION_OWNERSHIP_SPECIAL_ID
+            else "project_scope_assignment"
+        )
+        if (
+            data.get("table") != "memory_candidates"
+            or row["type"] != expected_type
+            or row["entity_type"] != "decision"
+            or row["entity_id"] != entity_id
+            or row["id"] != _decision_audit_id(entity_id, project_id)
+        ):
+            raise RuntimeError("decision ownership batch contains an unexpected or invalid audit row")
+        if entity_id == DECISION_OWNERSHIP_SPECIAL_ID and data.get("correction") != {
+            "field": "project_id",
+            "invalidValue": DECISION_OWNERSHIP_SPECIAL_INVALID_PROJECT_ID,
+            "reason": "storage contract descriptor was not an ownership relation",
+        }:
+            raise RuntimeError("special decision correction audit is incomplete")
+        target = connection.execute(
+            "SELECT type FROM memory_candidates WHERE id=?", (entity_id,),
+        ).fetchone()
+        if target is None or target["type"] != "decision":
+            raise RuntimeError(f"decision ownership audit does not match memory_candidates/{entity_id}")
+        targets.append({
+            "table": "memory_candidates", "entityType": "decision",
+            "id": entity_id, "projectId": project_id,
+        })
+    entity_ids = [target["id"] for target in targets]
+    if _decision_target_ids_sha256(entity_ids) != DECISION_OWNERSHIP_TARGET_IDS_SHA256:
+        raise RuntimeError("completed decision ownership batch target set mismatch")
+    actual = Counter(target["projectId"] for target in targets)
+    if actual != Counter({YADRO_CONTROL_PLANE_PROJECT_ID: 55, DEFAULT_PROJECT_ID: 7}):
+        raise RuntimeError("completed decision ownership batch split mismatch")
+    return sorted(targets, key=lambda item: item["id"])
+
+
+def apply_approved_decision_ownership_batch(
+    database_path: Path,
+    *,
+    expected_source_sha256: str,
+    expected_manifest_sha256: str,
+    rollback_manifest_path: Path,
+    verified_backup_set: Path,
+) -> dict[str, Any]:
+    """Apply the owner-approved 54 core / 7 MetricHit / 1 corrected core decision batch."""
+    source_path = database_path.resolve()
+    backup_path = verified_backup_set.resolve()
+    if not backup_path.is_dir() or len(list(backup_path.glob("*-manifest.json"))) != 1:
+        raise RuntimeError("verified backup set is missing or incomplete")
+
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA foreign_keys = ON")
+        completed = _completed_decision_batch(connection)
+        if completed is not None:
+            return {
+                "batchKey": DECISION_OWNERSHIP_BATCH_KEY,
+                "applied": 0,
+                "alreadyApplied": 62,
+                "auditRows": 62,
+                "sourceSha256": sha256_file(source_path),
+            }
+    finally:
+        connection.close()
+
+    plan = build_migration_plan(source_path)
+    if plan["sourceSha256"] != expected_source_sha256:
+        raise RuntimeError("source SHA-256 guard mismatch")
+    if plan["manifestSha256"] != expected_manifest_sha256:
+        raise RuntimeError("migration plan manifest guard mismatch")
+    targets = _approved_decision_targets(plan)
+    unresolved_before = {
+        (record["table"], record["id"])
+        for record in plan["records"]
+        if record["classification"] == CLASS_UNRESOLVED
+    }
+
+    rollback_path = rollback_manifest_path.resolve()
+    rollback_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        if sha256_file(source_path) != expected_source_sha256:
+            raise RuntimeError("source changed before decision ownership transaction")
+        rollback_rows: list[dict[str, Any]] = []
+        for target in targets:
+            row = connection.execute(
+                "SELECT type,semantic_key,title,data_json,source_id,author,updated_at,version "
+                "FROM memory_candidates WHERE id=?",
+                (target["id"],),
+            ).fetchone()
+            if row is None or row["type"] != "decision":
+                raise RuntimeError(f"target changed before apply: memory_candidates/{target['id']}")
+            metadata = _metadata(row["data_json"])
+            if target["id"] == DECISION_OWNERSHIP_SPECIAL_ID:
+                if (
+                    row["semantic_key"] != "architecture.project_storage_foundation"
+                    or metadata.get("project_id") != DECISION_OWNERSHIP_SPECIAL_INVALID_PROJECT_ID
+                    or metadata.get("subproject_id")
+                ):
+                    raise RuntimeError("special project-storage decision metadata changed before apply")
+            else:
+                if metadata.get("project_id") or metadata.get("subproject_id"):
+                    raise RuntimeError(f"target is no longer legacy-unscoped: memory_candidates/{target['id']}")
+                expected_key = DECISION_OWNERSHIP_METRICHIT_KEYS.get(target["id"])
+                if expected_key is not None and row["semantic_key"] != expected_key:
+                    raise RuntimeError(f"MetricHit decision semantic key changed: {target['id']}")
+            rollback_rows.append({
+                **target,
+                "semanticKey": row["semantic_key"],
+                "title": row["title"],
+                "oldDataJson": row["data_json"],
+                "oldUpdatedAt": row["updated_at"],
+                "oldVersion": row["version"],
+                "auditId": _decision_audit_id(target["id"], target["projectId"]),
+            })
+
+        rollback_document = {
+            "schemaVersion": OWNERSHIP_BATCH_VERSION,
+            "batchKey": DECISION_OWNERSHIP_BATCH_KEY,
+            "approvedSplit": {"ordinaryCore": 54, "metricHit": 7, "specialCore": 1},
+            "targetIdsSha256": DECISION_OWNERSHIP_TARGET_IDS_SHA256,
+            "sourceSha256": expected_source_sha256,
+            "planManifestSha256": expected_manifest_sha256,
+            "verifiedBackupSet": str(backup_path),
+            "rows": rollback_rows,
+            "restoreMethod": "restore the verified full backup set; audit_log is append-only",
+        }
+        rollback_json = json.dumps(rollback_document, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        if rollback_path.exists():
+            if rollback_path.read_text(encoding="utf-8-sig") != rollback_json:
+                raise RuntimeError("existing rollback manifest does not match the approved decision batch")
+        else:
+            with rollback_path.open("x", encoding="utf-8") as destination:
+                destination.write(rollback_json)
+
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        for target, old in zip(targets, rollback_rows, strict=True):
+            special = target["id"] == DECISION_OWNERSHIP_SPECIAL_ID
+            audit_data: dict[str, Any] = {
+                "batchKey": DECISION_OWNERSHIP_BATCH_KEY,
+                "table": "memory_candidates",
+                "entityId": target["id"],
+                "project_id": target["projectId"],
+                "old": {"project_id": DECISION_OWNERSHIP_SPECIAL_INVALID_PROJECT_ID if special else None},
+                "new": {"project_id": target["projectId"]},
+            }
+            if special:
+                audit_data["correction"] = {
+                    "field": "project_id",
+                    "invalidValue": DECISION_OWNERSHIP_SPECIAL_INVALID_PROJECT_ID,
+                    "reason": "storage contract descriptor was not an ownership relation",
+                }
+            connection.execute(
+                "INSERT INTO audit_log (id,type,title,data_json,source_id,author,created_at,updated_at,"
+                "access_level,version,entity_type,entity_id,action) "
+                "VALUES (?,?,?,?,?,?,?,?,'restricted',1,'decision',?,'update')",
+                (
+                    old["auditId"],
+                    "project_scope_metadata_correction" if special else "project_scope_assignment",
+                    "Project ownership metadata corrected" if special else "Project ownership assigned",
+                    json.dumps(audit_data, ensure_ascii=False, sort_keys=True),
+                    None, "owner", now, now, target["id"],
+                ),
+            )
+        if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise RuntimeError("SQLite integrity_check failed")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    after = build_migration_plan(source_path)
+    selected = {(target["table"], target["id"]) for target in targets}
+    unresolved_after = {
+        (record["table"], record["id"])
+        for record in after["records"]
+        if record["classification"] == CLASS_UNRESOLVED
+    }
+    if unresolved_after != unresolved_before - selected:
+        raise RuntimeError("post-apply unresolved set differs outside approved decision targets")
+    expected_counts = {
+        CLASS_CORE: plan["counts"][CLASS_CORE] + 110,
+        CLASS_PROJECT: plan["counts"][CLASS_PROJECT] + 14,
+        CLASS_UNRESOLVED: plan["counts"][CLASS_UNRESOLVED] - 62,
+    }
+    if after["counts"] != expected_counts:
+        raise RuntimeError(f"post-apply decision ownership totals mismatch: {after['counts']}")
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        for old in rollback_rows:
+            current = connection.execute(
+                "SELECT data_json,updated_at,version FROM memory_candidates WHERE id=?", (old["id"],),
+            ).fetchone()
+            if current is None or dict(current) != {
+                "data_json": old["oldDataJson"],
+                "updated_at": old["oldUpdatedAt"],
+                "version": old["oldVersion"],
+            }:
+                raise RuntimeError(f"approved decision content changed: {old['id']}")
+    finally:
+        connection.close()
+    return {
+        "batchKey": DECISION_OWNERSHIP_BATCH_KEY,
+        "applied": 62,
+        "alreadyApplied": 0,
+        "auditRows": 62,
+        "approvedSplit": {"ordinaryCore": 54, "metricHit": 7, "specialCore": 1},
+        "targetIdsSha256": DECISION_OWNERSHIP_TARGET_IDS_SHA256,
+        "unchangedNonTargetUnresolved": len(unresolved_after),
         "rollbackManifest": str(rollback_path),
         "sourceSha256Before": expected_source_sha256,
         "sourceSha256After": after["sourceSha256"],

@@ -4,6 +4,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+from metrichit_os import project_migration
 from metrichit_os.database import sha256_file
 from metrichit_os.project_migration import (
     OWNERSHIP_BATCH_KEY,
@@ -185,3 +186,137 @@ def test_approved_ownership_batch_guards_mismatch_and_rolls_back_transaction(tmp
         assert db.execute(
             "SELECT count(*) FROM audit_log WHERE json_extract(data_json,'$.batchKey')=?", (OWNERSHIP_BATCH_KEY,)
         ).fetchone()[0] == 0
+
+
+def _decision_ownership_database(path: Path, entity_ids: list[str], special_id: str) -> None:
+    with sqlite3.connect(path) as db:
+        db.executescript("""
+        CREATE TABLE memory_candidates(
+          id TEXT PRIMARY KEY,type TEXT,semantic_key TEXT,title TEXT,data_json TEXT,
+          source_id TEXT,author TEXT,updated_at TEXT,version INTEGER
+        );
+        CREATE TABLE tasks(id TEXT PRIMARY KEY,type TEXT,data_json TEXT,source_id TEXT,author TEXT,updated_at TEXT,version INTEGER);
+        CREATE TABLE audit_log(
+          id TEXT PRIMARY KEY,type TEXT,title TEXT,content TEXT,data_json TEXT,status TEXT DEFAULT 'recorded',
+          source_id TEXT,author TEXT,created_at TEXT,updated_at TEXT,valid_at TEXT,access_level TEXT,
+          version INTEGER,entity_type TEXT,entity_id TEXT,action TEXT
+        );
+        CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT);
+        INSERT INTO schema_migrations VALUES(1,'initial');
+        INSERT INTO tasks VALUES('90000000-0000-4000-a000-000000000001','outside_scope','{}',NULL,'owner','x',1);
+        """)
+        for index, entity_id in enumerate(entity_ids):
+            metadata = (
+                {"project_id": project_migration.DECISION_OWNERSHIP_SPECIAL_INVALID_PROJECT_ID, "contract": True}
+                if entity_id == special_id else {"payload": index}
+            )
+            db.execute(
+                "INSERT INTO memory_candidates VALUES(?, 'decision', ?, ?, ?, NULL, 'owner', 'x', 1)",
+                (
+                    entity_id,
+                    "architecture.project_storage_foundation" if entity_id == special_id else f"decision.{index}",
+                    f"Decision {index}",
+                    json.dumps(metadata, sort_keys=True),
+                ),
+            )
+
+
+def test_decision_ownership_batch_exact_selector_idempotency_audit_and_rollback(
+    tmp_path: Path, monkeypatch,
+) -> None:
+    special_id = "50000000-0000-4000-a000-000000000000"
+    entity_ids = [special_id] + [f"50000000-0000-4000-a000-{index:012d}" for index in range(1, 62)]
+    metric_ids = frozenset(entity_ids[1:8])
+    target_digest = project_migration._decision_target_ids_sha256(entity_ids)
+    monkeypatch.setattr(project_migration, "DECISION_OWNERSHIP_SPECIAL_ID", special_id)
+    monkeypatch.setattr(project_migration, "DECISION_OWNERSHIP_METRICHIT_IDS", metric_ids)
+    monkeypatch.setattr(
+        project_migration, "DECISION_OWNERSHIP_METRICHIT_KEYS",
+        {entity_id: f"decision.{index}" for index, entity_id in enumerate(entity_ids) if entity_id in metric_ids},
+    )
+    monkeypatch.setattr(project_migration, "DECISION_OWNERSHIP_TARGET_IDS_SHA256", target_digest)
+    path = tmp_path / "legacy.sqlite"
+    _decision_ownership_database(path, entity_ids, special_id)
+    before_plan = build_migration_plan(path)
+    before_unresolved = {
+        (record["table"], record["id"])
+        for record in before_plan["records"] if record["classification"] == "unresolved"
+    }
+    with sqlite3.connect(path) as db:
+        original = db.execute(
+            "SELECT id,data_json,updated_at,version FROM memory_candidates ORDER BY id"
+        ).fetchall()
+    backup = tmp_path / "verified-backup"
+    backup.mkdir()
+    (backup / "test-manifest.json").write_text("{}", encoding="utf-8")
+    rollback = tmp_path / "rollback.json"
+    result = project_migration.apply_approved_decision_ownership_batch(
+        path,
+        expected_source_sha256=before_plan["sourceSha256"],
+        expected_manifest_sha256=before_plan["manifestSha256"],
+        rollback_manifest_path=rollback,
+        verified_backup_set=backup,
+    )
+    assert result["applied"] == 62
+    assert result["approvedSplit"] == {"ordinaryCore": 54, "metricHit": 7, "specialCore": 1}
+    assert result["unchangedNonTargetUnresolved"] == 1
+    rollback_data = json.loads(rollback.read_text(encoding="utf-8"))
+    assert len(rollback_data["rows"]) == 62
+    assert rollback_data["targetIdsSha256"] == target_digest
+    with sqlite3.connect(path) as db:
+        assert db.execute(
+            "SELECT id,data_json,updated_at,version FROM memory_candidates ORDER BY id"
+        ).fetchall() == original
+        audit_rows = db.execute(
+            "SELECT type,data_json FROM audit_log WHERE json_extract(data_json,'$.batchKey')=?",
+            (project_migration.DECISION_OWNERSHIP_BATCH_KEY,),
+        ).fetchall()
+    assert len(audit_rows) == 62
+    corrections = [json.loads(data) for audit_type, data in audit_rows if audit_type == "project_scope_metadata_correction"]
+    assert len(corrections) == 1
+    assert corrections[0]["entityId"] == special_id
+    assert corrections[0]["correction"]["invalidValue"] == "canonical_lowercase_uuid_v4"
+    after_plan = build_migration_plan(path)
+    after_unresolved = {
+        (record["table"], record["id"])
+        for record in after_plan["records"] if record["classification"] == "unresolved"
+    }
+    assert after_unresolved == before_unresolved - {("memory_candidates", entity_id) for entity_id in entity_ids}
+    repeated = project_migration.apply_approved_decision_ownership_batch(
+        path,
+        expected_source_sha256="ignored-after-completion",
+        expected_manifest_sha256="ignored-after-completion",
+        rollback_manifest_path=tmp_path / "unused.json",
+        verified_backup_set=backup,
+    )
+    assert repeated["applied"] == 0 and repeated["alreadyApplied"] == 62
+    assert not (tmp_path / "unused.json").exists()
+
+
+def test_decision_ownership_batch_rejects_selector_drift_before_writes(tmp_path: Path, monkeypatch) -> None:
+    special_id = "60000000-0000-4000-a000-000000000000"
+    entity_ids = [special_id] + [f"60000000-0000-4000-a000-{index:012d}" for index in range(1, 62)]
+    monkeypatch.setattr(project_migration, "DECISION_OWNERSHIP_SPECIAL_ID", special_id)
+    monkeypatch.setattr(project_migration, "DECISION_OWNERSHIP_METRICHIT_IDS", frozenset(entity_ids[1:8]))
+    monkeypatch.setattr(project_migration, "DECISION_OWNERSHIP_TARGET_IDS_SHA256", "0" * 64)
+    path = tmp_path / "drift.sqlite"
+    _decision_ownership_database(path, entity_ids, special_id)
+    backup = tmp_path / "verified-backup"
+    backup.mkdir()
+    (backup / "test-manifest.json").write_text("{}", encoding="utf-8")
+    plan = build_migration_plan(path)
+    try:
+        project_migration.apply_approved_decision_ownership_batch(
+            path,
+            expected_source_sha256=plan["sourceSha256"],
+            expected_manifest_sha256=plan["manifestSha256"],
+            rollback_manifest_path=tmp_path / "rollback.json",
+            verified_backup_set=backup,
+        )
+    except RuntimeError as error:
+        assert "selector ID set mismatch" in str(error)
+    else:
+        raise AssertionError("selector drift must fail closed")
+    with sqlite3.connect(path) as db:
+        assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == 0
+    assert not (tmp_path / "rollback.json").exists()
