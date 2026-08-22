@@ -31,7 +31,7 @@ from .knowledge_store import KnowledgeError, KnowledgeStore
 from .handoff import HandoffError, HandoffStore, format_handoff
 from .operator_panel import run_operator_panel
 from .project_scope import DEFAULT_PROJECT_ID
-from .project_migration import build_migration_plan, migration_plan_summary
+from .project_migration import apply_approved_ownership_batch, build_migration_plan, migration_plan_summary
 from .project_store import ProjectStore
 from .services import current_context, editorial_status, memory_summary
 from .text_providers import ProviderError
@@ -88,6 +88,12 @@ def workflow_parser() -> argparse.ArgumentParser:
     migration_plan = subparsers.add_parser("project-migration-plan")
     migration_plan.add_argument("--db", required=True)
     migration_plan.add_argument("--summary-only", action="store_true")
+    ownership_apply = subparsers.add_parser("project-ownership-apply")
+    ownership_apply.add_argument("--db", required=True)
+    ownership_apply.add_argument("--expected-source-sha256", required=True)
+    ownership_apply.add_argument("--expected-manifest-sha256", required=True)
+    ownership_apply.add_argument("--rollback-manifest", required=True)
+    ownership_apply.add_argument("--verified-backup-set", required=True)
     handoff_create = subparsers.add_parser("handoff-create")
     handoff_create.add_argument("--db", required=True)
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
@@ -180,6 +186,15 @@ def run_workflow_command(arguments_list: list[str]) -> int:
     if arguments.command == "project-migration-plan":
         plan = build_migration_plan(database_path)
         print_json(migration_plan_summary(plan) if arguments.summary_only else plan)
+        return 0
+    if arguments.command == "project-ownership-apply":
+        print_json(apply_approved_ownership_batch(
+            database_path,
+            expected_source_sha256=arguments.expected_source_sha256,
+            expected_manifest_sha256=arguments.expected_manifest_sha256,
+            rollback_manifest_path=Path(arguments.rollback_manifest),
+            verified_backup_set=Path(arguments.verified_backup_set),
+        ))
         return 0
     if arguments.command == "handoff-create":
         raw = sys.stdin.read() if arguments.stdin else arguments.data

@@ -4,14 +4,18 @@ import hashlib
 import json
 import sqlite3
 from collections import Counter
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+from uuid import NAMESPACE_URL, uuid5
 
 from .database import read_only_database, sha256_file
 from .project_scope import DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID
 
 
 PLAN_SCHEMA_VERSION = 1
+OWNERSHIP_BATCH_VERSION = 1
+OWNERSHIP_BATCH_KEY = "approved-project-ownership-2026-08-22-v1"
 CLASS_CORE = "core"
 CLASS_PROJECT = "managed_project"
 CLASS_UNRESOLVED = "unresolved"
@@ -23,6 +27,22 @@ RELATION_COLUMNS = {
     "existing_memory_item_id",
     "target_memory_item_id",
     "entity_id",
+}
+
+APPROVED_OWNERSHIP_ASSIGNMENTS = {
+    DEFAULT_PROJECT_ID: {
+        ("memory_candidates", "editorial_rule"): 10,
+        ("memory_candidates", "commercial_terms"): 3,
+        ("memory_candidates", "official_channel"): 2,
+        ("memory_candidates", "official_resource"): 2,
+        ("memory_candidates", "product_fact"): 6,
+        ("memory_candidates", "publication_state"): 6,
+        ("decisions", "editorial_policy"): 1,
+        ("tasks", "analytics_implementation"): 1,
+    },
+    YADRO_CONTROL_PLANE_PROJECT_ID: {
+        ("memory_candidates", "ai_policy"): 4,
+    },
 }
 
 
@@ -118,6 +138,16 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
     for index, row in enumerate(rows):
         by_id.setdefault(row["id"], []).append(index)
 
+    ownership_events: dict[tuple[str, str], list[str]] = {}
+    for row in rows:
+        metadata = row["metadata"]
+        if row["table"] == "audit_log" and row["entityType"] == "project_scope_assignment":
+            table = metadata.get("table")
+            entity_id = metadata.get("entityId")
+            project_id = metadata.get("project_id")
+            if isinstance(table, str) and isinstance(entity_id, str) and isinstance(project_id, str):
+                ownership_events.setdefault((table, entity_id), []).append(project_id)
+
     results: list[tuple[str, str | None, list[str]]] = []
     for row in rows:
         signals: list[tuple[str, str | None, str]] = []
@@ -130,6 +160,8 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
             signals.append(_signal(str(metadata["project_id"]), projects))
         if metadata.get("subproject_id"):
             signals.append(_signal(str(metadata["subproject_id"]), projects))
+        for project_id in ownership_events.get((row["table"], row["id"]), []):
+            signals.append(_signal(project_id, projects))
         results.append(_classification(signals))
 
     # Explicit foreign-key/entity relationships may inherit ownership. Iterate to
@@ -210,4 +242,212 @@ def migration_plan_summary(plan: dict[str, Any]) -> dict[str, Any]:
         "unresolvedCategories": plan["unresolvedCategories"],
         "countsByEntity": plan["countsByEntity"],
         "unresolvedByEntity": plan["unresolvedByEntity"],
+    }
+
+
+def _audit_id(table: str, entity_id: str, project_id: str) -> str:
+    return str(uuid5(NAMESPACE_URL, f"metrichit:{OWNERSHIP_BATCH_KEY}:{table}:{entity_id}:{project_id}"))
+
+
+def _approved_targets(plan: dict[str, Any]) -> list[dict[str, str]]:
+    records = {
+        (record["table"], record["entityType"]): []
+        for record in plan["records"]
+    }
+    for record in plan["records"]:
+        key = (record["table"], record["entityType"])
+        if record["classification"] == CLASS_UNRESOLVED and record["reasons"] == ["legacy_unscoped"]:
+            records.setdefault(key, []).append(record["id"])
+    targets: list[dict[str, str]] = []
+    for project_id, selectors in APPROVED_OWNERSHIP_ASSIGNMENTS.items():
+        for (table, entity_type), expected_count in selectors.items():
+            ids = sorted(records.get((table, entity_type), []))
+            if len(ids) != expected_count:
+                raise RuntimeError(
+                    f"approved selector mismatch for {table}/{entity_type}: "
+                    f"expected {expected_count}, found {len(ids)}"
+                )
+            targets.extend(
+                {"table": table, "entityType": entity_type, "id": entity_id, "projectId": project_id}
+                for entity_id in ids
+            )
+    if len(targets) != 35:
+        raise RuntimeError(f"approved assignment total mismatch: expected 35, found {len(targets)}")
+    return sorted(targets, key=lambda item: (item["table"], item["entityType"], item["id"]))
+
+
+def _completed_batch(connection: sqlite3.Connection) -> list[dict[str, str]] | None:
+    rows = connection.execute(
+        "SELECT id,data_json FROM audit_log WHERE json_extract(data_json,'$.batchKey')=? ORDER BY id",
+        (OWNERSHIP_BATCH_KEY,),
+    ).fetchall()
+    if not rows:
+        return None
+    if len(rows) != 35:
+        raise RuntimeError(f"partial ownership batch detected: expected 35 audit rows, found {len(rows)}")
+    targets: list[dict[str, str]] = []
+    allowed_tables = {table for selectors in APPROVED_OWNERSHIP_ASSIGNMENTS.values() for table, _ in selectors}
+    for row in rows:
+        data = json.loads(row["data_json"])
+        table, entity_id, project_id = data["table"], data["entityId"], data["project_id"]
+        if table not in allowed_tables or row["id"] != _audit_id(table, entity_id, project_id):
+            raise RuntimeError("ownership batch contains an unexpected or invalid audit row")
+        target = connection.execute(f'SELECT type FROM "{table}" WHERE id=?', (entity_id,)).fetchone()
+        if target is None:
+            raise RuntimeError(f"ownership batch audit does not match {table}/{entity_id}")
+        targets.append({"table": table, "entityType": target["type"], "id": entity_id, "projectId": project_id})
+    actual = Counter((item["projectId"], item["table"], item["entityType"]) for item in targets)
+    expected = Counter({
+        (project_id, table, entity_type): count
+        for project_id, selectors in APPROVED_OWNERSHIP_ASSIGNMENTS.items()
+        for (table, entity_type), count in selectors.items()
+    })
+    if actual != expected:
+        raise RuntimeError("completed ownership batch does not match the approved 31/4 selectors")
+    return sorted(targets, key=lambda item: (item["table"], item["entityType"], item["id"]))
+
+
+def apply_approved_ownership_batch(
+    database_path: Path,
+    *,
+    expected_source_sha256: str,
+    expected_manifest_sha256: str,
+    rollback_manifest_path: Path,
+    verified_backup_set: Path,
+) -> dict[str, Any]:
+    """Apply the owner-approved 31/4 legacy ownership batch exactly once."""
+    source_path = database_path.resolve()
+    backup_path = verified_backup_set.resolve()
+    if not backup_path.is_dir() or len(list(backup_path.glob("*-manifest.json"))) != 1:
+        raise RuntimeError("verified backup set is missing or incomplete")
+
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA foreign_keys = ON")
+        completed = _completed_batch(connection)
+        if completed is not None:
+            return {
+                "batchKey": OWNERSHIP_BATCH_KEY,
+                "applied": 0,
+                "alreadyApplied": 35,
+                "auditRows": 35,
+                "sourceSha256": sha256_file(source_path),
+            }
+    finally:
+        connection.close()
+
+    plan = build_migration_plan(source_path)
+    if plan["sourceSha256"] != expected_source_sha256:
+        raise RuntimeError("source SHA-256 guard mismatch")
+    if plan["manifestSha256"] != expected_manifest_sha256:
+        raise RuntimeError("migration plan manifest guard mismatch")
+    targets = _approved_targets(plan)
+
+    rollback_path = rollback_manifest_path.resolve()
+    rollback_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        if sha256_file(source_path) != expected_source_sha256:
+            raise RuntimeError("source changed before ownership transaction")
+        rollback_rows: list[dict[str, Any]] = []
+        for target in targets:
+            row = connection.execute(
+                f'SELECT type,data_json,source_id,author,updated_at,version FROM "{target["table"]}" WHERE id=?',
+                (target["id"],),
+            ).fetchone()
+            if row is None or row["type"] != target["entityType"]:
+                raise RuntimeError(f"target changed before apply: {target['table']}/{target['id']}")
+            metadata = _metadata(row["data_json"])
+            if metadata.get("project_id") or metadata.get("subproject_id"):
+                raise RuntimeError(f"target is no longer legacy-unscoped: {target['table']}/{target['id']}")
+            rollback_rows.append({
+                **target,
+                "oldDataJson": row["data_json"],
+                "oldUpdatedAt": row["updated_at"],
+                "oldVersion": row["version"],
+                "auditId": _audit_id(target["table"], target["id"], target["projectId"]),
+            })
+
+        rollback_document = {
+            "schemaVersion": OWNERSHIP_BATCH_VERSION,
+            "batchKey": OWNERSHIP_BATCH_KEY,
+            "sourceSha256": expected_source_sha256,
+            "planManifestSha256": expected_manifest_sha256,
+            "verifiedBackupSet": str(backup_path),
+            "rows": rollback_rows,
+            "restoreMethod": "restore the verified full backup set; audit_log is append-only",
+        }
+        rollback_json = json.dumps(rollback_document, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        if rollback_path.exists():
+            if rollback_path.read_text(encoding="utf-8-sig") != rollback_json:
+                raise RuntimeError("existing rollback manifest does not match the approved batch")
+        else:
+            with rollback_path.open("x", encoding="utf-8") as destination:
+                destination.write(rollback_json)
+
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        for target, old in zip(targets, rollback_rows, strict=True):
+            audit_data = {
+                "batchKey": OWNERSHIP_BATCH_KEY,
+                "table": target["table"],
+                "entityId": target["id"],
+                "project_id": target["projectId"],
+                "old": {"project_id": None},
+                "new": {"project_id": target["projectId"]},
+            }
+            connection.execute(
+                "INSERT INTO audit_log (id,type,title,data_json,source_id,author,created_at,updated_at,"
+                "access_level,version,entity_type,entity_id,action) "
+                "VALUES (?,?,?,?,?,?,?,?,'restricted',1,?,?, 'update')",
+                (
+                    old["auditId"], "project_scope_assignment", "Project ownership assigned",
+                    json.dumps(audit_data, ensure_ascii=False, sort_keys=True), None,
+                    "owner", now, now, target["entityType"], target["id"],
+                ),
+            )
+        if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise RuntimeError("SQLite integrity_check failed")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    after = build_migration_plan(source_path)
+    unresolved_before = {
+        (record["table"], record["id"])
+        for record in plan["records"]
+        if record["classification"] == CLASS_UNRESOLVED
+    }
+    selected = {(target["table"], target["id"]) for target in targets}
+    unresolved_after = {
+        (record["table"], record["id"])
+        for record in after["records"]
+        if record["classification"] == CLASS_UNRESOLVED
+    }
+    if unresolved_after != unresolved_before - selected:
+        raise RuntimeError("post-apply unresolved set differs outside approved targets")
+    expected_counts = {
+        CLASS_CORE: plan["counts"][CLASS_CORE] + 8,
+        CLASS_PROJECT: plan["counts"][CLASS_PROJECT] + 62,
+        CLASS_UNRESOLVED: plan["counts"][CLASS_UNRESOLVED] - 35,
+    }
+    if after["counts"] != expected_counts:
+        raise RuntimeError(f"post-apply totals mismatch: {after['counts']}")
+    return {
+        "batchKey": OWNERSHIP_BATCH_KEY,
+        "applied": 35,
+        "alreadyApplied": 0,
+        "auditRows": 35,
+        "rollbackManifest": str(rollback_path),
+        "sourceSha256Before": expected_source_sha256,
+        "sourceSha256After": after["sourceSha256"],
+        "planManifestSha256After": after["manifestSha256"],
+        "counts": after["counts"],
+        "unresolvedCategories": after["unresolvedCategories"],
     }

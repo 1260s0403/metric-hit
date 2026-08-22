@@ -3,7 +3,14 @@ Set-StrictMode -Version Latest
 function Get-BackupSha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
 
-    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $resolvedPath = (Get-Item -LiteralPath $Path -ErrorAction Stop).FullName
+    $stream = [IO.File]::OpenRead($resolvedPath)
+    try {
+        $algorithm = [Security.Cryptography.SHA256]::Create()
+        try {
+            return ([BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-', '').ToLowerInvariant()
+        } finally { $algorithm.Dispose() }
+    } finally { $stream.Dispose() }
 }
 
 function Test-BackupPathProhibited {

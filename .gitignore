@@ -95,3 +95,4 @@ desktop.ini
 .vscode/
 
 work/search-v5-*.png
+.pytest-project-migration/

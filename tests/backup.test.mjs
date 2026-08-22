@@ -55,6 +55,24 @@ test('PowerShell 5.1 preserves empty and single-item project inventory arrays', 
   `);
 });
 
+test('backup SHA-256 works without the Get-FileHash cmdlet', () => {
+  const library = join(repositoryRoot, 'scripts', 'backup-common.ps1').replaceAll("'", "''");
+  runPowerShell(`
+    . '${library}'
+    $testFile = Join-Path ([IO.Path]::GetTempPath()) ('MetricHitHash-' + [guid]::NewGuid().ToString('N'))
+    try {
+      [IO.File]::WriteAllText($testFile, 'abc', [Text.UTF8Encoding]::new($false))
+      function Get-FileHash { throw 'Get-FileHash must not be called.' }
+      $actual = Get-BackupSha256 -Path $testFile
+      if ($actual -cne 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') {
+        throw "Unexpected SHA-256: $actual"
+      }
+    } finally {
+      Remove-Item -LiteralPath $testFile -Force -ErrorAction SilentlyContinue
+    }
+  `);
+});
+
 test('backup path policy blocks secrets and transient trees without blocking work materials', () => {
   const library = join(repositoryRoot, 'scripts', 'backup-common.ps1').replaceAll("'", "''");
   runPowerShell(`
