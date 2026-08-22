@@ -12,7 +12,7 @@ const operationsSemanticKey = 'operations.server_strategy_workflow';
 const reviewedAt = '2026-08-17T00:00:00.000Z';
 const owner = 'owner';
 const revision = 19;
-const operationsRevision = 5;
+const operationsRevision = 6;
 const operationsSupersededCandidateIds = new Set([
   '93280439-9cda-48b9-a84f-90914eb4ab36',
   '39f80dbe-092b-4f63-a8a1-3e13aa09592b',
@@ -117,10 +117,14 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     evidence: { path: decisionPath },
   });
   const policy = JSON.parse(policyData);
-  const operationsContent = 'SERVER и C:\\MetricHit\\workspace остаются primary workspace MetricHit, а серверный Strategy — единственным постоянным owner-visible координационным чатом и read-only потоком. После явного owner approval каждый набор изменений репозитория выполняет один ответственный native executor и завершается одним commit. Изменения маршрутизируются по риску: малое — fast path на default Terra с целевыми тестами и git diff --check; стандартное — один ограниченный модуль с тестами модуля и UI E2E при необходимости без повторной полной загрузки контекста; крупное — architecture, schema/migrations, security/auth, backup/restore, data integrity либо cross-module scope с полным startup/context, применимым special-model approval и полной регрессией/integrity. Полная регрессия обязательна для крупного изменения и этапной поставки, но не автоматически для малого. UI-текст, CSS и узкое исправление не являются архитектурой без фактического основания. Single writer, чистый Git, UI E2E и опасные owner-gates сохраняются. Managed sandbox является внешней границей: репозиторий не может гарантировать Full access, отключить approval или разрешить .git/index.lock; platform blocker сообщается немедленно и после штатного approval работа продолжается в том же executor-е.';
+  const operationsContent = 'SERVER и C:\\MetricHit\\workspace остаются primary workspace MetricHit, а серверный Strategy — единственным постоянным owner-visible координационным чатом и read-only потоком. После явного owner approval каждый набор изменений репозитория выполняет один ответственный native executor и завершается одним commit. Изменения маршрутизируются по риску: малое — fast path на default Terra с целевыми тестами и git diff --check; стандартное — один ограниченный модуль с тестами модуля и UI E2E при необходимости без повторной полной загрузки контекста; крупное — architecture, schema/migrations, security/auth, backup/restore, data integrity либо cross-module scope с полным startup/context, применимым special-model approval и полной регрессией/integrity. Перед работой обязателен delivery envelope: один результат, запрещённые расширения, первая проверка, статус через 2 минуты и deadline — 5 минут для малого изменения, 10 минут для стандартного этапа. Read-only preflight явно показывает необходимость внешнего approval, но не ждёт его. Малый этап к 5-й минуте завершается проверенным результатом или точным blocker; дефект вне acceptance останавливает этап и становится отдельным следующим этапом. Допустима одна in-scope попытка исправления; второй failure — blocker без replacement executor-а. Полная регрессия обязательна для крупного изменения и этапной поставки, но не автоматически для малого. UI-текст, CSS и узкое исправление не являются архитектурой без фактического основания. Single writer, чистый Git, UI E2E и опасные owner-gates сохраняются. Managed sandbox является внешней границей: репозиторий не может гарантировать Full access, отключить approval или разрешить .git/index.lock; platform blocker сообщается немедленно и после штатного approval работа продолжается в том же executor-е.';
   const operationsData = JSON.stringify({
     revision: operationsRevision,
     supersedes_candidate_id: uuid(`candidate:${operationsSemanticKey}:${operationsRevision - 1}`),
+    delivery_envelope: { required: true, fields: ['one_complete_result', 'forbidden_expansions', 'first_check', 'status_within_minutes', 'deadline_minutes'] },
+    delivery_limits: { status_within_minutes: 2, small_deadline_minutes: 5, standard_deadline_minutes: 10 },
+    external_approval: { preflight_visibility_required: true, preflight_waits_for_approval: false },
+    scope_control: { defect_outside_acceptance: 'stop_stage_and_create_next_stage', in_scope_fix_attempts: 1, second_failure: 'exact_blocker', replacement_executor_chain_allowed: false },
     primary_workspace: 'C:\\MetricHit\\workspace',
     strategy: { owner_visible: true, read_only: true, permanent_project_chat: true },
     repository_mutation: { responsible_executors: 1, commits: 1, in_scope_owner_request_is_authorization: true, redundant_intermediate_confirmation_required: false },
@@ -148,8 +152,11 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   const approvedLineage = new Set([
     uuid(`candidate:${semanticKey}`),
     'cdf62d9d-76e3-4280-a2c0-a319c2e1809e',
-    'e7629ceb-86fe-41d0-a21d-101a0c33f552',
-    'b99868df-1b4d-4598-ab48-fecb476022ac',
+  'e7629ceb-86fe-41d0-a21d-101a0c33f552',
+  'b99868df-1b4d-4598-ab48-fecb476022ac',
+  // Approved terminology evolution from the independent-project-contours decision.
+  // It explicitly supersedes semantic revision 19 and must remain in the lineage.
+  '1c200058-5e54-4d62-a901-bf5113b82b3e',
     ...Array.from({ length: revision - 1 }, (_, index) => uuid(`candidate:${semanticKey}:${index + 2}`)),
   ]);
   const db = new DatabaseSync(databasePath);

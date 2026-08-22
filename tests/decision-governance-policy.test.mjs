@@ -66,7 +66,10 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 5);
+      assert.equal(operations.revision, 6);
+      assert.equal(operations.delivery_limits.small_deadline_minutes, 5);
+      assert.equal(operations.delivery_limits.standard_deadline_minutes, 10);
+      assert.equal(operations.scope_control.replacement_executor_chain_allowed, false);
       assert.equal(operations.strategy.owner_visible, true);
       assert.equal(operations.strategy.read_only, true);
       assert.equal(operations.repository_mutation.responsible_executors, 1);
