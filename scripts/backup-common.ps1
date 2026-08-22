@@ -244,6 +244,70 @@ function Assert-BackupTreeHasNoSecretContent {
     }
 }
 
+function Read-GitBatchLine {
+    param(
+        [Parameter(Mandatory = $true)][IO.Stream]$Stream,
+        [int]$MaximumBytes = 4096
+    )
+
+    $bytes = [Collections.Generic.List[byte]]::new()
+    while ($true) {
+        $value = $Stream.ReadByte()
+        if ($value -lt 0) { throw 'Git batch protocol ended before a complete header was received.' }
+        if ($value -eq 10) { break }
+        if ($bytes.Count -ge $MaximumBytes) { throw 'Git batch protocol header exceeds the safety limit.' }
+        $bytes.Add([byte]$value)
+    }
+    return [Text.Encoding]::ASCII.GetString($bytes.ToArray()).TrimEnd("`r")
+}
+
+function ConvertFrom-BackupJsonArray {
+    param([Parameter(Mandatory = $true)][string]$Json)
+
+    $trimmed = $Json.Trim()
+    if (-not $trimmed.StartsWith('[') -or -not $trimmed.EndsWith(']')) {
+        throw 'Backup JSON inventory must be an array.'
+    }
+    try {
+        # Windows PowerShell 5.1 misreads a top-level [] as a synthetic
+        # { value = []; Count = 0 } object. An object envelope preserves zero,
+        # one, and many inventory entries consistently across PowerShell versions.
+        $envelope = ('{"inventory":' + $trimmed + '}') | ConvertFrom-Json -ErrorAction Stop
+        return @($envelope.inventory)
+    } catch {
+        throw "Invalid backup JSON inventory: $($_.Exception.Message)"
+    }
+}
+
+function Read-GitBatchBytes {
+    param(
+        [Parameter(Mandatory = $true)][IO.Stream]$Stream,
+        [Parameter(Mandatory = $true)][long]$Length,
+        [switch]$Discard
+    )
+
+    if ($Length -lt 0) { throw 'Git batch protocol declared a negative object size.' }
+    if (-not $Discard -and $Length -gt 512MB) { throw 'Git blob exceeds the 512 MB secret-scan safety limit.' }
+    $buffer = New-Object byte[] ([Math]::Min([long]65536, [Math]::Max([long]1, $Length)))
+    $memory = if ($Discard) { $null } else { [IO.MemoryStream]::new([int]$Length) }
+    try {
+        $remaining = $Length
+        while ($remaining -gt 0) {
+            $requested = [int][Math]::Min([long]$buffer.Length, $remaining)
+            $read = $Stream.Read($buffer, 0, $requested)
+            if ($read -le 0) { throw 'Git batch protocol ended before the declared object size was received.' }
+            if (-not $Discard) { $memory.Write($buffer, 0, $read) }
+            $remaining -= $read
+        }
+        $separator = $Stream.ReadByte()
+        if ($separator -ne 10) { throw 'Git batch protocol object is missing its trailing newline.' }
+        if ($Discard) { return $null }
+        return ,([byte[]]$memory.ToArray())
+    } finally {
+        if ($null -ne $memory) { $memory.Dispose() }
+    }
+}
+
 function Assert-GitObjectsHaveNoSecretContent {
     param(
         [Parameter(Mandatory = $true)][string]$RepositoryRoot,
@@ -251,25 +315,67 @@ function Assert-GitObjectsHaveNoSecretContent {
         [Parameter(Mandatory = $true)][string]$TemporaryDirectory
     )
 
-    if ($RefObjectIds.Count -eq 0) { return }
-    New-Item -ItemType Directory -Path $TemporaryDirectory -Force | Out-Null
+    if ($RefObjectIds.Count -eq 0) {
+        return [pscustomobject]@{ objectCount = 0; blobCount = 0; blobBytes = [long]0; elapsedMilliseconds = [long]0 }
+    }
+    $stopwatch = [Diagnostics.Stopwatch]::StartNew()
     $objects = @(& git -C $RepositoryRoot rev-list --objects $RefObjectIds)
     if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate reachable Git objects for secret scan.' }
     $objectIds = @($objects | ForEach-Object { ($_ -split '\s+', 2)[0] } | Sort-Object -Unique)
-    foreach ($objectId in $objectIds) {
-        $objectType = (& git -C $RepositoryRoot cat-file -t $objectId).Trim()
-        if ($LASTEXITCODE -ne 0) { throw "Unable to inspect Git object type: $objectId" }
-        if ($objectType -ne 'blob') { continue }
-        $blobPath = Join-Path $TemporaryDirectory "$objectId.blob"
-        $process = Start-Process -FilePath 'git.exe' -ArgumentList @('-C', $RepositoryRoot, 'cat-file', 'blob', $objectId) -NoNewWindow -Wait -PassThru -RedirectStandardOutput $blobPath
-        if ($process.ExitCode -ne 0) { throw "Unable to materialize Git blob for secret scan: $objectId" }
-        try {
-            if (Test-BackupFileContainsSecret -Path $blobPath) {
-                throw "Potential secret content exists in reachable Git blob: $objectId"
-            }
-        } finally {
-            Remove-Item -LiteralPath $blobPath -Force -ErrorAction SilentlyContinue
+
+    New-Item -ItemType Directory -Path $TemporaryDirectory -Force | Out-Null
+    $requestPath = Join-Path $TemporaryDirectory 'objects.request'
+    $responsePath = Join-Path $TemporaryDirectory 'objects.batch'
+    $errorPath = Join-Path $TemporaryDirectory 'objects.error'
+    [IO.File]::WriteAllLines($requestPath, $objectIds, [Text.UTF8Encoding]::new($false))
+    $blobCount = 0
+    $blobBytes = [long]0
+    try {
+        $process = Start-Process -FilePath 'git.exe' -ArgumentList @('cat-file', '--batch') -WorkingDirectory $RepositoryRoot -NoNewWindow -Wait -PassThru -RedirectStandardInput $requestPath -RedirectStandardOutput $responsePath -RedirectStandardError $errorPath
+        if ($process.ExitCode -ne 0) {
+            $stderr = if (Test-Path -LiteralPath $errorPath) { Get-Content -LiteralPath $errorPath -Raw } else { '' }
+            throw "Git batch object reader failed: $stderr"
         }
+        $response = [IO.File]::OpenRead($responsePath)
+        try {
+            foreach ($requestedObjectId in $objectIds) {
+                $header = Read-GitBatchLine -Stream $response
+                if ($header -match ' missing$') { throw "Git batch reader reported a missing reachable object: $requestedObjectId" }
+                if ($header -notmatch '^([0-9a-f]{40,64}) ([a-z]+) ([0-9]+)$') {
+                    throw "Malformed Git batch protocol header for $requestedObjectId"
+                }
+                $actualObjectId = $Matches[1]
+                $objectType = $Matches[2]
+                $objectSize = [long]$Matches[3]
+                if ($actualObjectId -cne $requestedObjectId) {
+                    throw "Git batch protocol returned an unexpected object: $actualObjectId"
+                }
+                if ($objectType -eq 'blob') {
+                    $bytes = Read-GitBatchBytes -Stream $response -Length $objectSize
+                    $blobCount++
+                    $blobBytes += $objectSize
+                    if (Test-BackupBytesOrArchiveContainSecret -Bytes $bytes -Label "Git blob $requestedObjectId") {
+                        throw "Potential secret content exists in reachable Git blob: $requestedObjectId"
+                    }
+                } else {
+                    Read-GitBatchBytes -Stream $response -Length $objectSize -Discard | Out-Null
+                }
+            }
+            if ($response.Position -ne $response.Length) { throw 'Git batch protocol contains unexpected trailing bytes.' }
+        } finally {
+            $response.Dispose()
+        }
+    } finally {
+        if (Test-Path -LiteralPath $TemporaryDirectory) {
+            Remove-Item -LiteralPath $TemporaryDirectory -Recurse -Force
+        }
+    }
+    $stopwatch.Stop()
+    return [pscustomobject]@{
+        objectCount = $objectIds.Count
+        blobCount = $blobCount
+        blobBytes = $blobBytes
+        elapsedMilliseconds = [long]$stopwatch.ElapsedMilliseconds
     }
 }
 

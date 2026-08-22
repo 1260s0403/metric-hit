@@ -6,6 +6,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot 'backup-common.ps1')
 
 try {
+    $backupStopwatch = [Diagnostics.Stopwatch]::StartNew()
     $repoRoot = (Resolve-Path -LiteralPath (Split-Path -Parent $PSScriptRoot)).Path
     $databasePath = Join-Path $repoRoot 'data\database\metrichit.db'
     $backupRoot = Join-Path (Split-Path -Parent $repoRoot) 'external-backups'
@@ -83,12 +84,18 @@ try {
     try {
         New-Item -ItemType Directory -Path $snapshotRoot | Out-Null
 
-        Assert-GitObjectsHaveNoSecretContent -RepositoryRoot $repoRoot -RefObjectIds $refObjectIds -TemporaryDirectory (Join-Path $stagingPath 'git-secret-scan')
-        Remove-Item -LiteralPath (Join-Path $stagingPath 'git-secret-scan') -Recurse -Force
+        $gitSecretScan = Assert-GitObjectsHaveNoSecretContent -RepositoryRoot $repoRoot -RefObjectIds $refObjectIds -TemporaryDirectory (Join-Path $stagingPath 'git-secret-scan')
+        Write-Output "Git secret scan passed: $($gitSecretScan.objectCount) objects; $($gitSecretScan.blobCount) blobs; $($gitSecretScan.blobBytes) bytes; $($gitSecretScan.elapsedMilliseconds) ms."
 
         $databaseDestination = Join-Path $snapshotRoot 'data\database\metrichit.db'
         & node (Join-Path $repoRoot 'scripts\sqlite-backup.mjs') $databasePath $databaseDestination
         if ($LASTEXITCODE -ne 0) { throw 'SQLite online backup failed.' }
+
+        $projectStorageSource = Join-Path $repoRoot 'data\projects'
+        $projectStorageDestination = Join-Path $snapshotRoot 'data\projects'
+        $projectInventoryJson = (& node (Join-Path $repoRoot 'scripts\project-storage-snapshot.mjs') snapshot $projectStorageSource $projectStorageDestination | Out-String).Trim()
+        if ($LASTEXITCODE -ne 0 -or -not $projectInventoryJson) { throw 'Project storage online backup failed.' }
+        $projectStorageInventory = @(ConvertFrom-BackupJsonArray -Json $projectInventoryJson)
 
         $requiredDirectories = @('knowledge', 'documents', 'scripts', 'tests', 'data\database\migrations')
         foreach ($directory in $requiredDirectories) {
@@ -167,7 +174,7 @@ try {
         $workBytes = [long]0
         foreach ($workItem in @($workSnapshot)) { $workBytes += [long]$workItem['size'] }
         $manifest = [ordered]@{
-            formatVersion = 2
+            formatVersion = 3
             backupId = $backupId
             createdAtUtc = [DateTime]::UtcNow.ToString('o')
             snapshotRoot = $snapshotRootName
@@ -193,6 +200,18 @@ try {
                 fileCount = @($workSnapshot).Count
                 totalBytes = $workBytes
                 inventory = @($workSnapshot)
+            }
+            projectStorages = [ordered]@{
+                root = 'data/projects'
+                count = @($projectStorageInventory).Count
+                inventory = @($projectStorageInventory)
+                method = 'sqlite-online-backup'
+            }
+            performance = [ordered]@{
+                gitSecretScanMilliseconds = [long]$gitSecretScan.elapsedMilliseconds
+                gitReachableObjectCount = [int]$gitSecretScan.objectCount
+                gitReachableBlobCount = [int]$gitSecretScan.blobCount
+                gitReachableBlobBytes = [long]$gitSecretScan.blobBytes
             }
             requiredWorkFiles = @(
                 'work/landing/index.html',
@@ -253,6 +272,9 @@ try {
     Write-Output "Git bundle: $bundleName; bytes: $((Get-Item $finalBundle).Length); SHA-256: $(Get-BackupSha256 $finalBundle)"
     Write-Output "Manifest: $manifestName; bytes: $((Get-Item $finalManifest).Length); SHA-256: $(Get-BackupSha256 $finalManifest)"
     Write-Output "Work files: $(@($workSnapshot).Count); bytes: $workBytes"
+    Write-Output "Project storages: $(@($projectStorageInventory).Count); online SQLite snapshots verified"
+    $backupStopwatch.Stop()
+    Write-Output "Total backup time: $([long]$backupStopwatch.ElapsedMilliseconds) ms"
     exit 0
 } catch {
     Write-Error $_

@@ -24,7 +24,7 @@ try {
     $manifestPath = Join-Path $backupSet.FullName "$backupId-manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "Manifest not found: $manifestPath" }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    if ($manifest.formatVersion -ne 2) { throw "Unsupported backup format version: $($manifest.formatVersion)" }
+    if ($manifest.formatVersion -notin 2, 3) { throw "Unsupported backup format version: $($manifest.formatVersion)" }
     if ($manifest.backupId -cne $backupId) { throw 'Manifest backupId does not match the set directory.' }
     if ($manifest.snapshotRoot -notmatch '^MetricHit-backup-\d{8}T\d{6}Z-workspace$') { throw 'Unsafe snapshotRoot in manifest.' }
     if (@($manifest.components).Count -ne 2) { throw 'Manifest must describe exactly two backup components.' }
@@ -90,6 +90,23 @@ try {
         & node (Join-Path $repoRoot 'scripts\check-memory.mjs') $restoredDatabase
         if ($LASTEXITCODE -ne 0) { throw 'Restored SQLite integrity or migration validation failed.' }
 
+        $restoredProjectCount = 0
+        if ($manifest.formatVersion -ge 3) {
+            if ($null -eq $manifest.projectStorages -or $manifest.projectStorages.root -cne 'data/projects') {
+                throw 'Project storage manifest contract is missing or unsafe.'
+            }
+            $projectInventory = @($manifest.projectStorages.inventory)
+            if ($projectInventory.Count -ne [int]$manifest.projectStorages.count) {
+                throw 'Project storage manifest count mismatch.'
+            }
+            $projectInventoryPath = Join-Path $testRoot 'project-storage-inventory.json'
+            $projectInventoryJson = ConvertTo-Json -InputObject @($projectInventory) -Depth 6
+            [IO.File]::WriteAllText($projectInventoryPath, $projectInventoryJson, [Text.UTF8Encoding]::new($false))
+            & node (Join-Path $repoRoot 'scripts\project-storage-snapshot.mjs') verify (Join-Path $snapshotRoot 'data\projects') $projectInventoryPath
+            if ($LASTEXITCODE -ne 0) { throw 'Restored project storage ownership, hash, or integrity validation failed.' }
+            $restoredProjectCount = $projectInventory.Count
+        }
+
         $restoredWork = Get-BackupFileInventory -Root (Join-Path $snapshotRoot 'work') -PathPrefix 'work'
         Assert-BackupInventoriesEqual -Expected @($manifest.work.inventory) -Actual $restoredWork -Label 'Restored work tree'
         if (@($restoredWork).Count -ne [int]$manifest.work.fileCount) { throw 'Restored work file count mismatch.' }
@@ -138,6 +155,7 @@ try {
 
         Write-Output "Component SHA-256 checks passed: $(@($manifest.components).Count)"
         Write-Output "SQLite restore validation passed: integrity ok; migrations confirmed"
+        Write-Output "Project storage restore validation passed: $restoredProjectCount isolated database(s)"
         Write-Output "Work restore validation passed: $(@($restoredWork).Count) files; $restoredWorkBytes bytes"
         Write-Output "Git bundle verify and isolated clone passed; HEAD: $cloneHead"
         Write-Output "Required commits present: $($manifest.requiredCommits -join ', ')"
