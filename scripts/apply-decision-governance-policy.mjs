@@ -9,10 +9,10 @@ const defaultDatabase = join(root, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/decision-governance-policy-2026-08-15.md';
 const semanticKey = 'architecture.decision_governance_policy';
 const operationsSemanticKey = 'operations.server_strategy_workflow';
-const reviewedAt = '2026-08-17T00:00:00.000Z';
+const reviewedAt = '2026-08-26T00:00:00.000Z';
 const owner = 'owner';
-const revision = 21;
-const operationsRevision = 8;
+const revision = 23;
+const operationsRevision = 10;
 const operationsSupersededCandidateIds = new Set([
   '93280439-9cda-48b9-a84f-90914eb4ab36',
   '39f80dbe-092b-4f63-a8a1-3e13aa09592b',
@@ -41,7 +41,8 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   content += ' Управление native Codex task-thread строго изолирует задачи: одно пользовательское engineering-решение создаёт ровно один native task-thread. До создания Strategy проверяет, нет ли уже thread для текущего пользовательского turn/решения. Повторная обработка того же turn маршрутизируется идемпотентно: если thread уже есть, Strategy сообщает его ID и status и ничего не создаёт. Каждая новая engineering-задача создаёт новый native task-thread; Strategy никогда не заменяет scope существующего или завершённого task-thread. Пока другой engineering thread действительно выполняется, Strategy не запускает второй thread и не переназначает первый: он ждёт завершения либо запрашивает у владельца явную отмену. После commit/result и чистого git status предыдущий thread закрыт для новых задач.';
   content += ' Strategy — read-only human-facing router: он назначает одного named executor-а с точным scope и сообщает только проверенный результат с чистым Git либо точный технический blocker. Он не опирается на ненаблюдаемые промежуточные контроли платформы. Частичный результат не является поставкой; заблокированная задача не передаётся и не переназначается без нового прямого указания владельца.';
   content += ' Для небольшой изолированной и явно утверждённой правки действует fast path: Strategy передаёт одному executor-у owner approval, точный scope/acceptance, branch/HEAD/status и релевантные ссылки. Executor использует только существующие workflow, файлы и проверки; новые скрипты, файлы, задачи, абстракции и вспомогательные контуры запрещены, пока прямо не названы в acceptance. Он не расширяет и не переосмысливает scope: новая проблема становится отдельной задачей после прямого решения владельца. Поставка — только проверенный результат с чистым Git либо точный технический blocker. Fast path не применяется к архитектуре, SQLite-схеме/миграциям, бизнес-логике, авторизации, security, backup/restore, целостности данных, многомодульному или неясному scope, затрагивающему scope dirty worktree и расхождениям HEAD/контекста. Действующие owner-gates сохраняются.';
-  content += ' Утверждённые изменения маршрутизируются по реальному риску: малое (локальные UI/CSS/текстовые правки, документация, узкие исправления и синхронизация правила памяти) исполняется одним executor-ом сразу на default Terra с целевыми тестами и git diff --check; стандартное — в ограниченном scope одного модуля с точным acceptance, без повторного полного context, с тестами затронутого модуля и E2E при изменении UI; крупное (архитектура, SQLite schema/migrations, security/auth, backup/restore, data integrity или сквозной многомодульный scope) требует полного startup/context, применимого подтверждения special model по действующей policy и полной регрессии/integrity-проверок. Strategy не относит UI-текст, CSS или узкое исправление к архитектуре без фактического основания. Полная регрессия нужна для крупного изменения и этапной поставки, но не автоматически после каждого малого изменения. Во всех режимах сохраняются single writer/executor, один commit, чистый Git и относящийся UI E2E.';
+  content += ' Краткая постановка задачи состоит из четырёх пунктов: Result — один проверяемый итог; Scope — точные затрагиваемые области; First check — один целевой сценарий; Forbidden changes — что не менять. Формулировки «заодно» не расширяют scope. План, отчёт, скрипт, вспомогательный файл или иной механизм допустимы только когда прямо требуются владельцем; если существующий workflow не позволяет получить результат, executor сообщает точный blocker. Обычная UI- или кодовая правка не синхронизирует память, current context, roadmap или policy: это делается только по прямому запросу владельца либо для действительно значимого утверждённого решения. Проверка начинается с одного целевого сценария, а полная регрессия выполняется только для крупного, высокорискового или сквозного изменения.';
+  content += ' Утверждённые изменения маршрутизируются по реальному риску: малое (локальные UI/CSS/текстовые правки, документация, узкие исправления и синхронизация правила памяти) исполняется одним executor-ом сразу на default Terra с целевыми тестами и git diff --check; стандартное — в ограниченном scope одного модуля с точным acceptance, без повторного полного context, с тестами затронутого модуля и E2E при изменении UI; крупное (архитектура, SQLite schema/migrations, security/auth, backup/restore, data integrity или сквозной многомодульный scope) требует полного startup/context, применимого подтверждения special model по действующей policy и полной регрессии/integrity-проверок. Strategy не относит UI-текст, CSS или узкое исправление к архитектуре без фактического основания. Полная регрессия нужна только для крупного, высокорискового или сквозного изменения и не запускается автоматически после каждого малого изменения. Во всех режимах сохраняются single writer/executor, один commit, чистый Git и относящийся UI E2E.';
   content += ' Managed sandbox является внешней границей платформы: репозиторий не может предоставить Full access, отключить approval или обойти запрет на создание .git/index.lock. При таком отказе executor сразу сообщает точную заблокированную операцию и внешний blocker, использует штатный platform approval flow, если он доступен, и после разрешения продолжает в том же thread без нового executor-а, циклов повторных попыток или неподтверждённого вывода о неисправности Git, БД либо сервера.';
   content += ' Запрос владельца изменить или построить в названном scope является standing authorization на in-scope реализацию, тесты, обычный git staging и один commit; Strategy не запрашивает повторное промежуточное подтверждение. Отдельное явное решение требуется только для удаления, force-операций, внешней публикации, расходов, изменений доступов/прав, стратегии, политики памяти, настроек/глобальной системы или существенного расширения scope. Managed-sandbox prompts отменить нельзя и они сообщаются только при возникновении.';
   content += ' Strategy — основной human-language координатор продукта, архитектуры, приоритетов и разработки: до решений он читает approved memory, current context, operating context, roadmap и фактический Git, отмечает существенные пробелы и противоречия и предлагает ближайшие MVP-шаги. Он не требует повторять известный контекст и не считает историю чата канонической истиной. Если чат стал слишком длинным, регулярно требует сжатия, теряет важные детали, путает решения или заметно расходует контекст, Strategy сам предлагает новый чат. Перед переходом он read-only сверяет approved memory, current context и roadmap на полноту значимых утверждённых решений, планов, ограничений, незавершённых задач и ближайших следующих шагов. При пробеле отдельный native task-thread синхронизирует канонический контекст; после сверки Strategy подтверждает, что новый чат продолжит работу по startup protocol без старой истории.';
@@ -74,6 +75,11 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
         repo_side_handoff_required: false,
         additional_task_or_agent_required: false,
         planning_artifact_required: false,
+        task_brief: ['result', 'scope', 'first_check', 'forbidden_changes'],
+        vague_while_you_are_there_expansion_allowed: false,
+        unrequested_auxiliary_artifacts_or_mechanisms_allowed: false,
+        ordinary_technical_change_syncs_canonical_memory_or_context: false,
+        canonical_sync_allowed_for: ['direct_owner_request', 'genuinely_significant_approved_decision'],
         significant_memory_uses_same_executor_and_idempotent_workflow: true,
         responsible_executors: 1,
         commits: 1,
@@ -87,7 +93,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
         small: { scope: ['local_ui_css_text', 'documentation', 'narrow_fix', 'approved_memory_rule_sync'], executor: 1, checks: ['targeted_tests', 'git_diff_check'] },
         standard: { scope: ['bounded_one_module', 'exact_acceptance'], repeat_full_project_context_required: false, checks: ['affected_module_tests', 'ui_e2e_when_ui_changes'] },
         major: { scope: ['architecture', 'sqlite_schema_or_migrations', 'security_or_auth', 'backup_restore', 'data_integrity', 'cross_module'], checks: ['full_startup_context', 'applicable_special_model_approval', 'full_regression', 'integrity_checks'] },
-        full_regression_required_for: ['major_change', 'stage_delivery'],
+        full_regression_required_for: ['major_change', 'high_risk_change', 'cross_module_change'],
         full_regression_automatic_for_every_small_change: false,
         quality_invariants: ['single_writer_executor', 'one_commit', 'clean_git', 'relevant_ui_e2e', 'full_checks_for_sensitive_high_risk_changes'],
       },
@@ -117,13 +123,15 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     evidence: { path: decisionPath },
   });
   const policy = JSON.parse(policyData);
-  const operationsContent = 'SERVER и C:\\MetricHit\\workspace остаются primary workspace MetricHit. Strategy — read-only human-facing router: один точный owner-approved scope передаётся одному named executor-у для одного commit либо точного технического blocker. Executor использует только существующие workflow, файлы и проверки, не создаёт неуказанные скрипты, файлы, задачи, абстракции или вспомогательные контуры и не расширяет scope. Частичный результат не является поставкой; заблокированная задача не передаётся и не переназначается без нового прямого указания владельца. Сохраняются риск-маршрутизация, single writer, чистый Git, UI E2E, owner-gates и внешняя граница managed sandbox: репозиторий не может гарантировать Full access или обойти .git/index.lock.';
+  const operationsContent = 'SERVER и C:\\MetricHit\\workspace остаются primary workspace MetricHit. Strategy — read-only human-facing router: один точный owner-approved scope передаётся одному named executor-у для одного commit либо точного технического blocker. Краткая постановка содержит Result, Scope, First check и Forbidden changes; «заодно» не расширяет задачу. Executor использует только существующие workflow, файлы и проверки, не создаёт неуказанные планы, отчёты, скрипты, файлы, задачи, абстракции или вспомогательные контуры и не расширяет scope. Обычная техническая правка не синхронизирует память, current context, roadmap или policy; это допустимо только по прямому запросу владельца либо для значимого утверждённого решения. Проверка начинается с одного целевого сценария; полная регрессия нужна только для крупного, высокорискового или сквозного изменения. Частичный результат не является поставкой; заблокированная задача не передаётся и не переназначается без нового прямого указания владельца. Сохраняются риск-маршрутизация, single writer, чистый Git, UI E2E, owner-gates и внешняя граница managed sandbox: репозиторий не может гарантировать Full access или обойти .git/index.lock.';
   const operationsData = JSON.stringify({
     revision: operationsRevision,
     supersedes_candidate_id: uuid(`candidate:${operationsSemanticKey}:${operationsRevision - 1}`),
     delivery: { result: ['verified_clean_git_result', 'exact_technical_blocker'], partial_output_is_delivery: false },
     external_approval: { preflight_visibility_required: true, preflight_waits_for_approval: false },
-    scope_control: { existing_workflows_only: true, unlisted_artifacts_forbidden: ['scripts', 'files', 'tasks', 'abstractions', 'auxiliary_workflows'], scope_expansion: 'new_direct_owner_approval_required', replacement_executor_chain_allowed: false, recovery: 'new_explicit_owner_direction_only' },
+    task_brief_template: ['result', 'scope', 'first_check', 'forbidden_changes'],
+    scope_control: { existing_workflows_only: true, unlisted_artifacts_forbidden: ['plans', 'reports', 'scripts', 'files', 'tasks', 'abstractions', 'auxiliary_workflows'], vague_while_you_are_there_expansion_allowed: false, scope_expansion: 'new_direct_owner_approval_required', replacement_executor_chain_allowed: false, recovery: 'new_explicit_owner_direction_only' },
+    canonical_sync: { ordinary_technical_change_allowed: false, allowed_for: ['direct_owner_request', 'genuinely_significant_approved_decision'] },
     primary_workspace: 'C:\\MetricHit\\workspace',
     strategy: { owner_visible: true, read_only: true, permanent_project_chat: true },
     repository_mutation: { responsible_executors: 1, commits: 1, in_scope_owner_request_is_authorization: true, redundant_intermediate_confirmation_required: false },
@@ -140,7 +148,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     sha256: createHash('sha256').update(bytes).digest('hex'),
     encoding: 'utf-8',
     authority: 'direct_owner_confirmation',
-    decision_date: '2026-08-17',
+    decision_date: '2026-08-26',
   });
 
   const sourceId = uuid(`source:${decisionPath}:${revision}`);
@@ -182,19 +190,19 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     const operationsConflict = db.prepare(`SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))`).get(operationsCandidateId, operationsSemanticKey);
     if (operationsConflict) throw new Error(`Open memory conflict blocks ${operationsSemanticKey}`);
 
-    created.sources += Number(db.prepare(`INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-17', 'internal')`).run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
-    created.documents += Number(db.prepare(`INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-17', 'internal', 1)`).run(documentId, title, decision, metadata, sourceId, owner).changes);
-    created.versions += Number(db.prepare(`INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-17', 'internal', 1)`).run(versionId, documentId, title, decision, metadata, sourceId, owner).changes);
-    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-17', 'internal', 1)`).run(candidateId, semanticKey, title, content, policyData, sourceId, owner).changes);
+    created.sources += Number(db.prepare(`INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-26', 'internal')`).run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
+    created.documents += Number(db.prepare(`INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-26', 'internal', 1)`).run(documentId, title, decision, metadata, sourceId, owner).changes);
+    created.versions += Number(db.prepare(`INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-26', 'internal', 1)`).run(versionId, documentId, title, decision, metadata, sourceId, owner).changes);
+    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)`).run(candidateId, semanticKey, title, content, policyData, sourceId, owner).changes);
 
     const candidate = db.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
     if (candidate.status === 'pending') {
-      db.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 17.08.2026.', reviewedAt, candidateId);
+      db.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 26.08.2026.', reviewedAt, candidateId);
     }
-    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-17', 'internal', 1)`).run(operationsCandidateId, operationsSemanticKey, 'Рабочий процесс SERVER, Strategy и executor', operationsContent, operationsData, sourceId, owner).changes);
+    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)`).run(operationsCandidateId, operationsSemanticKey, 'Рабочий процесс SERVER, Strategy и executor', operationsContent, operationsData, sourceId, owner).changes);
     const operationsCandidate = db.prepare('SELECT status FROM memory_candidates WHERE id=?').get(operationsCandidateId);
     if (operationsCandidate.status === 'pending') {
-      db.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 17.08.2026.', reviewedAt, operationsCandidateId);
+      db.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 26.08.2026.', reviewedAt, operationsCandidateId);
     }
     assertRow(db.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), { type: 'decision', semantic_key: semanticKey, title, content, data_json: policyData, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: reviewedAt }, 'decision governance candidate');
     assertRow(db.prepare('SELECT * FROM memory_candidates WHERE id=?').get(operationsCandidateId), { type: 'decision', semantic_key: operationsSemanticKey, title: 'Рабочий процесс SERVER, Strategy и executor', content: operationsContent, data_json: operationsData, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: reviewedAt }, 'server strategy workflow candidate');

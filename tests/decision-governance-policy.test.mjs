@@ -39,6 +39,11 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.small_change_fast_path.repo_side_handoff_required, false);
       assert.equal(data.execution.small_change_fast_path.additional_task_or_agent_required, false);
       assert.equal(data.execution.small_change_fast_path.planning_artifact_required, false);
+      assert.deepEqual(data.execution.small_change_fast_path.task_brief, ['result', 'scope', 'first_check', 'forbidden_changes']);
+      assert.equal(data.execution.small_change_fast_path.vague_while_you_are_there_expansion_allowed, false);
+      assert.equal(data.execution.small_change_fast_path.unrequested_auxiliary_artifacts_or_mechanisms_allowed, false);
+      assert.equal(data.execution.small_change_fast_path.ordinary_technical_change_syncs_canonical_memory_or_context, false);
+      assert.deepEqual(data.execution.small_change_fast_path.canonical_sync_allowed_for, ['direct_owner_request', 'genuinely_significant_approved_decision']);
       assert.equal(data.execution.small_change_fast_path.significant_memory_uses_same_executor_and_idempotent_workflow, true);
       assert.equal(data.execution.small_change_fast_path.responsible_executors, 1);
       assert.equal(data.execution.small_change_fast_path.commits, 1);
@@ -49,7 +54,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.deepEqual(data.execution.risk_routing.small.checks, ['targeted_tests', 'git_diff_check']);
       assert.deepEqual(data.execution.risk_routing.standard.checks, ['affected_module_tests', 'ui_e2e_when_ui_changes']);
       assert.deepEqual(data.execution.risk_routing.major.checks, ['full_startup_context', 'applicable_special_model_approval', 'full_regression', 'integrity_checks']);
-      assert.deepEqual(data.execution.risk_routing.full_regression_required_for, ['major_change', 'stage_delivery']);
+      assert.deepEqual(data.execution.risk_routing.full_regression_required_for, ['major_change', 'high_risk_change', 'cross_module_change']);
       assert.equal(data.execution.risk_routing.full_regression_automatic_for_every_small_change, false);
       assert.equal(data.platform_boundary.managed_sandbox_is_external, true);
       assert.equal(data.platform_boundary.repository_can_grant_full_access_or_disable_approval, false);
@@ -66,12 +71,17 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 8);
+      assert.equal(operations.revision, 10);
+      assert.deepEqual(operations.task_brief_template, ['result', 'scope', 'first_check', 'forbidden_changes']);
       assert.deepEqual(operations.delivery.result, ['verified_clean_git_result', 'exact_technical_blocker']);
       assert.equal(operations.delivery.partial_output_is_delivery, false);
       assert.equal(operations.scope_control.replacement_executor_chain_allowed, false);
       assert.equal(operations.scope_control.existing_workflows_only, true);
+      assert.equal(operations.scope_control.vague_while_you_are_there_expansion_allowed, false);
+      assert.deepEqual(operations.scope_control.unlisted_artifacts_forbidden, ['plans', 'reports', 'scripts', 'files', 'tasks', 'abstractions', 'auxiliary_workflows']);
       assert.equal(operations.scope_control.scope_expansion, 'new_direct_owner_approval_required');
+      assert.equal(operations.canonical_sync.ordinary_technical_change_allowed, false);
+      assert.deepEqual(operations.canonical_sync.allowed_for, ['direct_owner_request', 'genuinely_significant_approved_decision']);
       assert.equal(operations.strategy.owner_visible, true);
       assert.equal(operations.strategy.read_only, true);
       assert.equal(operations.repository_mutation.responsible_executors, 1);
@@ -113,7 +123,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 21);
+      assert.equal(data.revision, 23);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
