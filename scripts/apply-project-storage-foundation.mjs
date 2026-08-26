@@ -10,6 +10,8 @@ const decisionPath = 'knowledge/decisions/project-storage-foundation-2026-08-21.
 const semanticKey = 'architecture.project_storage_foundation';
 const owner = 'owner';
 const reviewedAt = '2026-08-21T18:00:00.000Z';
+const materializationReviewedAt = '2026-08-26T13:30:00.000Z';
+const controlPlaneProjectId = '00000000-0000-4000-a000-000000000101';
 
 function uuid(key) {
   const hash = createHash('sha256').update(`metrichit-project-storage:${key}`).digest('hex');
@@ -62,18 +64,58 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
   const documentId = uuid(`document:${decisionPath}`);
   const versionId = uuid(`version:${decisionPath}`);
   const candidateId = uuid(`candidate:${semanticKey}:1`);
+  const materializationCandidateId = uuid(`candidate:${semanticKey}:2`);
+  const materializationScopeAuditId = uuid(`audit:${semanticKey}:2:project_id`);
+  const materializationTitle = 'Данные MetricHit материализованы в отдельном project SQLite';
+  const materializationContent = 'Все 326 записей канонического managed project MetricHit материализованы в data/projects/00000000-0000-4000-a000-000000000102/project.sqlite вместе с 4 минимальными core provenance dependencies и 10 строками schema_migrations. Четыре ранее утверждённые metadata corrections применены только к эффективным target-связям; legacy SQLite не переписана и остаётся рабочим источником. Exact-source backup и restore-test прошли, target foreign keys и integrity проверены, идемпотентный replay не изменил файл. Runtime, reads/writes, UI, export/import и cutover не переключались.';
+  const materializationData = JSON.stringify({
+    revision: 2,
+    supersedes_semantic_revision: 1,
+    supersedes_candidate_id: candidateId,
+    stage_status: 'completed',
+    project_id: '00000000-0000-4000-a000-000000000102',
+    target: 'data/projects/00000000-0000-4000-a000-000000000102/project.sqlite',
+    records: { primary: 326, dependency: 4, schema_migrations: 10, total: 340 },
+    metadata_corrections: 4,
+    source_sha256_at_migration: 'a5f507b6a283e5b5431a95f919470c9a094908023708fa86a2704462d3f1e5de',
+    plan_manifest_sha256: '66891c6d4d8b223eca051d732c1833000a839f755c8fa76a1e8542af463a2c0f',
+    target_sha256: '69e0ec3841ee43568aa90685c74b30c2f05f0292110f191f36e547cbd20da08d',
+    embedded_manifest_sha256: 'd3a602b3dc0b5370bb454d5943bb75cd28fbc294f66bacb04dc6c74ec46868eb',
+    backup_id: 'MetricHit-backup-20260826T132336Z',
+    verification: ['restore_test', 'foreign_key_check', 'integrity_check', 'exact_coverage', 'idempotent_replay'],
+    legacy_database_changed_by_migration: false,
+    runtime_connected: false,
+    cutover: false,
+    export_import_implemented: false,
+    next_gate: 'separate_owner_approval_for_export_import_or_cutover',
+    evidence: { contract: 'documents/project-storage.md', implementation: 'src/metrichit_os/project_migration.py' },
+  });
+  const materializationScopeAuditData = JSON.stringify({
+    batchKey: 'project-storage-materialization-memory-scope-2026-08-26-v1',
+    table: 'memory_candidates',
+    entityId: materializationCandidateId,
+    project_id: controlPlaneProjectId,
+    corrections: [{
+      field: 'project_id',
+      invalidValue: '00000000-0000-4000-a000-000000000102',
+      newValue: null,
+      reason: 'project_id describes the migration target; the architecture decision belongs to the control plane',
+    }],
+  });
   const database = new DatabaseSync(databasePath);
-  const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
+  const created = { sources: 0, documents: 0, versions: 0, candidates: 0, audits: 0 };
 
   database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
   try {
-    const duplicate = database.prepare(
-      "SELECT id FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?",
-    ).get(semanticKey, candidateId);
-    if (duplicate) throw new Error(`Semantic duplicate or evolution blocks ${semanticKey}`);
+    const lineage = database.prepare(
+      "SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?",
+    ).all(semanticKey, materializationCandidateId);
+    if (lineage.some((row) => row.id !== candidateId || row.status !== 'approved')) {
+      throw new Error(`Semantic duplicate or evolution blocks ${semanticKey}`);
+    }
     const conflict = database.prepare(
       "SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))",
-    ).get(candidateId, semanticKey);
+    ).get(materializationCandidateId, semanticKey);
     if (conflict) throw new Error(`Open memory conflict blocks ${semanticKey}`);
 
     created.sources += Number(database.prepare(
@@ -88,17 +130,42 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     created.candidates += Number(database.prepare(
       "INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-21', 'internal', 1)",
     ).run(candidateId, semanticKey, title, content, data, sourceId, owner).changes);
+    created.candidates += Number(database.prepare(
+      "INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)",
+    ).run(materializationCandidateId, semanticKey, materializationTitle, materializationContent, materializationData, sourceId, owner).changes);
     const candidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
     if (candidate.status === 'pending') {
       database.prepare(
         "UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?",
       ).run(owner, reviewedAt, 'Одобрено прямым решением владельца от 21.08.2026.', reviewedAt, candidateId);
     }
+    const materializationCandidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(materializationCandidateId);
+    if (materializationCandidate.status === 'pending') {
+      database.prepare(
+        "UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?",
+      ).run(owner, materializationReviewedAt, 'Одобрено прямым решением владельца для фактической миграции MetricHit от 26.08.2026.', materializationReviewedAt, materializationCandidateId);
+    }
+    created.audits += Number(database.prepare(
+      "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_metadata_correction', 'Project materialization decision scope corrected', ?, ?, ?, ?, ?, 'restricted', 1, 'decision', ?, 'update')",
+    ).run(
+      materializationScopeAuditId, materializationScopeAuditData, sourceId, owner,
+      materializationReviewedAt, materializationReviewedAt, materializationCandidateId,
+    ).changes);
 
     assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), {
       type: 'decision', semantic_key: semanticKey, title, content, data_json: data,
       status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: reviewedAt,
     }, 'project storage decision');
+    assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(materializationCandidateId), {
+      type: 'decision', semantic_key: semanticKey, title: materializationTitle,
+      content: materializationContent, data_json: materializationData, status: 'approved',
+      source_id: sourceId, reviewed_by: owner, reviewed_at: materializationReviewedAt,
+    }, 'project materialization decision');
+    assertRow(database.prepare('SELECT * FROM audit_log WHERE id=?').get(materializationScopeAuditId), {
+      type: 'project_scope_metadata_correction', data_json: materializationScopeAuditData,
+      source_id: sourceId, entity_type: 'decision', entity_id: materializationCandidateId,
+      action: 'update',
+    }, 'project materialization decision scope correction');
     assertRow(database.prepare('SELECT * FROM sources WHERE id=?').get(sourceId), {
       data_json: metadata, status: 'active',
     }, 'source');
@@ -109,7 +176,7 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       document_id: documentId, content: decision, data_json: metadata, version: 1,
     }, 'document version');
     database.exec('COMMIT');
-    return { databasePath, semanticKey, candidateId, created };
+    return { databasePath, semanticKey, candidateId, materializationCandidateId, materializationScopeAuditId, created };
   } catch (error) {
     database.exec('ROLLBACK');
     throw error;

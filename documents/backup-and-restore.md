@@ -47,6 +47,12 @@ Manifest содержит полный инвентарь `work/` и отдел�
 integrity check. Backup завершается ошибкой, если
 `work/` изменился во время копирования или копия отличается от источника.
 
+Начиная с format version 4 manifest отдельно фиксирует центральную SQLite:
+относительный путь, размер и SHA-256 online snapshot, SHA-256 исходного файла до
+и после snapshot, метод и `integrity=ok`. Изменение исходного SHA во время online
+backup блокирует набор. Этот exact-source guard позволяет migration workflow
+однозначно доказать, что указанный проверенный набор предшествует guarded source.
+
 ## Git bundle
 
 `*-git.bundle` создаётся командой `git bundle create --all` и содержит все refs
@@ -115,6 +121,11 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\test-restore-metri
 9. использует доверенные проверочные скрипты из активного workspace и никогда не
    исполняет код из проверяемой копии;
 10. всегда удаляет временный каталог, в том числе при ошибке.
+
+Для format version 4 restore-test дополнительно сверяет размер и SHA-256
+восстановленной центральной SQLite с `centralDatabase` в manifest и проверяет
+формат exact-source SHA guard. Форматы 2 и 3 остаются читаемыми для исторического
+восстановления, но не принимаются как exact-source gate новой live-миграции.
 
 ## Ручное восстановление на чистом компьютере
 

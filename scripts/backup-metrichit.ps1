@@ -87,9 +87,14 @@ try {
         $gitSecretScan = Assert-GitObjectsHaveNoSecretContent -RepositoryRoot $repoRoot -RefObjectIds $refObjectIds -TemporaryDirectory (Join-Path $stagingPath 'git-secret-scan')
         Write-Output "Git secret scan passed: $($gitSecretScan.objectCount) objects; $($gitSecretScan.blobCount) blobs; $($gitSecretScan.blobBytes) bytes; $($gitSecretScan.elapsedMilliseconds) ms."
 
+        $databaseSourceShaBefore = Get-BackupSha256 -Path $databasePath
         $databaseDestination = Join-Path $snapshotRoot 'data\database\metrichit.db'
         & node (Join-Path $repoRoot 'scripts\sqlite-backup.mjs') $databasePath $databaseDestination
         if ($LASTEXITCODE -ne 0) { throw 'SQLite online backup failed.' }
+        $databaseSourceShaAfter = Get-BackupSha256 -Path $databasePath
+        if ($databaseSourceShaBefore -cne $databaseSourceShaAfter) { throw 'Central SQLite source changed during online backup.' }
+        & node (Join-Path $repoRoot 'scripts\check-memory.mjs') $databaseDestination
+        if ($LASTEXITCODE -ne 0) { throw 'Central SQLite backup integrity or migration validation failed.' }
 
         $projectStorageSource = Join-Path $repoRoot 'data\projects'
         $projectStorageDestination = Join-Path $snapshotRoot 'data\projects'
@@ -174,7 +179,7 @@ try {
         $workBytes = [long]0
         foreach ($workItem in @($workSnapshot)) { $workBytes += [long]$workItem['size'] }
         $manifest = [ordered]@{
-            formatVersion = 3
+            formatVersion = 4
             backupId = $backupId
             createdAtUtc = [DateTime]::UtcNow.ToString('o')
             snapshotRoot = $snapshotRootName
@@ -196,6 +201,14 @@ try {
                     sha256 = Get-BackupSha256 -Path $bundlePath
                 }
             )
+            centralDatabase = [ordered]@{
+                path = 'data/database/metrichit.db'
+                size = [long](Get-Item -LiteralPath $databaseDestination).Length
+                sha256 = Get-BackupSha256 -Path $databaseDestination
+                sourceSha256 = $databaseSourceShaBefore
+                integrity = 'ok'
+                method = 'sqlite-online-backup'
+            }
             work = [ordered]@{
                 fileCount = @($workSnapshot).Count
                 totalBytes = $workBytes

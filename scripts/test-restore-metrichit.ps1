@@ -24,7 +24,7 @@ try {
     $manifestPath = Join-Path $backupSet.FullName "$backupId-manifest.json"
     if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw "Manifest not found: $manifestPath" }
     $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-    if ($manifest.formatVersion -notin 2, 3) { throw "Unsupported backup format version: $($manifest.formatVersion)" }
+    if ($manifest.formatVersion -notin 2, 3, 4) { throw "Unsupported backup format version: $($manifest.formatVersion)" }
     if ($manifest.backupId -cne $backupId) { throw 'Manifest backupId does not match the set directory.' }
     if ($manifest.snapshotRoot -notmatch '^MetricHit-backup-\d{8}T\d{6}Z-workspace$') { throw 'Unsafe snapshotRoot in manifest.' }
     if (@($manifest.components).Count -ne 2) { throw 'Manifest must describe exactly two backup components.' }
@@ -89,6 +89,21 @@ try {
         $restoredDatabase = Join-Path $snapshotRoot 'data\database\metrichit.db'
         & node (Join-Path $repoRoot 'scripts\check-memory.mjs') $restoredDatabase
         if ($LASTEXITCODE -ne 0) { throw 'Restored SQLite integrity or migration validation failed.' }
+        if ($manifest.formatVersion -ge 4) {
+            if (
+                $null -eq $manifest.centralDatabase -or
+                $manifest.centralDatabase.path -cne 'data/database/metrichit.db' -or
+                $manifest.centralDatabase.method -cne 'sqlite-online-backup' -or
+                $manifest.centralDatabase.integrity -cne 'ok' -or
+                [string]$manifest.centralDatabase.sourceSha256 -notmatch '^[0-9a-f]{64}$'
+            ) { throw 'Central database exact-source manifest contract is missing or invalid.' }
+            if ([long](Get-Item -LiteralPath $restoredDatabase).Length -ne [long]$manifest.centralDatabase.size) {
+                throw 'Restored central database size differs from the manifest.'
+            }
+            if ((Get-BackupSha256 -Path $restoredDatabase) -cne [string]$manifest.centralDatabase.sha256) {
+                throw 'Restored central database SHA-256 differs from the manifest.'
+            }
+        }
 
         $restoredProjectCount = 0
         if ($manifest.formatVersion -ge 3) {

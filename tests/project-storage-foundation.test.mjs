@@ -15,8 +15,8 @@ test('project storage decision workflow is exact and idempotent', () => {
     execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
     const first = applyProjectStorageFoundation(databasePath);
     const second = applyProjectStorageFoundation(databasePath);
-    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
-    assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 2, audits: 1 });
+    assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0, audits: 0 });
     const database = new DatabaseSync(databasePath, { readOnly: true });
     try {
       const row = database.prepare('SELECT status,data_json FROM memory_candidates WHERE id=?').get(first.candidateId);
@@ -26,6 +26,15 @@ test('project storage decision workflow is exact and idempotent', () => {
       assert.equal(data.path_traversal_allowed, false);
       assert.equal(data.runtime_connected, false);
       assert.equal(data.migrated_existing_data, false);
+      const materialized = database.prepare('SELECT status,data_json FROM memory_candidates WHERE id=?').get(first.materializationCandidateId);
+      const materializedData = JSON.parse(materialized.data_json);
+      assert.equal(materialized.status, 'approved');
+      assert.deepEqual(materializedData.records, { primary: 326, dependency: 4, schema_migrations: 10, total: 340 });
+      assert.equal(materializedData.cutover, false);
+      assert.equal(materializedData.target_sha256, '69e0ec3841ee43568aa90685c74b30c2f05f0292110f191f36e547cbd20da08d');
+      const scopeAudit = database.prepare('SELECT type,data_json FROM audit_log WHERE id=?').get(first.materializationScopeAuditId);
+      assert.equal(scopeAudit.type, 'project_scope_metadata_correction');
+      assert.equal(JSON.parse(scopeAudit.data_json).corrections[0].newValue, null);
       assert.equal(database.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       database.close();

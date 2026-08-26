@@ -1,16 +1,21 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from pathlib import Path
 
+import pytest
+
 from metrichit_os import project_migration
 from metrichit_os.database import sha256_file
 from metrichit_os.project_migration import (
+    MATERIALIZATION_KEY,
     OWNERSHIP_BATCH_KEY,
     _audit_id,
     apply_approved_ownership_batch,
     build_migration_plan,
+    materialize_metrichit_project,
     migration_plan_summary,
 )
 from metrichit_os.project_scope import DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID
@@ -690,3 +695,283 @@ def test_final_ownership_batch_rejects_assignment_hash_drift_before_writes(
             (project_migration.FINAL_OWNERSHIP_BATCH_KEY,),
         ).fetchone()[0] == 0
     assert not (tmp_path / "rollback.json").exists()
+
+
+def _materialization_database(path: Path) -> tuple[str, str, str, str]:
+    metric_source = "81000000-0000-4000-a000-000000000001"
+    core_source = "81000000-0000-4000-a000-000000000002"
+    child_project = "81000000-0000-4000-a000-000000000003"
+    other_project = "81000000-0000-4000-a000-000000000004"
+    correction_id = "81000000-0000-4000-a000-000000000005"
+    core_assignment_id = "81000000-0000-4000-a000-000000000006"
+    with sqlite3.connect(path) as db:
+        db.executescript("""
+        CREATE TABLE sources(
+          id TEXT PRIMARY KEY,type TEXT NOT NULL,title TEXT NOT NULL,data_json TEXT,
+          author TEXT NOT NULL DEFAULT 'owner',version INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE documents(
+          id TEXT PRIMARY KEY,type TEXT NOT NULL,title TEXT NOT NULL,data_json TEXT,
+          source_id TEXT REFERENCES sources(id),author TEXT NOT NULL DEFAULT 'owner',version INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE memory_candidates(
+          id TEXT PRIMARY KEY,type TEXT NOT NULL,title TEXT NOT NULL,data_json TEXT,
+          source_id TEXT NOT NULL REFERENCES sources(id),author TEXT NOT NULL DEFAULT 'owner',version INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE audit_log(
+          id TEXT PRIMARY KEY,type TEXT NOT NULL,title TEXT NOT NULL,data_json TEXT,
+          source_id TEXT REFERENCES sources(id),entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,
+          author TEXT NOT NULL DEFAULT 'owner',version INTEGER NOT NULL DEFAULT 1
+        );
+        CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT NOT NULL,checksum TEXT NOT NULL);
+        CREATE TRIGGER audit_log_prevent_update BEFORE UPDATE ON audit_log
+        BEGIN SELECT RAISE(ABORT, 'append-only'); END;
+        INSERT INTO schema_migrations VALUES(1,'initial','checksum');
+        """)
+        db.execute(
+            "INSERT INTO sources(id,type,title,data_json) VALUES(?, 'owner_decision', 'Metric source', ?)",
+            (metric_source, json.dumps({"project_id": DEFAULT_PROJECT_ID})),
+        )
+        db.execute(
+            "INSERT INTO sources(id,type,title,data_json) VALUES(?, 'owner_decision', 'Core provenance', '{}')",
+            (core_source,),
+        )
+        db.execute(
+            "INSERT INTO documents(id,type,title,data_json) VALUES(?, 'project', 'MetricHit', ?)",
+            (DEFAULT_PROJECT_ID, json.dumps({"scope_type": "managed_project"})),
+        )
+        db.execute(
+            "INSERT INTO documents(id,type,title,data_json) VALUES(?, 'project', 'Legacy child', ?)",
+            (child_project, json.dumps({
+                "scope_type": "subproject", "parent_project_id": YADRO_CONTROL_PLANE_PROJECT_ID,
+            })),
+        )
+        db.execute(
+            "INSERT INTO documents(id,type,title,data_json) VALUES(?, 'project', 'Other project', ?)",
+            (other_project, json.dumps({"scope_type": "managed_project"})),
+        )
+        db.execute(
+            "INSERT INTO memory_candidates(id,type,title,data_json,source_id) VALUES(?, 'decision', 'Inherited', '{}', ?)",
+            ("81000000-0000-4000-a000-000000000007", metric_source),
+        )
+        db.execute(
+            "INSERT INTO memory_candidates(id,type,title,data_json,source_id) VALUES(?, 'decision', 'Metric with core provenance', ?, ?)",
+            (
+                "81000000-0000-4000-a000-000000000008",
+                json.dumps({"project_id": DEFAULT_PROJECT_ID}),
+                core_source,
+            ),
+        )
+        db.execute(
+            "INSERT INTO audit_log(id,type,title,data_json,entity_type,entity_id) VALUES(?, 'project_scope_assignment', 'Core source ownership', ?, 'owner_decision', ?)",
+            (
+                core_assignment_id,
+                json.dumps({
+                    "table": "sources", "entityId": core_source,
+                    "project_id": YADRO_CONTROL_PLANE_PROJECT_ID,
+                }),
+                core_source,
+            ),
+        )
+        db.execute(
+            "INSERT INTO audit_log(id,type,title,data_json,entity_type,entity_id) VALUES(?, 'project_scope_metadata_correction', 'Child parent corrected', ?, 'project', ?)",
+            (
+                correction_id,
+                json.dumps({
+                    "table": "documents", "entityId": child_project,
+                    "project_id": DEFAULT_PROJECT_ID,
+                    "corrections": [{
+                        "field": "parent_project_id",
+                        "invalidValue": YADRO_CONTROL_PLANE_PROJECT_ID,
+                        "newValue": DEFAULT_PROJECT_ID,
+                    }],
+                }),
+                child_project,
+            ),
+        )
+    return metric_source, core_source, child_project, other_project
+
+
+def _verified_materialization_backup(tmp_path: Path, source_sha256: str) -> Path:
+    backup_id = "MetricHit-backup-20260826T120000Z"
+    backup = tmp_path / backup_id
+    backup.mkdir()
+    components = []
+    for role, name, content in (
+        ("workspace-archive", f"{backup_id}-workspace.zip", b"zip"),
+        ("git-bundle", f"{backup_id}-git.bundle", b"bundle"),
+    ):
+        path = backup / name
+        path.write_bytes(content)
+        components.append({
+            "role": role, "name": name, "size": len(content),
+            "sha256": hashlib.sha256(content).hexdigest(),
+        })
+    manifest = {
+        "formatVersion": 4,
+        "backupId": backup_id,
+        "components": components,
+        "centralDatabase": {
+            "path": "data/database/metrichit.db",
+            "size": 1,
+            "sha256": "1" * 64,
+            "sourceSha256": source_sha256,
+            "integrity": "ok",
+            "method": "sqlite-online-backup",
+        },
+        "projectStorages": {"root": "data/projects", "count": 0, "inventory": []},
+    }
+    (backup / f"{backup_id}-manifest.json").write_text(
+        json.dumps(manifest), encoding="utf-8"
+    )
+    return backup
+
+
+def test_materialization_is_exact_closed_atomic_and_idempotent(tmp_path: Path) -> None:
+    source = tmp_path / "legacy.sqlite"
+    _, core_source, child_project, other_project = _materialization_database(source)
+    plan = build_migration_plan(source)
+    assert plan["readyToMigrate"] is True
+    backup = _verified_materialization_backup(tmp_path, plan["sourceSha256"])
+    storage_root = tmp_path / "projects"
+    migration_manifest = tmp_path / "migration-record.json"
+    rollback_manifest = tmp_path / "rollback.json"
+    source_before = source.read_bytes()
+
+    result = materialize_metrichit_project(
+        source,
+        expected_source_sha256=plan["sourceSha256"],
+        expected_manifest_sha256=plan["manifestSha256"],
+        verified_backup_set=backup,
+        migration_manifest_path=migration_manifest,
+        rollback_manifest_path=rollback_manifest,
+        project_storage_root=storage_root,
+    )
+
+    target = storage_root / DEFAULT_PROJECT_ID / "project.sqlite"
+    assert result["applied"] == 1 and result["alreadyMaterialized"] == 0
+    assert result["counts"] == {
+        "primary": 6, "dependencies": 1, "system": 1,
+        "totalCopied": 8, "metadataCorrections": 1,
+    }
+    assert source.read_bytes() == source_before
+    assert migration_manifest.is_file() and rollback_manifest.is_file()
+    target_before = target.read_bytes()
+    with sqlite3.connect(target) as db:
+        assert db.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert db.execute("SELECT count(*) FROM sources").fetchone()[0] == 2
+        assert db.execute("SELECT count(*) FROM documents").fetchone()[0] == 2
+        assert db.execute("SELECT count(*) FROM memory_candidates").fetchone()[0] == 2
+        assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == 1
+        assert db.execute("SELECT count(*) FROM documents WHERE id=?", (other_project,)).fetchone()[0] == 0
+        child = json.loads(db.execute(
+            "SELECT data_json FROM documents WHERE id=?", (child_project,)
+        ).fetchone()[0])
+        assert child["parent_project_id"] == DEFAULT_PROJECT_ID
+        assert db.execute("SELECT count(*) FROM sources WHERE id=?", (core_source,)).fetchone()[0] == 1
+        embedded = json.loads(db.execute(
+            "SELECT manifest_json FROM project_migration_manifest WHERE singleton=1"
+        ).fetchone()[0])
+        assert embedded["migrationKey"] == MATERIALIZATION_KEY
+        assert embedded["counts"] == result["counts"]
+
+    replay = materialize_metrichit_project(
+        source,
+        expected_source_sha256=plan["sourceSha256"],
+        expected_manifest_sha256=plan["manifestSha256"],
+        verified_backup_set=backup,
+        migration_manifest_path=migration_manifest,
+        rollback_manifest_path=rollback_manifest,
+        project_storage_root=storage_root,
+    )
+    assert replay["applied"] == 0 and replay["alreadyMaterialized"] == 1
+    assert target.read_bytes() == target_before
+    assert source.read_bytes() == source_before
+
+    with sqlite3.connect(source) as db:
+        db.execute(
+            "INSERT INTO sources(id,type,title,data_json) "
+            "VALUES('81000000-0000-4000-a000-000000000009','owner_decision','Later core decision',?)",
+            (json.dumps({"project_id": YADRO_CONTROL_PLANE_PROJECT_ID}),),
+        )
+    core_only_replay = materialize_metrichit_project(
+        source,
+        expected_source_sha256=plan["sourceSha256"],
+        expected_manifest_sha256=plan["manifestSha256"],
+        verified_backup_set=backup,
+        migration_manifest_path=migration_manifest,
+        rollback_manifest_path=rollback_manifest,
+        project_storage_root=storage_root,
+    )
+    assert core_only_replay["applied"] == 0
+    assert core_only_replay["alreadyMaterialized"] == 1
+    assert target.read_bytes() == target_before
+
+    with sqlite3.connect(source) as db:
+        db.execute(
+            "INSERT INTO sources(id,type,title,data_json) "
+            "VALUES('81000000-0000-4000-a000-000000000010','owner_decision','Later MetricHit decision',?)",
+            (json.dumps({"project_id": DEFAULT_PROJECT_ID}),),
+        )
+    with pytest.raises(RuntimeError, match="current MetricHit source rows differ"):
+        materialize_metrichit_project(
+            source,
+            expected_source_sha256=plan["sourceSha256"],
+            expected_manifest_sha256=plan["manifestSha256"],
+            verified_backup_set=backup,
+            migration_manifest_path=migration_manifest,
+            rollback_manifest_path=rollback_manifest,
+            project_storage_root=storage_root,
+        )
+    assert target.read_bytes() == target_before
+
+    with sqlite3.connect(target) as db:
+        db.execute(
+            "INSERT INTO sources(id,type,title,data_json) "
+            "VALUES('81000000-0000-4000-a000-000000000011','owner_decision','Unexpected target row','{}')"
+        )
+    changed_target = target.read_bytes()
+    with pytest.raises(RuntimeError, match="materialized record inventory mismatch"):
+        materialize_metrichit_project(
+            source,
+            expected_source_sha256=plan["sourceSha256"],
+            expected_manifest_sha256=plan["manifestSha256"],
+            verified_backup_set=backup,
+            migration_manifest_path=migration_manifest,
+            rollback_manifest_path=rollback_manifest,
+            project_storage_root=storage_root,
+        )
+    assert target.read_bytes() == changed_target
+
+
+def test_materialization_rejects_source_or_backup_guard_before_target_creation(tmp_path: Path) -> None:
+    source = tmp_path / "legacy.sqlite"
+    _materialization_database(source)
+    plan = build_migration_plan(source)
+    backup = _verified_materialization_backup(tmp_path, "0" * 64)
+    storage_root = tmp_path / "projects"
+
+    with pytest.raises(RuntimeError, match="guard mismatch"):
+        materialize_metrichit_project(
+            source,
+            expected_source_sha256="f" * 64,
+            expected_manifest_sha256=plan["manifestSha256"],
+            verified_backup_set=backup,
+            migration_manifest_path=tmp_path / "unused-record.json",
+            rollback_manifest_path=tmp_path / "unused-rollback.json",
+            project_storage_root=storage_root,
+        )
+    assert not storage_root.exists()
+
+    with pytest.raises(RuntimeError, match="does not match"):
+        materialize_metrichit_project(
+            source,
+            expected_source_sha256=plan["sourceSha256"],
+            expected_manifest_sha256=plan["manifestSha256"],
+            verified_backup_set=backup,
+            migration_manifest_path=tmp_path / "unused-record.json",
+            rollback_manifest_path=tmp_path / "unused-rollback.json",
+            project_storage_root=storage_root,
+        )
+    assert not storage_root.exists()

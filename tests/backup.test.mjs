@@ -257,8 +257,14 @@ test('backup and restore scripts retain the required recovery contract', () => {
   for (const marker of ['workspace.zip', 'git.bundle', 'manifest.json', "'work'", "'tests'", 'sqlite-backup.mjs', 'project-storage-snapshot.mjs', 'bundle create']) {
     assert.ok(backup.includes(marker), `backup contract marker missing: ${marker}`);
   }
+  for (const marker of ['formatVersion = 4', 'centralDatabase', 'sourceSha256', 'Central SQLite source changed during online backup']) {
+    assert.ok(backup.includes(marker), `exact-source backup marker missing: ${marker}`);
+  }
   for (const marker of ['bundle verify', 'bundle list-heads', 'git clone', "Join-Path $repoRoot 'scripts\\check-memory.mjs'", 'project-storage-snapshot.mjs', 'requiredCommits', 'requiredWorkFiles', 'Assert-BackupInventoriesEqual', 'Assert-BackupTreeHasNoSecretContent']) {
     assert.ok(restore.includes(marker), `restore contract marker missing: ${marker}`);
+  }
+  for (const marker of ['centralDatabase', 'sourceSha256', 'Restored central database SHA-256 differs from the manifest']) {
+    assert.ok(restore.includes(marker), `exact-source restore marker missing: ${marker}`);
   }
   assert.match(restore, /\[Text\.UTF8Encoding\]::new\(\$false\)/);
   assert.match(task, /New-ScheduledTaskTrigger -Daily -At 3:30AM/);

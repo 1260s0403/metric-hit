@@ -36,6 +36,7 @@ from .project_migration import (
     apply_approved_final_ownership_batch,
     apply_approved_ownership_batch,
     build_migration_plan,
+    materialize_metrichit_project,
     migration_plan_summary,
 )
 from .project_store import ProjectStore
@@ -112,6 +113,13 @@ def workflow_parser() -> argparse.ArgumentParser:
     final_ownership_apply.add_argument("--expected-manifest-sha256", required=True)
     final_ownership_apply.add_argument("--rollback-manifest", required=True)
     final_ownership_apply.add_argument("--verified-backup-set", required=True)
+    migration_apply = subparsers.add_parser("metrichit-project-migration-apply")
+    migration_apply.add_argument("--db", required=True)
+    migration_apply.add_argument("--expected-source-sha256", required=True)
+    migration_apply.add_argument("--expected-manifest-sha256", required=True)
+    migration_apply.add_argument("--verified-backup-set", required=True)
+    migration_apply.add_argument("--migration-manifest", required=True)
+    migration_apply.add_argument("--rollback-manifest", required=True)
     handoff_create = subparsers.add_parser("handoff-create")
     handoff_create.add_argument("--db", required=True)
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
@@ -230,6 +238,16 @@ def run_workflow_command(arguments_list: list[str]) -> int:
             expected_manifest_sha256=arguments.expected_manifest_sha256,
             rollback_manifest_path=Path(arguments.rollback_manifest),
             verified_backup_set=Path(arguments.verified_backup_set),
+        ))
+        return 0
+    if arguments.command == "metrichit-project-migration-apply":
+        print_json(materialize_metrichit_project(
+            database_path,
+            expected_source_sha256=arguments.expected_source_sha256,
+            expected_manifest_sha256=arguments.expected_manifest_sha256,
+            verified_backup_set=Path(arguments.verified_backup_set),
+            migration_manifest_path=Path(arguments.migration_manifest),
+            rollback_manifest_path=Path(arguments.rollback_manifest),
         ))
         return 0
     if arguments.command == "handoff-create":

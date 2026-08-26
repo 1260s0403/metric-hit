@@ -96,5 +96,6 @@ desktop.ini
 
 work/search-v5-*.png
 .pytest-project-migration/
+.pytest-migration-focused/
 .pytest-final-ownership-full/
 .pytest-owner-batch/

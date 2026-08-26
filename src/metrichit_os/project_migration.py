@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import re
 import sqlite3
+import tempfile
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,9 +14,12 @@ from uuid import NAMESPACE_URL, uuid5
 
 from .database import read_only_database, sha256_file
 from .project_scope import DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID
+from .project_storage import ProjectStorage, STORAGE_FORMAT_VERSION
 
 
 PLAN_SCHEMA_VERSION = 1
+MATERIALIZATION_SCHEMA_VERSION = 1
+MATERIALIZATION_KEY = "metrichit-managed-project-materialization-2026-08-26-v1"
 OWNERSHIP_BATCH_VERSION = 1
 OWNERSHIP_BATCH_KEY = "approved-project-ownership-2026-08-22-v1"
 DECISION_OWNERSHIP_BATCH_KEY = "approved-decision-ownership-2026-08-22-v2"
@@ -105,6 +111,10 @@ RELATION_COLUMNS = {
     "entity_id",
 }
 METADATA_RELATION_FIELDS = {"knowledge_entry_id"}
+TARGET_METADATA_RELATION_FIELDS = {
+    "knowledge_entry_id", "parent_project_id", "project_id", "subproject_id",
+}
+TARGET_METADATA_TABLES = {"project_storage_metadata", "project_migration_manifest"}
 
 APPROVED_OWNERSHIP_ASSIGNMENTS = {
     DEFAULT_PROJECT_ID: {
@@ -1587,4 +1597,690 @@ def apply_approved_final_ownership_batch(
         "readyToMigrate": after["readyToMigrate"],
         "counts": after["counts"],
         "unresolvedCategories": after["unresolvedCategories"],
+    }
+
+
+def _json_sha256(value: object) -> str:
+    canonical = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _ids_sha256(ids: list[str]) -> str:
+    return hashlib.sha256(("\n".join(ids) + "\n").encode("utf-8")).hexdigest()
+
+
+def _json_sql_value(value: object) -> object:
+    if isinstance(value, bytes):
+        return {"sqliteBlobHex": value.hex()}
+    return value
+
+
+def _table_columns(connection: sqlite3.Connection, table: str) -> list[str]:
+    columns = [row["name"] for row in connection.execute(f'PRAGMA table_info("{table}")')]
+    if not columns:
+        raise RuntimeError(f"source table has no columns: {table}")
+    return columns
+
+
+def _stable_column(columns: list[str]) -> str:
+    return "id" if "id" in columns else "version" if "version" in columns else columns[0]
+
+
+def _schema_objects(connection: sqlite3.Connection) -> list[dict[str, str]]:
+    rows = connection.execute(
+        "SELECT type,name,tbl_name,sql FROM sqlite_master "
+        "WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL ORDER BY type,name"
+    ).fetchall()
+    return [
+        {"type": row["type"], "name": row["name"], "table": row["tbl_name"], "sql": row["sql"]}
+        for row in rows
+    ]
+
+
+def _read_row(
+    connection: sqlite3.Connection,
+    table: str,
+    stable_column: str,
+    entity_id: str,
+) -> sqlite3.Row:
+    row = connection.execute(
+        f'SELECT * FROM "{table}" WHERE "{stable_column}"=?', (entity_id,)
+    ).fetchone()
+    if row is None:
+        raise RuntimeError(f"planned source row is missing: {table}/{entity_id}")
+    return row
+
+
+def _backup_manifest_for_source(backup_set: Path, expected_source_sha256: str) -> dict[str, Any]:
+    backup_path = backup_set.resolve()
+    if not backup_path.is_dir() or not re.fullmatch(r"MetricHit-backup-\d{8}T\d{6}Z", backup_path.name):
+        raise RuntimeError("verified backup set path is invalid or incomplete")
+    manifest_path = backup_path / f"{backup_path.name}-manifest.json"
+    if not manifest_path.is_file():
+        raise RuntimeError("verified backup set manifest is missing")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
+    if manifest.get("formatVersion") != 4 or manifest.get("backupId") != backup_path.name:
+        raise RuntimeError("verified backup set does not use the exact-source format")
+    components = manifest.get("components")
+    if not isinstance(components, list) or len(components) != 2:
+        raise RuntimeError("verified backup set component inventory is invalid")
+    roles: set[str] = set()
+    for component in components:
+        if not isinstance(component, dict):
+            raise RuntimeError("verified backup set component is invalid")
+        role, name = component.get("role"), component.get("name")
+        if role in roles or role not in {"workspace-archive", "git-bundle"}:
+            raise RuntimeError("verified backup set component role is invalid")
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", name):
+            raise RuntimeError("verified backup set component name is unsafe")
+        component_path = backup_path / name
+        if (
+            not component_path.is_file()
+            or component_path.stat().st_size != component.get("size")
+            or sha256_file(component_path) != component.get("sha256")
+        ):
+            raise RuntimeError(f"verified backup component mismatch: {role}")
+        roles.add(role)
+    central = manifest.get("centralDatabase")
+    if not isinstance(central, dict):
+        raise RuntimeError("verified backup set lacks the central database guard")
+    if (
+        central.get("path") != "data/database/metrichit.db"
+        or central.get("method") != "sqlite-online-backup"
+        or central.get("integrity") != "ok"
+        or central.get("sourceSha256") != expected_source_sha256
+        or not re.fullmatch(r"[0-9a-f]{64}", str(central.get("sha256", "")))
+        or not isinstance(central.get("size"), int)
+        or central["size"] <= 0
+    ):
+        raise RuntimeError("verified backup set does not match the guarded source database")
+    projects = manifest.get("projectStorages")
+    if not isinstance(projects, dict) or projects.get("root") != "data/projects":
+        raise RuntimeError("verified backup set lacks the project inventory")
+    inventory = projects.get("inventory")
+    if not isinstance(inventory, list) or projects.get("count") != len(inventory):
+        raise RuntimeError("verified backup project inventory is invalid")
+    if any(item.get("projectId") == DEFAULT_PROJECT_ID for item in inventory if isinstance(item, dict)):
+        raise RuntimeError("verified pre-migration backup unexpectedly contains the MetricHit target")
+    return {
+        "backupId": backup_path.name,
+        "path": str(backup_path),
+        "manifest": str(manifest_path),
+        "centralSnapshotSha256": central["sha256"],
+        "centralSourceSha256": central["sourceSha256"],
+        "projectStorageCount": len(inventory),
+    }
+
+
+def _primary_record_keys(plan: dict[str, Any]) -> set[tuple[str, str]]:
+    return {
+        (record["table"], record["id"])
+        for record in plan["records"]
+        if record["classification"] == CLASS_PROJECT
+        and record.get("projectId") == DEFAULT_PROJECT_ID
+    }
+
+
+def _foreign_key_dependencies(
+    connection: sqlite3.Connection,
+    plan: dict[str, Any],
+    primary: set[tuple[str, str]],
+) -> set[tuple[str, str]]:
+    plan_by_key = {(record["table"], record["id"]): record for record in plan["records"]}
+    selected = set(primary)
+    dependencies: set[tuple[str, str]] = set()
+    for _ in range(len(plan["records"]) + 1):
+        changed = False
+        for table, entity_id in sorted(selected):
+            columns = _table_columns(connection, table)
+            stable = _stable_column(columns)
+            row = _read_row(connection, table, stable, entity_id)
+            for foreign_key in connection.execute(f'PRAGMA foreign_key_list("{table}")'):
+                target_table = foreign_key["table"]
+                from_column = foreign_key["from"]
+                target_column = foreign_key["to"]
+                value = row[from_column]
+                if value is None:
+                    continue
+                target_columns = _table_columns(connection, target_table)
+                target_stable = _stable_column(target_columns)
+                if target_column != target_stable:
+                    raise RuntimeError(
+                        f"unsupported non-stable foreign key: {table}.{from_column} -> {target_table}.{target_column}"
+                    )
+                target = connection.execute(
+                    f'SELECT "{target_stable}" FROM "{target_table}" WHERE "{target_column}"=?',
+                    (value,),
+                ).fetchone()
+                if target is None:
+                    raise RuntimeError(f"source foreign key is broken: {table}/{entity_id}/{from_column}")
+                key = (target_table, str(target[target_stable]))
+                if key in selected:
+                    continue
+                record = plan_by_key.get(key)
+                if record is None or record["classification"] != CLASS_CORE:
+                    raise RuntimeError(
+                        f"MetricHit row depends on a non-core external project row: {table}/{entity_id}/{from_column}"
+                    )
+                selected.add(key)
+                dependencies.add(key)
+                changed = True
+        if not changed:
+            return dependencies
+    raise RuntimeError("foreign-key dependency closure did not converge")
+
+
+def _effective_metadata_corrections(
+    connection: sqlite3.Connection,
+    selected: set[tuple[str, str]],
+) -> dict[tuple[str, str], list[dict[str, Any]]]:
+    corrections: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    if ("audit_log",) not in {
+        (row["name"],)
+        for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+    }:
+        return corrections
+    for row in connection.execute(
+        "SELECT id,data_json FROM audit_log WHERE type='project_scope_metadata_correction' ORDER BY id"
+    ):
+        data = _metadata(row["data_json"])
+        key = (data.get("table"), data.get("entityId"))
+        if key not in selected:
+            continue
+        items = data.get("corrections")
+        if not isinstance(items, list):
+            item = data.get("correction")
+            items = [item] if isinstance(item, dict) else []
+        for item in items:
+            if not isinstance(item, dict) or "newValue" not in item or not isinstance(item.get("field"), str):
+                continue
+            corrections.setdefault(key, []).append({
+                "auditId": row["id"],
+                "field": item["field"],
+                "invalidValue": item.get("invalidValue"),
+                "newValue": item.get("newValue"),
+            })
+    return corrections
+
+
+def _apply_effective_corrections(
+    table: str,
+    entity_id: str,
+    columns: list[str],
+    values: list[object],
+    corrections: dict[tuple[str, str], list[dict[str, Any]]],
+) -> tuple[list[object], list[dict[str, Any]]]:
+    applied: list[dict[str, Any]] = []
+    items = corrections.get((table, entity_id), [])
+    if not items:
+        return values, applied
+    if "data_json" not in columns:
+        raise RuntimeError(f"metadata correction targets a row without data_json: {table}/{entity_id}")
+    index = columns.index("data_json")
+    metadata = _metadata(values[index])
+    for item in items:
+        field = item["field"]
+        if metadata.get(field) != item["invalidValue"]:
+            raise RuntimeError(f"audited metadata correction no longer matches source: {table}/{entity_id}/{field}")
+        metadata[field] = item["newValue"]
+        applied.append({"table": table, "id": entity_id, **item})
+    values[index] = json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return values, applied
+
+
+def _record_set(
+    connection: sqlite3.Connection,
+    keys: set[tuple[str, str]],
+    corrections: dict[tuple[str, str], list[dict[str, Any]]],
+) -> tuple[list[dict[str, Any]], dict[str, list[tuple[object, ...]]], list[dict[str, Any]]]:
+    tables: list[dict[str, Any]] = []
+    rows_by_table: dict[str, list[tuple[object, ...]]] = {}
+    applied: list[dict[str, Any]] = []
+    for table in sorted({table for table, _ in keys}):
+        columns = _table_columns(connection, table)
+        stable = _stable_column(columns)
+        ids = sorted(entity_id for candidate_table, entity_id in keys if candidate_table == table)
+        source_payload: list[list[object]] = []
+        target_payload: list[list[object]] = []
+        copied_rows: list[tuple[object, ...]] = []
+        for entity_id in ids:
+            row = _read_row(connection, table, stable, entity_id)
+            source_values = [row[column] for column in columns]
+            target_values, row_applied = _apply_effective_corrections(
+                table, entity_id, columns, list(source_values), corrections
+            )
+            source_payload.append([_json_sql_value(value) for value in source_values])
+            target_payload.append([_json_sql_value(value) for value in target_values])
+            copied_rows.append(tuple(target_values))
+            applied.extend(row_applied)
+        rows_by_table[table] = copied_rows
+        tables.append({
+            "table": table,
+            "columns": columns,
+            "count": len(ids),
+            "ids": ids,
+            "idsSha256": _ids_sha256(ids),
+            "sourceRowsSha256": _json_sha256({"columns": columns, "rows": source_payload}),
+            "targetRowsSha256": _json_sha256({"columns": columns, "rows": target_payload}),
+        })
+    return tables, rows_by_table, applied
+
+
+def _validate_relationship_closure(
+    rows_by_category: list[dict[str, list[tuple[object, ...]]]],
+    table_columns: dict[str, list[str]],
+) -> None:
+    copied_ids: set[str] = set()
+    copied_project_ids: set[str] = set()
+    for rows_by_table in rows_by_category:
+        for table, rows in rows_by_table.items():
+            columns = table_columns[table]
+            stable = _stable_column(columns)
+            stable_index = columns.index(stable)
+            for row in rows:
+                copied_ids.add(str(row[stable_index]))
+                if table == "documents" and "type" in columns and row[columns.index("type")] == "project":
+                    copied_project_ids.add(str(row[stable_index]))
+    for rows_by_table in rows_by_category:
+        for table, rows in rows_by_table.items():
+            columns = table_columns[table]
+            stable = _stable_column(columns)
+            stable_index = columns.index(stable)
+            for row in rows:
+                entity_id = str(row[stable_index])
+                if "data_json" not in columns:
+                    continue
+                metadata = _metadata(row[columns.index("data_json")])
+                for field in TARGET_METADATA_RELATION_FIELDS:
+                    target_id = metadata.get(field)
+                    if not target_id:
+                        continue
+                    allowed = copied_project_ids if field in {"parent_project_id", "project_id", "subproject_id"} else copied_ids
+                    if str(target_id) not in allowed:
+                        raise RuntimeError(
+                            f"target relationship closure is incomplete: {table}/{entity_id}/data_json.{field}"
+                        )
+
+
+def _write_exact_json(path: Path, payload: dict[str, Any]) -> None:
+    destination = path.resolve()
+    rendered = json.dumps(payload, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.exists():
+        if destination.read_text(encoding="utf-8-sig") != rendered:
+            raise RuntimeError(f"existing migration artifact differs: {destination}")
+        return
+    with destination.open("x", encoding="utf-8") as output:
+        output.write(rendered)
+
+
+def _artifact_payload(artifact_type: str, body: dict[str, Any]) -> dict[str, Any]:
+    payload = {"schemaVersion": MATERIALIZATION_SCHEMA_VERSION, "artifactType": artifact_type, **body}
+    payload["artifactSha256"] = _json_sha256(payload)
+    return payload
+
+
+def _verify_materialized_target(
+    target: Path,
+    expected_manifest: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    with read_only_database(target) as connection:
+        integrity = [tuple(row) for row in connection.execute("PRAGMA integrity_check")]
+        foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
+        if integrity != [("ok",)] or foreign_keys:
+            raise RuntimeError("materialized project SQLite failed integrity or foreign-key checks")
+        identity = connection.execute(
+            "SELECT project_id,storage_format FROM project_storage_metadata WHERE singleton=1"
+        ).fetchone()
+        stored = connection.execute(
+            "SELECT migration_key,schema_version,project_id,manifest_sha256,manifest_json "
+            "FROM project_migration_manifest WHERE singleton=1"
+        ).fetchone()
+        if (
+            identity is None
+            or identity["project_id"] != DEFAULT_PROJECT_ID
+            or identity["storage_format"] != STORAGE_FORMAT_VERSION
+            or stored is None
+            or stored["migration_key"] != MATERIALIZATION_KEY
+            or stored["schema_version"] != MATERIALIZATION_SCHEMA_VERSION
+            or stored["project_id"] != DEFAULT_PROJECT_ID
+        ):
+            raise RuntimeError("materialized project identity or manifest is invalid")
+        manifest = json.loads(stored["manifest_json"])
+        unhashed = dict(manifest)
+        manifest_hash = unhashed.pop("manifestSha256", None)
+        if manifest_hash != stored["manifest_sha256"] or _json_sha256(unhashed) != manifest_hash:
+            raise RuntimeError("materialized project manifest hash mismatch")
+        if expected_manifest is not None and manifest != expected_manifest:
+            raise RuntimeError("existing project migration manifest differs from the guarded source")
+        source_object_names = set(manifest["sourceSchema"]["objectNames"])
+        all_target_objects = _schema_objects(connection)
+        if {item["name"] for item in all_target_objects} != source_object_names | TARGET_METADATA_TABLES:
+            raise RuntimeError("materialized target schema inventory mismatch")
+        target_objects = [
+            item for item in all_target_objects if item["name"] in source_object_names
+        ]
+        if _json_sha256(target_objects) != manifest["sourceSchema"]["sha256"]:
+            raise RuntimeError("materialized source schema hash mismatch")
+        expected_ids_by_table = {
+            item["name"]: set()
+            for item in target_objects
+            if item["type"] == "table"
+        }
+        for category in manifest["recordSets"].values():
+            for table_info in category["tables"]:
+                table = table_info["table"]
+                expected_ids_by_table[table].update(table_info["ids"])
+                columns = table_info["columns"]
+                stable = _stable_column(columns)
+                payload: list[list[object]] = []
+                for entity_id in table_info["ids"]:
+                    row = _read_row(connection, table, stable, entity_id)
+                    payload.append([_json_sql_value(row[column]) for column in columns])
+                if (
+                    len(payload) != table_info["count"]
+                    or _ids_sha256(table_info["ids"]) != table_info["idsSha256"]
+                    or _json_sha256({"columns": columns, "rows": payload}) != table_info["targetRowsSha256"]
+                ):
+                    raise RuntimeError(f"materialized record reconciliation failed: {table}")
+        for table, expected_ids in expected_ids_by_table.items():
+            columns = _table_columns(connection, table)
+            stable = _stable_column(columns)
+            actual_ids = {
+                str(row[stable])
+                for row in connection.execute(f'SELECT "{stable}" FROM "{table}"')
+            }
+            if actual_ids != expected_ids:
+                raise RuntimeError(f"materialized record inventory mismatch: {table}")
+        return manifest
+
+
+def _reconcile_source_project_rows(source_path: Path, manifest: dict[str, Any]) -> None:
+    current_plan = build_migration_plan(source_path)
+    if not current_plan["readyToMigrate"] or current_plan["counts"][CLASS_UNRESOLVED] != 0:
+        raise RuntimeError("current legacy source is no longer ready to migrate")
+    with read_only_database(source_path) as source:
+        source_objects = _schema_objects(source)
+        if (
+            _json_sha256(source_objects) != manifest["sourceSchema"]["sha256"]
+            or [item["name"] for item in source_objects] != manifest["sourceSchema"]["objectNames"]
+        ):
+            raise RuntimeError("current legacy source schema differs from the materialized manifest")
+        primary = _primary_record_keys(current_plan)
+        dependencies = _foreign_key_dependencies(source, current_plan, primary)
+        system = {
+            (record["table"], record["id"])
+            for record in current_plan["records"]
+            if record["table"] in SYSTEM_TABLES
+        }
+        selected = primary | dependencies | system
+        corrections = _effective_metadata_corrections(source, selected)
+        primary_tables, primary_rows, primary_applied = _record_set(source, primary, corrections)
+        dependency_tables, dependency_rows, dependency_applied = _record_set(
+            source, dependencies, corrections
+        )
+        system_tables, system_rows, system_applied = _record_set(source, system, corrections)
+        applied_corrections = sorted(
+            [*primary_applied, *dependency_applied, *system_applied],
+            key=lambda item: (item["table"], item["id"], item["field"], item["auditId"]),
+        )
+        table_columns = {
+            table: _table_columns(source, table)
+            for table in sorted({table for table, _ in selected})
+        }
+        _validate_relationship_closure(
+            [primary_rows, dependency_rows, system_rows], table_columns
+        )
+    current_sets = {
+        "primary": {"count": len(primary), "tables": primary_tables},
+        "dependencies": {"count": len(dependencies), "tables": dependency_tables},
+        "system": {"count": len(system), "tables": system_tables},
+    }
+    if current_sets != manifest["recordSets"] or applied_corrections != manifest["metadataCorrections"]:
+        raise RuntimeError("current MetricHit source rows differ from the materialized manifest")
+
+
+def materialize_metrichit_project(
+    database_path: Path,
+    *,
+    expected_source_sha256: str,
+    expected_manifest_sha256: str,
+    verified_backup_set: Path,
+    migration_manifest_path: Path,
+    rollback_manifest_path: Path,
+    project_storage_root: Path | None = None,
+) -> dict[str, Any]:
+    """Atomically materialize the canonical MetricHit contour without changing legacy SQLite."""
+    source_path = database_path.resolve()
+    storage = ProjectStorage(project_storage_root) if project_storage_root is not None else ProjectStorage()
+    location = storage.location(DEFAULT_PROJECT_ID)
+
+    if location.database.exists():
+        manifest = _verify_materialized_target(location.database)
+        if (
+            manifest["sourceSha256"] != expected_source_sha256
+            or manifest["planManifestSha256"] != expected_manifest_sha256
+        ):
+            raise RuntimeError("existing MetricHit project SQLite differs from the guarded migration")
+        backup = _backup_manifest_for_source(verified_backup_set, manifest["sourceSha256"])
+        if manifest["verifiedBackup"]["backupId"] != backup["backupId"]:
+            raise RuntimeError("existing MetricHit project SQLite uses a different verified backup")
+        _reconcile_source_project_rows(source_path, manifest)
+        target_sha256 = sha256_file(location.database)
+        migration_artifact = _artifact_payload("project-migration-manifest", {
+            "migration": manifest, "targetSha256": target_sha256,
+        })
+        rollback_artifact = _artifact_payload("project-migration-rollback", {
+            "migrationKey": MATERIALIZATION_KEY,
+            "projectId": DEFAULT_PROJECT_ID,
+            "legacyDatabase": str(source_path),
+            "legacySourceSha256": manifest["sourceSha256"],
+            "targetDatabase": str(location.database),
+            "targetSha256": target_sha256,
+            "verifiedBackup": backup,
+            "rollbackMethod": "with separate owner approval, remove only the newly materialized target; legacy remains the working source; restore the verified full backup set if broader recovery is required",
+        })
+        _write_exact_json(migration_manifest_path, migration_artifact)
+        _write_exact_json(rollback_manifest_path, rollback_artifact)
+        return {
+            "migrationKey": MATERIALIZATION_KEY,
+            "applied": 0,
+            "alreadyMaterialized": 1,
+            "projectId": DEFAULT_PROJECT_ID,
+            "targetDatabase": str(location.database),
+            "targetSha256": target_sha256,
+            "counts": manifest["counts"],
+            "manifestSha256": manifest["manifestSha256"],
+            "migrationManifest": str(migration_manifest_path.resolve()),
+            "rollbackManifest": str(rollback_manifest_path.resolve()),
+        }
+
+    source_hash_before = sha256_file(source_path)
+    if source_hash_before != expected_source_sha256:
+        raise RuntimeError("source SHA-256 guard mismatch")
+    plan = build_migration_plan(source_path)
+    if plan["manifestSha256"] != expected_manifest_sha256:
+        raise RuntimeError("migration plan manifest guard mismatch")
+    if not plan["readyToMigrate"] or plan["counts"][CLASS_UNRESOLVED] != 0:
+        raise RuntimeError("migration plan is not ready to migrate")
+    backup = _backup_manifest_for_source(verified_backup_set, expected_source_sha256)
+
+    with read_only_database(source_path) as source:
+        source_objects = _schema_objects(source)
+        if any(item["name"] in TARGET_METADATA_TABLES for item in source_objects):
+            raise RuntimeError("source schema conflicts with reserved project metadata tables")
+        primary = _primary_record_keys(plan)
+        dependencies = _foreign_key_dependencies(source, plan, primary)
+        system = {
+            (record["table"], record["id"])
+            for record in plan["records"]
+            if record["table"] in SYSTEM_TABLES
+        }
+        selected = primary | dependencies | system
+        corrections = _effective_metadata_corrections(source, selected)
+        primary_tables, primary_rows, primary_applied = _record_set(source, primary, corrections)
+        dependency_tables, dependency_rows, dependency_applied = _record_set(source, dependencies, corrections)
+        system_tables, system_rows, system_applied = _record_set(source, system, corrections)
+        applied_corrections = sorted(
+            [*primary_applied, *dependency_applied, *system_applied],
+            key=lambda item: (item["table"], item["id"], item["field"], item["auditId"]),
+        )
+        table_columns = {
+            table: _table_columns(source, table)
+            for table in sorted({table for table, _ in selected})
+        }
+        _validate_relationship_closure(
+            [primary_rows, dependency_rows, system_rows], table_columns
+        )
+
+    created_at = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    source_schema = {
+        "objectCount": len(source_objects),
+        "objectNames": [item["name"] for item in source_objects],
+        "sha256": _json_sha256(source_objects),
+    }
+    record_sets = {
+        "primary": {"count": len(primary), "tables": primary_tables},
+        "dependencies": {"count": len(dependencies), "tables": dependency_tables},
+        "system": {"count": len(system), "tables": system_tables},
+    }
+    manifest_without_hash: dict[str, Any] = {
+        "schemaVersion": MATERIALIZATION_SCHEMA_VERSION,
+        "migrationKey": MATERIALIZATION_KEY,
+        "createdAt": created_at,
+        "projectId": DEFAULT_PROJECT_ID,
+        "storageFormat": STORAGE_FORMAT_VERSION,
+        "sourceSha256": expected_source_sha256,
+        "planSchemaVersion": plan["schemaVersion"],
+        "planManifestSha256": expected_manifest_sha256,
+        "verifiedBackup": backup,
+        "sourceSchema": source_schema,
+        "recordSets": record_sets,
+        "metadataCorrections": applied_corrections,
+        "counts": {
+            "primary": len(primary),
+            "dependencies": len(dependencies),
+            "system": len(system),
+            "totalCopied": len(primary | dependencies | system),
+            "metadataCorrections": len(applied_corrections),
+        },
+        "legacyRuntimeState": "unchanged-working-source",
+        "cutover": False,
+    }
+    manifest = {**manifest_without_hash, "manifestSha256": _json_sha256(manifest_without_hash)}
+    manifest_json = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+    handle, staging_name = tempfile.mkstemp(prefix="metrichit-project-", suffix=".sqlite")
+    os.close(handle)
+    staging_path = Path(staging_name)
+    try:
+        target = sqlite3.connect(staging_path)
+        target.row_factory = sqlite3.Row
+        try:
+            target.execute("PRAGMA foreign_keys = OFF")
+            target.execute("BEGIN IMMEDIATE")
+            tables = [item for item in source_objects if item["type"] == "table"]
+            secondary = [item for item in source_objects if item["type"] != "table"]
+            for item in tables:
+                target.execute(item["sql"])
+            target.execute(
+                "CREATE TABLE project_storage_metadata ("
+                "singleton INTEGER PRIMARY KEY CHECK (singleton = 1),"
+                "project_id TEXT NOT NULL UNIQUE,"
+                "storage_format INTEGER NOT NULL CHECK (storage_format = 1))"
+            )
+            target.execute(
+                "INSERT INTO project_storage_metadata(singleton,project_id,storage_format) VALUES(1,?,?)",
+                (DEFAULT_PROJECT_ID, STORAGE_FORMAT_VERSION),
+            )
+            target.execute(
+                "CREATE TABLE project_migration_manifest ("
+                "singleton INTEGER PRIMARY KEY CHECK (singleton = 1),"
+                "migration_key TEXT NOT NULL UNIQUE,schema_version INTEGER NOT NULL,"
+                "project_id TEXT NOT NULL,manifest_sha256 TEXT NOT NULL,"
+                "manifest_json TEXT NOT NULL CHECK(json_valid(manifest_json)))"
+            )
+            for rows_by_table in (primary_rows, dependency_rows, system_rows):
+                for table in sorted(rows_by_table):
+                    columns = table_columns[table]
+                    quoted = ",".join(f'"{column}"' for column in columns)
+                    placeholders = ",".join("?" for _ in columns)
+                    target.executemany(
+                        f'INSERT INTO "{table}" ({quoted}) VALUES ({placeholders})',
+                        rows_by_table[table],
+                    )
+            for item in secondary:
+                target.execute(item["sql"])
+            target.execute(
+                "INSERT INTO project_migration_manifest VALUES(1,?,?,?,?,?)",
+                (
+                    MATERIALIZATION_KEY, MATERIALIZATION_SCHEMA_VERSION, DEFAULT_PROJECT_ID,
+                    manifest["manifestSha256"], manifest_json,
+                ),
+            )
+            foreign_keys = target.execute("PRAGMA foreign_key_check").fetchall()
+            integrity = [tuple(row) for row in target.execute("PRAGMA integrity_check")]
+            if foreign_keys or integrity != [("ok",)]:
+                raise RuntimeError("new project SQLite failed integrity or foreign-key checks")
+            target.commit()
+        except Exception:
+            target.rollback()
+            raise
+        finally:
+            target.close()
+        _verify_materialized_target(staging_path, manifest)
+        if sha256_file(source_path) != expected_source_sha256:
+            raise RuntimeError("legacy source changed during project materialization")
+        plan_after = build_migration_plan(source_path)
+        if plan_after["manifestSha256"] != expected_manifest_sha256:
+            raise RuntimeError("migration plan changed during project materialization")
+        location.directory.parent.mkdir(parents=True, exist_ok=True)
+        location.directory.mkdir(exist_ok=True)
+        if any(location.directory.iterdir()):
+            raise RuntimeError("MetricHit project storage directory is not empty")
+        if location.database.exists():
+            raise RuntimeError("MetricHit target appeared during atomic materialization")
+        os.rename(staging_path, location.database)
+    finally:
+        if staging_path.exists():
+            staging_path.unlink()
+
+    storage.initialize(DEFAULT_PROJECT_ID)
+    verified_manifest = _verify_materialized_target(location.database, manifest)
+    if verified_manifest != manifest or sha256_file(source_path) != source_hash_before:
+        raise RuntimeError("post-materialization reconciliation failed")
+    target_sha256 = sha256_file(location.database)
+    migration_artifact = _artifact_payload("project-migration-manifest", {
+        "migration": manifest, "targetSha256": target_sha256,
+    })
+    rollback_artifact = _artifact_payload("project-migration-rollback", {
+        "migrationKey": MATERIALIZATION_KEY,
+        "projectId": DEFAULT_PROJECT_ID,
+        "legacyDatabase": str(source_path),
+        "legacySourceSha256": source_hash_before,
+        "targetDatabase": str(location.database),
+        "targetSha256": target_sha256,
+        "verifiedBackup": backup,
+        "rollbackMethod": "with separate owner approval, remove only the newly materialized target; legacy remains the working source; restore the verified full backup set if broader recovery is required",
+    })
+    _write_exact_json(migration_manifest_path, migration_artifact)
+    _write_exact_json(rollback_manifest_path, rollback_artifact)
+    return {
+        "migrationKey": MATERIALIZATION_KEY,
+        "applied": 1,
+        "alreadyMaterialized": 0,
+        "projectId": DEFAULT_PROJECT_ID,
+        "targetDatabase": str(location.database),
+        "targetSha256": target_sha256,
+        "counts": manifest["counts"],
+        "tables": [item["table"] for item in primary_tables],
+        "sourceSha256Before": source_hash_before,
+        "sourceSha256After": sha256_file(source_path),
+        "planManifestSha256": expected_manifest_sha256,
+        "manifestSha256": manifest["manifestSha256"],
+        "migrationManifest": str(migration_manifest_path.resolve()),
+        "rollbackManifest": str(rollback_manifest_path.resolve()),
+        "integrity": "ok",
+        "foreignKeys": "ok",
+        "cutover": False,
     }
