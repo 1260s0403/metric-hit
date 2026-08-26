@@ -48,7 +48,19 @@ export function applyOperatorPanelQualityAuditCloseout(databasePath = defaultDat
     priority: 'high', due_date: null, standalone: true, project_id: projectId, decision_semantic_key: originalSemanticKey,
     completion: { commit: '9f0ac1e', completed_at: reviewedAt, verification: { python: '167 passed, 1 skipped', node: '51 passed', checks: ['syntax', 'dependencies', 'git_diff_check'] } },
   });
-  const sourceId = uuid(`source:${decisionPath}`), documentId = uuid(`document:${decisionPath}`), versionId = uuid(`version:${decisionPath}`), candidateId = uuid(`candidate:${completionSemanticKey}`);
+  const evolvedTitle = 'Исторический этап устранения регрессий operator panel завершён';
+  const evolvedContent = 'Этап устранения регрессий operator panel завершён на поставке 9f0ac1e и больше не является ближайшим шагом. Историческое утверждение этапа и его проверенный результат сохраняются в audit. Текущий ближайший приоритет — независимые проектные контуры «Ядра»: до фактической миграции владелец должен разрешить оставшиеся 304 unresolved-записи; дальнейшие перенос, экспорт/импорт и изоляция проектов выполняются отдельными утверждёнными этапами.';
+  const originalCandidateId = originalUuid(`candidate:${originalSemanticKey}`);
+  const evolvedData = JSON.stringify({
+    revision: 2,
+    supersedes_semantic_revision: 1,
+    supersedes_candidate_id: originalCandidateId,
+    stage_status: 'completed',
+    current_next_priority: 'resolve_remaining_304_unresolved_before_project_migration',
+    roadmap_path: 'documents/roadmap.md',
+    evidence: { path: decisionPath, completed_commit: '9f0ac1e' },
+  });
+  const sourceId = uuid(`source:${decisionPath}`), documentId = uuid(`document:${decisionPath}`), versionId = uuid(`version:${decisionPath}`), candidateId = uuid(`candidate:${completionSemanticKey}`), evolvedCandidateId = uuid(`candidate:${originalSemanticKey}:2`);
   const database = new DatabaseSync(databasePath);
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0, completedTasks: 0 };
 
@@ -56,15 +68,23 @@ export function applyOperatorPanelQualityAuditCloseout(databasePath = defaultDat
   try {
     const duplicate = database.prepare("SELECT id FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").get(completionSemanticKey, candidateId);
     if (duplicate) throw new Error(`Semantic duplicate or evolution blocks ${completionSemanticKey}`);
+    const originalLineage = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").all(originalSemanticKey, evolvedCandidateId)
+      .filter((row) => row.id !== originalCandidateId || row.status !== 'approved');
+    if (originalLineage.length) throw new Error(`Semantic duplicate or evolution requires an explicit superseding revision for ${originalSemanticKey}`);
     const conflict = database.prepare("SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))").get(candidateId, completionSemanticKey);
     if (conflict) throw new Error(`Open memory conflict blocks ${completionSemanticKey}`);
+    const evolvedConflict = database.prepare("SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))").get(evolvedCandidateId, originalSemanticKey);
+    if (evolvedConflict) throw new Error(`Open memory conflict blocks ${originalSemanticKey}`);
 
     created.sources += Number(database.prepare("INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-19', 'internal')").run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
     created.documents += Number(database.prepare("INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-19', 'internal', 1)").run(documentId, title, decision, metadata, sourceId, owner).changes);
     created.versions += Number(database.prepare("INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-19', 'internal', 1)").run(versionId, documentId, title, decision, metadata, sourceId, owner).changes);
     created.candidates += Number(database.prepare("INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-19', 'internal', 1)").run(candidateId, completionSemanticKey, title, content, data, sourceId, owner).changes);
+    created.candidates += Number(database.prepare("INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)").run(evolvedCandidateId, originalSemanticKey, evolvedTitle, evolvedContent, evolvedData, sourceId, owner).changes);
     const candidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
     if (candidate.status === 'pending') database.prepare("UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?").run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 19.08.2026.', reviewedAt, candidateId);
+    const evolvedCandidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(evolvedCandidateId);
+    if (evolvedCandidate.status === 'pending') database.prepare("UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?").run(owner, '2026-08-26T00:00:00.000Z', 'Continuity-синхронизация перед новым Strategy-чатом: завершённый этап больше не является текущим ближайшим шагом.', '2026-08-26T00:00:00.000Z', evolvedCandidateId);
 
     const task = database.prepare('SELECT status, data_json FROM tasks WHERE id=?').get(originalTaskId);
     if (!task) throw new Error('Missing original quality-audit follow-up task');
@@ -76,12 +96,13 @@ export function applyOperatorPanelQualityAuditCloseout(databasePath = defaultDat
     }
 
     assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), { type: 'decision', semantic_key: completionSemanticKey, title, content, data_json: data, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: reviewedAt }, 'quality-audit closeout decision');
+    assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(evolvedCandidateId), { type: 'decision', semantic_key: originalSemanticKey, title: evolvedTitle, content: evolvedContent, data_json: evolvedData, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: '2026-08-26T00:00:00.000Z' }, 'quality-audit stage evolution');
     assertRow(database.prepare('SELECT * FROM tasks WHERE id=?').get(originalTaskId), { status: 'completed', data_json: taskData }, 'completed quality-audit task');
     assertRow(database.prepare('SELECT * FROM sources WHERE id=?').get(sourceId), { data_json: metadata, status: 'active' }, 'source');
     assertRow(database.prepare('SELECT * FROM documents WHERE id=?').get(documentId), { content: decision, data_json: metadata, source_id: sourceId, version: 1 }, 'document');
     assertRow(database.prepare('SELECT * FROM document_versions WHERE id=?').get(versionId), { document_id: documentId, content: decision, data_json: metadata, version: 1 }, 'document version');
     database.exec('COMMIT');
-    return { databasePath, completionSemanticKey, candidateId, originalTaskId, created };
+    return { databasePath, completionSemanticKey, candidateId, evolvedCandidateId, originalTaskId, created };
   } catch (error) { database.exec('ROLLBACK'); throw error; } finally { database.close(); }
 }
 
