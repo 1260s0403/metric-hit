@@ -38,6 +38,60 @@ DECISION_OWNERSHIP_METRICHIT_KEYS = {
     "c32a89d3-b34d-4970-a4c3-76e23514ec1f": "naming.landing_vs_account",
     "d912991a-53bf-476e-a2c2-f09c6c5f7f08": "product.landing_development_integration",
 }
+FINAL_OWNERSHIP_BATCH_KEY = "approved-final-project-ownership-2026-08-26-v3"
+FINAL_OWNERSHIP_CORRECTION_BATCH_KEY = "approved-final-project-ownership-correction-2026-08-26-v3.1"
+FINAL_OWNERSHIP_TARGET_IDS_SHA256 = "9acce728383c9066f486a38e4aea791f64043651b0053cc28f5545258abe46ab"
+FINAL_OWNERSHIP_ASSIGNMENTS_SHA256 = "f6c4e2e4b36cf4fe742e052b9bb455041612eeec26e52434a0f63e04799f31d8"
+FINAL_OWNERSHIP_CORRECTED_ASSIGNMENTS_SHA256 = "7ab5054bc0f4218a3c41e24ad00540b0f298f855896e773954d542e5f378f2f6"
+FINAL_OWNERSHIP_SOURCE_IDS_SHA256 = "bf59be16e2e8aaee17df3d760b5a5dd23486d2b0b09b678490dc5683d305e20a"
+FINAL_OWNERSHIP_KNOWLEDGE_IDS_SHA256 = "21e99549580797cbfcb4b45fcf542c858284ce9c1c22725e5e2180f8eae42a3f"
+FINAL_OWNERSHIP_PROJECT_IDS_SHA256 = "5870af1c7443e0bfc234e57fb685de06ccc35782d56f8e5d99857d128212d48a"
+FINAL_OWNERSHIP_STANDALONE_TASK_ID = "1773d5fd-9fd5-4ab9-b568-a59106287845"
+FINAL_OWNERSHIP_STRUCTURAL_KNOWLEDGE_ID = "aa28a8f1-2188-49d3-9ec3-c22f8282a49a"
+FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID = "ea8722c8-73f8-4003-8676-67b406716c82"
+FINAL_OWNERSHIP_METRICHIT_SOURCE_IDS = frozenset({
+    "4fb09122-805c-4784-a79a-34d884f1cca8",
+    "908c2b14-987f-419e-abfa-24165e4d7d4e",
+    "9d7eb16f-fcf3-4302-a797-0806924f3dc4",
+    "afb285ef-dbd6-482d-a093-8638121ef060",
+    "b99c8f36-4e0e-47c8-aa91-0a82ec83554e",
+    "bb433168-fda4-4cb6-a68a-483d27991324",
+    "bec53592-d2f7-4222-ad41-63921103014d",
+    "c7016a42-e293-4f3c-a44e-1fb4739719f3",
+    "d70f80b2-a61d-4272-a1e1-16d23b8d4828",
+})
+FINAL_OWNERSHIP_PROJECT_CORRECTIONS = {
+    "1f4ee35b-0415-4d37-8c2e-77566ee50bc6": (
+        {
+            "field": "scope_type",
+            "invalidValue": None,
+            "newValue": "subproject",
+            "reason": "legacy test project was missing its subproject role",
+        },
+        {
+            "field": "parent_project_id",
+            "invalidValue": None,
+            "newValue": DEFAULT_PROJECT_ID,
+            "reason": "legacy test project was missing its MetricHit parent",
+        },
+    ),
+    "56ed934a-0741-4e16-97fa-e7e8068b4ddb": (
+        {
+            "field": "parent_project_id",
+            "invalidValue": YADRO_CONTROL_PLANE_PROJECT_ID,
+            "newValue": DEFAULT_PROJECT_ID,
+            "reason": "subprojects belong under the managed MetricHit project, not the control plane",
+        },
+    ),
+    "dbc46e2c-cd45-476b-bce6-d1bae716c063": (
+        {
+            "field": "parent_project_id",
+            "invalidValue": YADRO_CONTROL_PLANE_PROJECT_ID,
+            "newValue": DEFAULT_PROJECT_ID,
+            "reason": "subprojects belong under the managed MetricHit project, not the control plane",
+        },
+    ),
+}
 CLASS_CORE = "core"
 CLASS_PROJECT = "managed_project"
 CLASS_UNRESOLVED = "unresolved"
@@ -50,6 +104,7 @@ RELATION_COLUMNS = {
     "target_memory_item_id",
     "entity_id",
 }
+METADATA_RELATION_FIELDS = {"knowledge_entry_id"}
 
 APPROVED_OWNERSHIP_ASSIGNMENTS = {
     DEFAULT_PROJECT_ID: {
@@ -132,12 +187,19 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
             query = ",".join(f'"{name}"' for name in selected)
             for row in connection.execute(f'SELECT {query} FROM "{table}" ORDER BY "{stable_column}"'):
                 item = {name: row[name] for name in selected}
+                metadata = _metadata(item.get("data_json"))
+                relations = {name: str(item[name]) for name in RELATION_COLUMNS if item.get(name)}
+                relations.update({
+                    f"data_json.{name}": str(metadata[name])
+                    for name in METADATA_RELATION_FIELDS
+                    if metadata.get(name)
+                })
                 record = {
                     "table": table,
                     "entityType": str(item.get("type") or table),
                     "id": str(item[stable_column]),
-                    "metadata": _metadata(item.get("data_json")),
-                    "relations": {name: str(item[name]) for name in RELATION_COLUMNS if item.get(name)},
+                    "metadata": metadata,
+                    "relations": relations,
                 }
                 rows.append(record)
                 if table == "documents" and item.get("type") == "project":
@@ -160,24 +222,56 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
     for index, row in enumerate(rows):
         by_id.setdefault(row["id"], []).append(index)
 
-    ownership_events: dict[tuple[str, str], list[str]] = {}
-    metadata_corrections: dict[tuple[str, str, str], set[str]] = {}
+    ownership_events: dict[tuple[str, str], list[tuple[str, str]]] = {}
+    invalid_assignment_audit_ids: set[str] = set()
+    metadata_corrections: dict[tuple[str, str, str], set[str | None]] = {}
+    metadata_overrides: dict[tuple[str, str, str], list[tuple[str | None, str | None]]] = {}
     for row in rows:
         metadata = row["metadata"]
         if row["table"] == "audit_log" and row["entityType"] in {
-            "project_scope_assignment", "project_scope_metadata_correction",
+            "project_scope_assignment", "project_scope_assignment_correction",
+            "project_scope_metadata_correction",
         }:
             table = metadata.get("table")
             entity_id = metadata.get("entityId")
             project_id = metadata.get("project_id")
             if isinstance(table, str) and isinstance(entity_id, str) and isinstance(project_id, str):
-                ownership_events.setdefault((table, entity_id), []).append(project_id)
+                ownership_events.setdefault((table, entity_id), []).append((row["id"], project_id))
+            correction_items: list[dict[str, Any]] = []
             correction = metadata.get("correction")
-            if row["entityType"] == "project_scope_metadata_correction" and isinstance(correction, dict):
-                field = correction.get("field")
-                invalid_value = correction.get("invalidValue")
-                if all(isinstance(value, str) for value in (table, entity_id, field, invalid_value)):
-                    metadata_corrections.setdefault((table, entity_id, field), set()).add(invalid_value)
+            corrections = metadata.get("corrections")
+            if isinstance(correction, dict):
+                correction_items.append(correction)
+            if isinstance(corrections, list):
+                correction_items.extend(item for item in corrections if isinstance(item, dict))
+            if row["entityType"] == "project_scope_assignment_correction":
+                for item in correction_items:
+                    invalid_audit_id = item.get("invalidAuditId")
+                    if item.get("field") == "project_scope_assignment" and isinstance(invalid_audit_id, str):
+                        invalid_assignment_audit_ids.add(invalid_audit_id)
+            if row["entityType"] == "project_scope_metadata_correction":
+                for item in correction_items:
+                    field = item.get("field")
+                    invalid_value = item.get("invalidValue")
+                    if (
+                        isinstance(table, str)
+                        and isinstance(entity_id, str)
+                        and isinstance(field, str)
+                        and (isinstance(invalid_value, str) or invalid_value is None)
+                    ):
+                        key = (table, entity_id, field)
+                        metadata_corrections.setdefault(key, set()).add(invalid_value)
+                        if "newValue" in item:
+                            new_value = item.get("newValue")
+                            if isinstance(new_value, str) or new_value is None:
+                                metadata_overrides.setdefault(key, []).append((invalid_value, new_value))
+
+    for project_id, project in projects.items():
+        for field, project_key in (("scope_type", "role"), ("parent_project_id", "parent")):
+            overrides = metadata_overrides.get(("documents", project_id, field), [])
+            applicable = {new for invalid, new in overrides if project[project_key] == invalid}
+            if len(applicable) == 1:
+                project[project_key] = applicable.pop()
 
     results: list[tuple[str, str | None, list[str]]] = []
     for row in rows:
@@ -193,25 +287,43 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
             signals.append(_signal(str(metadata["project_id"]), projects))
         if metadata.get("subproject_id"):
             signals.append(_signal(str(metadata["subproject_id"]), projects))
-        for project_id in ownership_events.get((row["table"], row["id"]), []):
-            signals.append(_signal(project_id, projects))
+        for audit_id, project_id in ownership_events.get((row["table"], row["id"]), []):
+            if audit_id not in invalid_assignment_audit_ids:
+                signals.append(_signal(project_id, projects))
         results.append(_classification(signals))
 
     # Explicit foreign-key/entity relationships may inherit ownership. Iterate to
     # a fixed point, but never infer ownership from titles or content.
+    base_results = list(results)
     for _ in range(len(rows) + 1):
         changed = False
         next_results = list(results)
         for index, row in enumerate(rows):
-            signals: list[tuple[str, str | None, str]] = []
+            relation_signals: list[tuple[str, str | None, str]] = []
             current = results[index]
-            if current[0] != CLASS_UNRESOLVED or current[2] != ["legacy_unscoped"]:
-                signals.append((current[0], current[1], current[2][0]))
+            base = base_results[index]
             for column, target_id in sorted(row["relations"].items()):
                 for target_index in by_id.get(target_id, []):
                     target = results[target_index]
                     if target[0] != CLASS_UNRESOLVED:
-                        signals.append((target[0], target[1], f"explicit_relation:{column}"))
+                        relation_signals.append((target[0], target[1], f"explicit_relation:{column}"))
+            if row["table"] == "memory_candidates" and base[0] != CLASS_UNRESOLVED:
+                # An approved memory item is itself the authoritative business
+                # assertion. Its provenance source does not override a prior,
+                # explicitly confirmed project assignment.
+                signals = [(base[0], base[1], reason) for reason in base[2]]
+            elif relation_signals and (
+                row["table"] in {"tasks", "document_versions", "audit_log"}
+                or (row["table"] == "documents" and row["entityType"] != "project")
+            ):
+                # Derived records inherit their primary source/document/entity.
+                # This intentionally supersedes stale embedded project links.
+                signals = relation_signals
+            else:
+                signals = []
+                if base[0] != CLASS_UNRESOLVED or base[2] != ["legacy_unscoped"]:
+                    signals.extend((base[0], base[1], reason) for reason in base[2])
+                signals.extend(relation_signals)
             candidate = _classification(signals)
             if candidate != current:
                 next_results[index] = candidate
@@ -776,6 +888,703 @@ def apply_approved_decision_ownership_batch(
         "sourceSha256Before": expected_source_sha256,
         "sourceSha256After": after["sourceSha256"],
         "planManifestSha256After": after["manifestSha256"],
+        "counts": after["counts"],
+        "unresolvedCategories": after["unresolvedCategories"],
+    }
+
+
+def _final_target_ids_sha256(targets: list[dict[str, str]]) -> str:
+    payload = "".join(
+        f"{target['table']}\t{target['id']}\n"
+        for target in sorted(targets, key=lambda item: (item["table"], item["id"]))
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _final_assignments_sha256(targets: list[dict[str, str]]) -> str:
+    payload = "".join(
+        f"{target['table']}\t{target['id']}\t{target['projectId']}\n"
+        for target in sorted(targets, key=lambda item: (item["table"], item["id"]))
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _final_audit_id(table: str, entity_id: str, project_id: str) -> str:
+    return str(uuid5(
+        NAMESPACE_URL,
+        f"metrichit:{FINAL_OWNERSHIP_BATCH_KEY}:{table}:{entity_id}:{project_id}",
+    ))
+
+
+def _final_correction_audit_id() -> str:
+    return str(uuid5(
+        NAMESPACE_URL,
+        f"metrichit:{FINAL_OWNERSHIP_CORRECTION_BATCH_KEY}:documents:"
+        f"{FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID}:{YADRO_CONTROL_PLANE_PROJECT_ID}",
+    ))
+
+
+def _corrected_final_targets(targets: list[dict[str, str]]) -> list[dict[str, str]]:
+    corrected = [
+        {
+            **target,
+            "projectId": (
+                YADRO_CONTROL_PLANE_PROJECT_ID
+                if target["table"] == "documents" and target["id"] == FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID
+                else target["projectId"]
+            ),
+        }
+        for target in targets
+    ]
+    if sum(
+        target["table"] == "documents" and target["id"] == FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID
+        for target in targets
+    ) != 1:
+        raise RuntimeError("final control-plane knowledge correction target is missing")
+    if _final_assignments_sha256(corrected) != FINAL_OWNERSHIP_CORRECTED_ASSIGNMENTS_SHA256:
+        raise RuntimeError("corrected final ownership assignment split mismatch")
+    if Counter(target["projectId"] for target in corrected) != Counter({
+        YADRO_CONTROL_PLANE_PROJECT_ID: 63,
+        DEFAULT_PROJECT_ID: 29,
+    }):
+        raise RuntimeError("corrected final ownership split does not match 63 core / 29 MetricHit")
+    return corrected
+
+
+def _final_unknown_role_project_id() -> str:
+    matches = [
+        entity_id
+        for entity_id, corrections in FINAL_OWNERSHIP_PROJECT_CORRECTIONS.items()
+        if any(
+            correction["field"] == "scope_type" and correction["invalidValue"] is None
+            for correction in corrections
+        )
+    ]
+    if len(matches) != 1:
+        raise RuntimeError("final project correction set must contain exactly one missing-role project")
+    return matches[0]
+
+
+def _approved_final_targets(plan: dict[str, Any]) -> list[dict[str, str]]:
+    unresolved = [record for record in plan["records"] if record["classification"] == CLASS_UNRESOLVED]
+    if len(unresolved) != 348:
+        raise RuntimeError(f"final ownership unresolved selector mismatch: expected 348, found {len(unresolved)}")
+
+    source_records = [record for record in unresolved if record["table"] == "sources"]
+    if len(source_records) != 71:
+        raise RuntimeError(f"final source selector mismatch: expected 71, found {len(source_records)}")
+    source_targets = [
+        {
+            "table": "sources",
+            "entityType": record["entityType"],
+            "id": record["id"],
+            "projectId": (
+                DEFAULT_PROJECT_ID
+                if record["id"] in FINAL_OWNERSHIP_METRICHIT_SOURCE_IDS
+                else YADRO_CONTROL_PLANE_PROJECT_ID
+            ),
+        }
+        for record in source_records
+    ]
+    if _final_target_ids_sha256(source_targets) != FINAL_OWNERSHIP_SOURCE_IDS_SHA256:
+        raise RuntimeError("final source selector ID set mismatch")
+    if Counter(record["entityType"] for record in source_records) != Counter({
+        "owner_decision": 68,
+        "chat_summary_file": 3,
+    }):
+        raise RuntimeError("final source selector type split mismatch")
+    if not FINAL_OWNERSHIP_METRICHIT_SOURCE_IDS < {record["id"] for record in source_records}:
+        raise RuntimeError("final MetricHit source ID set is incomplete")
+
+    knowledge_records = [
+        record for record in unresolved
+        if record["table"] == "documents" and record["entityType"] == "knowledge_entry"
+    ]
+    knowledge_targets = [
+        {
+            "table": "documents",
+            "entityType": "knowledge_entry",
+            "id": record["id"],
+            "projectId": DEFAULT_PROJECT_ID,
+        }
+        for record in knowledge_records
+    ]
+    if len(knowledge_targets) != 17:
+        raise RuntimeError(f"final knowledge selector mismatch: expected 17, found {len(knowledge_targets)}")
+    if _final_target_ids_sha256(knowledge_targets) != FINAL_OWNERSHIP_KNOWLEDGE_IDS_SHA256:
+        raise RuntimeError("final knowledge selector ID set mismatch")
+    knowledge_reasons = Counter(tuple(record["reasons"]) for record in knowledge_records)
+    if knowledge_reasons != Counter({("legacy_unscoped",): 16, ("unknown_project_role",): 1}):
+        raise RuntimeError("final knowledge selector structural categories changed")
+    if not any(
+        record["id"] == FINAL_OWNERSHIP_STRUCTURAL_KNOWLEDGE_ID
+        and record["reasons"] == ["unknown_project_role"]
+        for record in knowledge_records
+    ):
+        raise RuntimeError("structural knowledge target changed")
+
+    project_records = [
+        record for record in unresolved
+        if record["table"] == "documents" and record["entityType"] == "project"
+    ]
+    project_targets = [
+        {
+            "table": "documents",
+            "entityType": "project",
+            "id": record["id"],
+            "projectId": DEFAULT_PROJECT_ID,
+        }
+        for record in project_records
+    ]
+    if len(project_targets) != 3:
+        raise RuntimeError(f"final project correction selector mismatch: expected 3, found {len(project_targets)}")
+    if _final_target_ids_sha256(project_targets) != FINAL_OWNERSHIP_PROJECT_IDS_SHA256:
+        raise RuntimeError("final project correction selector ID set mismatch")
+    project_reasons = {record["id"]: record["reasons"] for record in project_records}
+    expected_project_reasons = {
+        entity_id: (
+            ["unknown_project_role"]
+            if any(
+                correction["field"] == "scope_type" and correction["invalidValue"] is None
+                for correction in corrections
+            )
+            else ["invalid_subproject_parent"]
+        )
+        for entity_id, corrections in FINAL_OWNERSHIP_PROJECT_CORRECTIONS.items()
+    }
+    if project_reasons != expected_project_reasons:
+        raise RuntimeError("final project correction categories changed")
+
+    task = next(
+        (
+            record for record in unresolved
+            if record["table"] == "tasks" and record["id"] == FINAL_OWNERSHIP_STANDALONE_TASK_ID
+        ),
+        None,
+    )
+    if task is None or task["entityType"] != "standalone_task" or task["reasons"] != ["legacy_unscoped"]:
+        raise RuntimeError("final standalone task target changed")
+    task_target = {
+        "table": "tasks",
+        "entityType": "standalone_task",
+        "id": task["id"],
+        "projectId": DEFAULT_PROJECT_ID,
+    }
+
+    targets = sorted(
+        [*source_targets, *knowledge_targets, *project_targets, task_target],
+        key=lambda item: (item["table"], item["entityType"], item["id"]),
+    )
+    if len(targets) != 92 or _final_target_ids_sha256(targets) != FINAL_OWNERSHIP_TARGET_IDS_SHA256:
+        raise RuntimeError("final ownership target ID set mismatch")
+    if _final_assignments_sha256(targets) != FINAL_OWNERSHIP_ASSIGNMENTS_SHA256:
+        raise RuntimeError("final ownership assignment split mismatch")
+    if Counter(target["projectId"] for target in targets) != Counter({
+        YADRO_CONTROL_PLANE_PROJECT_ID: 62,
+        DEFAULT_PROJECT_ID: 30,
+    }):
+        raise RuntimeError("final ownership split does not match 62 core / 30 MetricHit")
+    return targets
+
+
+def _completed_final_batch(connection: sqlite3.Connection) -> list[dict[str, str]] | None:
+    rows = connection.execute(
+        "SELECT id,type,data_json,entity_type,entity_id FROM audit_log "
+        "WHERE json_extract(data_json,'$.batchKey')=? ORDER BY id",
+        (FINAL_OWNERSHIP_BATCH_KEY,),
+    ).fetchall()
+    if not rows:
+        return None
+    if len(rows) != 92:
+        raise RuntimeError(f"partial final ownership batch detected: expected 92 audit rows, found {len(rows)}")
+    targets: list[dict[str, str]] = []
+    for row in rows:
+        data = json.loads(row["data_json"])
+        table = data.get("table")
+        entity_id = data.get("entityId")
+        project_id = data.get("project_id")
+        if table not in {"sources", "documents", "tasks"} or not all(
+            isinstance(value, str) for value in (entity_id, project_id)
+        ):
+            raise RuntimeError("final ownership batch contains invalid audit metadata")
+        target = connection.execute(f'SELECT type FROM "{table}" WHERE id=?', (entity_id,)).fetchone()
+        if target is None:
+            raise RuntimeError(f"final ownership audit does not match {table}/{entity_id}")
+        expected_type = (
+            "project_scope_metadata_correction"
+            if entity_id in FINAL_OWNERSHIP_PROJECT_CORRECTIONS
+            else "project_scope_assignment"
+        )
+        if (
+            row["type"] != expected_type
+            or row["entity_type"] != target["type"]
+            or row["entity_id"] != entity_id
+            or row["id"] != _final_audit_id(table, entity_id, project_id)
+        ):
+            raise RuntimeError("final ownership batch contains an unexpected or invalid audit row")
+        expected_corrections = FINAL_OWNERSHIP_PROJECT_CORRECTIONS.get(entity_id)
+        if expected_corrections is not None and data.get("corrections") != list(expected_corrections):
+            raise RuntimeError("final project structural correction audit is incomplete")
+        targets.append({
+            "table": table,
+            "entityType": target["type"],
+            "id": entity_id,
+            "projectId": project_id,
+        })
+    if _final_target_ids_sha256(targets) != FINAL_OWNERSHIP_TARGET_IDS_SHA256:
+        raise RuntimeError("completed final ownership batch target set mismatch")
+    if _final_assignments_sha256(targets) != FINAL_OWNERSHIP_ASSIGNMENTS_SHA256:
+        raise RuntimeError("completed final ownership batch assignment split mismatch")
+    return sorted(targets, key=lambda item: (item["table"], item["entityType"], item["id"]))
+
+
+def _completed_final_correction(connection: sqlite3.Connection) -> bool:
+    rows = connection.execute(
+        "SELECT id,type,data_json,entity_type,entity_id FROM audit_log "
+        "WHERE json_extract(data_json,'$.batchKey')=? ORDER BY id",
+        (FINAL_OWNERSHIP_CORRECTION_BATCH_KEY,),
+    ).fetchall()
+    if not rows:
+        return False
+    if len(rows) != 1:
+        raise RuntimeError(f"partial final ownership correction detected: expected 1 audit row, found {len(rows)}")
+    row = rows[0]
+    data = json.loads(row["data_json"])
+    correction = data.get("correction")
+    expected_invalid_audit_id = _final_audit_id(
+        "documents", FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID, DEFAULT_PROJECT_ID,
+    )
+    if (
+        row["id"] != _final_correction_audit_id()
+        or row["type"] != "project_scope_assignment_correction"
+        or row["entity_type"] != "knowledge_entry"
+        or row["entity_id"] != FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID
+        or data.get("table") != "documents"
+        or data.get("entityId") != FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID
+        or data.get("project_id") != YADRO_CONTROL_PLANE_PROJECT_ID
+        or not isinstance(correction, dict)
+        or correction.get("field") != "project_scope_assignment"
+        or correction.get("invalidAuditId") != expected_invalid_audit_id
+        or correction.get("invalidValue") != DEFAULT_PROJECT_ID
+        or correction.get("newValue") != YADRO_CONTROL_PLANE_PROJECT_ID
+    ):
+        raise RuntimeError("final ownership correction audit is unexpected or incomplete")
+    return True
+
+
+def _apply_final_ownership_correction(
+    source_path: Path,
+    *,
+    expected_source_sha256: str,
+    expected_manifest_sha256: str,
+    rollback_manifest_path: Path,
+    verified_backup_set: Path,
+    completed_targets: list[dict[str, str]],
+) -> dict[str, Any]:
+    corrected_targets = _corrected_final_targets(completed_targets)
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        if _completed_final_correction(connection):
+            return {"applied": 0, "alreadyApplied": 1, "rollbackManifest": None}
+    finally:
+        connection.close()
+
+    plan = build_migration_plan(source_path)
+    if plan["sourceSha256"] != expected_source_sha256:
+        raise RuntimeError("source SHA-256 guard mismatch before final ownership correction")
+    if plan["manifestSha256"] != expected_manifest_sha256:
+        raise RuntimeError("migration plan manifest guard mismatch before final ownership correction")
+
+    initial_target = next(
+        target for target in completed_targets
+        if target["table"] == "documents" and target["id"] == FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID
+    )
+    if initial_target["projectId"] != DEFAULT_PROJECT_ID:
+        raise RuntimeError("final ownership correction does not match the original assignment")
+    invalid_audit_id = _final_audit_id("documents", FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID, DEFAULT_PROJECT_ID)
+    correction_audit_id = _final_correction_audit_id()
+    rollback_path = rollback_manifest_path.resolve()
+    correction_rollback_path = rollback_path.with_name(f"{rollback_path.stem}-correction{rollback_path.suffix}")
+
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        target_row = connection.execute(
+            "SELECT type,data_json,updated_at,version FROM documents WHERE id=?",
+            (FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID,),
+        ).fetchone()
+        original_audit = connection.execute(
+            "SELECT type,data_json,entity_type,entity_id FROM audit_log WHERE id=?",
+            (invalid_audit_id,),
+        ).fetchone()
+        if target_row is None or target_row["type"] != "knowledge_entry" or original_audit is None:
+            raise RuntimeError("final ownership correction target or original audit is missing")
+        original_data = json.loads(original_audit["data_json"])
+        if (
+            original_audit["type"] != "project_scope_assignment"
+            or original_audit["entity_type"] != "knowledge_entry"
+            or original_audit["entity_id"] != FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID
+            or original_data.get("batchKey") != FINAL_OWNERSHIP_BATCH_KEY
+            or original_data.get("project_id") != DEFAULT_PROJECT_ID
+        ):
+            raise RuntimeError("original final ownership audit changed before correction")
+        target_snapshot = dict(target_row)
+    finally:
+        connection.close()
+
+    correction = {
+        "field": "project_scope_assignment",
+        "invalidAuditId": invalid_audit_id,
+        "invalidValue": DEFAULT_PROJECT_ID,
+        "newValue": YADRO_CONTROL_PLANE_PROJECT_ID,
+        "reason": "system architecture, local tooling, and Codex workflow knowledge belongs to the control plane",
+    }
+    rollback_document = {
+        "schemaVersion": OWNERSHIP_BATCH_VERSION,
+        "batchKey": FINAL_OWNERSHIP_CORRECTION_BATCH_KEY,
+        "correctedAssignmentsSha256": FINAL_OWNERSHIP_CORRECTED_ASSIGNMENTS_SHA256,
+        "invalidAuditId": invalid_audit_id,
+        "correctionAuditId": correction_audit_id,
+        "sourceSha256": expected_source_sha256,
+        "planManifestSha256": expected_manifest_sha256,
+        "verifiedBackupSet": str(verified_backup_set.resolve()),
+        "target": {
+            "table": "documents",
+            "entityType": "knowledge_entry",
+            "id": FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID,
+            "oldProjectId": DEFAULT_PROJECT_ID,
+            "newProjectId": YADRO_CONTROL_PLANE_PROJECT_ID,
+            "oldDataJson": target_snapshot["data_json"],
+            "oldUpdatedAt": target_snapshot["updated_at"],
+            "oldVersion": target_snapshot["version"],
+        },
+        "restoreMethod": "restore the verified full backup set; audit_log is append-only",
+    }
+    rollback_json = json.dumps(rollback_document, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+    if correction_rollback_path.exists():
+        if correction_rollback_path.read_text(encoding="utf-8-sig") != rollback_json:
+            raise RuntimeError("existing correction rollback manifest does not match the approved correction")
+    else:
+        with correction_rollback_path.open("x", encoding="utf-8") as destination:
+            destination.write(rollback_json)
+
+    now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    audit_data = {
+        "batchKey": FINAL_OWNERSHIP_CORRECTION_BATCH_KEY,
+        "table": "documents",
+        "entityId": FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID,
+        "project_id": YADRO_CONTROL_PLANE_PROJECT_ID,
+        "basis": "canonical control-plane boundary for system architecture, local tooling, and Codex workflow",
+        "old": {"project_id": DEFAULT_PROJECT_ID},
+        "new": {"project_id": YADRO_CONTROL_PLANE_PROJECT_ID},
+        "correction": correction,
+    }
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        if sha256_file(source_path) != expected_source_sha256:
+            raise RuntimeError("source changed before final ownership correction transaction")
+        if _completed_final_correction(connection):
+            raise RuntimeError("final ownership correction appeared during transaction")
+        connection.execute(
+            "INSERT INTO audit_log (id,type,title,data_json,source_id,author,created_at,updated_at,"
+            "access_level,version,entity_type,entity_id,action) "
+            "VALUES (?,?,?,?,?,?,?,?,'restricted',1,'knowledge_entry',?,'update')",
+            (
+                correction_audit_id,
+                "project_scope_assignment_correction",
+                "Project ownership assignment corrected",
+                json.dumps(audit_data, ensure_ascii=False, sort_keys=True),
+                None,
+                "owner",
+                now,
+                now,
+                FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID,
+            ),
+        )
+        if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise RuntimeError("SQLite integrity_check failed")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        current = connection.execute(
+            "SELECT type,data_json,updated_at,version FROM documents WHERE id=?",
+            (FINAL_OWNERSHIP_CONTROL_KNOWLEDGE_ID,),
+        ).fetchone()
+        if current is None or dict(current) != target_snapshot:
+            raise RuntimeError("final ownership correction changed source content")
+    finally:
+        connection.close()
+    return {
+        "applied": 1,
+        "alreadyApplied": 0,
+        "rollbackManifest": str(correction_rollback_path),
+        "correctedTargets": corrected_targets,
+    }
+
+
+def apply_approved_final_ownership_batch(
+    database_path: Path,
+    *,
+    expected_source_sha256: str,
+    expected_manifest_sha256: str,
+    rollback_manifest_path: Path,
+    verified_backup_set: Path,
+) -> dict[str, Any]:
+    """Resolve the owner-approved final 348 legacy records through 92 exact roots."""
+    source_path = database_path.resolve()
+    backup_path = verified_backup_set.resolve()
+    if not backup_path.is_dir() or len(list(backup_path.glob("*-manifest.json"))) != 1:
+        raise RuntimeError("verified backup set is missing or incomplete")
+
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA foreign_keys = ON")
+        completed = _completed_final_batch(connection)
+        completed_correction = _completed_final_correction(connection)
+    finally:
+        connection.close()
+    if completed is not None:
+        corrected_targets = _corrected_final_targets(completed)
+        correction_result: dict[str, Any]
+        if completed_correction:
+            correction_result = {"applied": 0, "alreadyApplied": 1, "rollbackManifest": None}
+        else:
+            before_correction = build_migration_plan(source_path)
+            if before_correction["sourceSha256"] != expected_source_sha256:
+                raise RuntimeError("source SHA-256 guard mismatch before final ownership correction")
+            if before_correction["manifestSha256"] != expected_manifest_sha256:
+                raise RuntimeError("migration plan manifest guard mismatch before final ownership correction")
+            correction_result = _apply_final_ownership_correction(
+                source_path,
+                expected_source_sha256=before_correction["sourceSha256"],
+                expected_manifest_sha256=before_correction["manifestSha256"],
+                rollback_manifest_path=rollback_manifest_path,
+                verified_backup_set=backup_path,
+                completed_targets=completed,
+            )
+        after = build_migration_plan(source_path)
+        if not after["readyToMigrate"] or after["counts"][CLASS_UNRESOLVED] != 0:
+            raise RuntimeError("completed final ownership batch no longer yields a migration-ready plan")
+        after_by_key = {(record["table"], record["id"]): record for record in after["records"]}
+        if any(
+            after_by_key[(target["table"], target["id"])]["classification"]
+            != (CLASS_CORE if target["projectId"] == YADRO_CONTROL_PLANE_PROJECT_ID else CLASS_PROJECT)
+            for target in corrected_targets
+        ):
+            raise RuntimeError("corrected final ownership classification differs from the approved split")
+        return {
+            "batchKey": FINAL_OWNERSHIP_BATCH_KEY,
+            "correctionBatchKey": FINAL_OWNERSHIP_CORRECTION_BATCH_KEY,
+            "applied": correction_result["applied"],
+            "alreadyApplied": 92 + correction_result["alreadyApplied"],
+            "auditRows": 93,
+            "directRoots": 92,
+            "correctionRows": 1,
+            "approvedSplit": {"controlPlaneRoots": 63, "metricHitRoots": 29},
+            "targetIdsSha256": FINAL_OWNERSHIP_TARGET_IDS_SHA256,
+            "assignmentsSha256": FINAL_OWNERSHIP_CORRECTED_ASSIGNMENTS_SHA256,
+            "correctionRollbackManifest": correction_result["rollbackManifest"],
+            "sourceSha256": after["sourceSha256"],
+            "planManifestSha256": after["manifestSha256"],
+            "readyToMigrate": True,
+            "counts": after["counts"],
+        }
+
+    plan = build_migration_plan(source_path)
+    if plan["sourceSha256"] != expected_source_sha256:
+        raise RuntimeError("source SHA-256 guard mismatch")
+    if plan["manifestSha256"] != expected_manifest_sha256:
+        raise RuntimeError("migration plan manifest guard mismatch")
+    targets = _approved_final_targets(plan)
+    unresolved_before = {
+        (record["table"], record["id"])
+        for record in plan["records"]
+        if record["classification"] == CLASS_UNRESOLVED
+    }
+
+    rollback_path = rollback_manifest_path.resolve()
+    rollback_path.parent.mkdir(parents=True, exist_ok=True)
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("BEGIN IMMEDIATE")
+        if sha256_file(source_path) != expected_source_sha256:
+            raise RuntimeError("source changed before final ownership transaction")
+        rollback_rows: list[dict[str, Any]] = []
+        for target in targets:
+            row = connection.execute(
+                f'SELECT type,data_json,updated_at,version FROM "{target["table"]}" WHERE id=?',
+                (target["id"],),
+            ).fetchone()
+            if row is None or row["type"] != target["entityType"]:
+                raise RuntimeError(f"final target changed before apply: {target['table']}/{target['id']}")
+            metadata = _metadata(row["data_json"])
+            corrections = FINAL_OWNERSHIP_PROJECT_CORRECTIONS.get(target["id"])
+            if corrections is not None:
+                for correction in corrections:
+                    if metadata.get(correction["field"]) != correction["invalidValue"]:
+                        raise RuntimeError(f"project structural metadata changed: {target['id']}")
+            elif target["id"] == FINAL_OWNERSHIP_STRUCTURAL_KNOWLEDGE_ID:
+                if (
+                    metadata.get("project_id") != _final_unknown_role_project_id()
+                    or metadata.get("subproject_id")
+                ):
+                    raise RuntimeError("structural knowledge project link changed")
+            elif metadata.get("project_id") or metadata.get("subproject_id"):
+                raise RuntimeError(f"final target is no longer legacy-unscoped: {target['table']}/{target['id']}")
+            rollback_rows.append({
+                **target,
+                "oldDataJson": row["data_json"],
+                "oldUpdatedAt": row["updated_at"],
+                "oldVersion": row["version"],
+                "auditId": _final_audit_id(target["table"], target["id"], target["projectId"]),
+            })
+
+        rollback_document = {
+            "schemaVersion": OWNERSHIP_BATCH_VERSION,
+            "batchKey": FINAL_OWNERSHIP_BATCH_KEY,
+            "approvedSplit": {"controlPlaneRoots": 62, "metricHitRoots": 30},
+            "resolvesUnresolved": 348,
+            "targetIdsSha256": FINAL_OWNERSHIP_TARGET_IDS_SHA256,
+            "assignmentsSha256": FINAL_OWNERSHIP_ASSIGNMENTS_SHA256,
+            "sourceSha256": expected_source_sha256,
+            "planManifestSha256": expected_manifest_sha256,
+            "verifiedBackupSet": str(backup_path),
+            "rows": rollback_rows,
+            "restoreMethod": "restore the verified full backup set; audit_log is append-only",
+        }
+        rollback_json = json.dumps(rollback_document, ensure_ascii=False, sort_keys=True, indent=2) + "\n"
+        if rollback_path.exists():
+            if rollback_path.read_text(encoding="utf-8-sig") != rollback_json:
+                raise RuntimeError("existing rollback manifest does not match the approved final batch")
+        else:
+            with rollback_path.open("x", encoding="utf-8") as destination:
+                destination.write(rollback_json)
+
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        for target, old in zip(targets, rollback_rows, strict=True):
+            corrections = FINAL_OWNERSHIP_PROJECT_CORRECTIONS.get(target["id"])
+            if target["table"] == "sources":
+                basis = "canonical source boundary"
+            elif target["entityType"] == "knowledge_entry":
+                basis = "MetricHit business, content, or marketing knowledge"
+            elif target["entityType"] == "standalone_task":
+                basis = "legacy owner task in the MetricHit default project contour"
+            else:
+                basis = "legacy project structure corrected to the MetricHit subproject boundary"
+            audit_data: dict[str, Any] = {
+                "batchKey": FINAL_OWNERSHIP_BATCH_KEY,
+                "table": target["table"],
+                "entityId": target["id"],
+                "project_id": target["projectId"],
+                "basis": basis,
+                "old": {"project_id": None},
+                "new": {"project_id": target["projectId"]},
+            }
+            if corrections is not None:
+                audit_data["corrections"] = list(corrections)
+            connection.execute(
+                "INSERT INTO audit_log (id,type,title,data_json,source_id,author,created_at,updated_at,"
+                "access_level,version,entity_type,entity_id,action) "
+                "VALUES (?,?,?,?,?,?,?,?,'restricted',1,?,?, 'update')",
+                (
+                    old["auditId"],
+                    "project_scope_metadata_correction" if corrections is not None else "project_scope_assignment",
+                    "Project ownership metadata corrected" if corrections is not None else "Project ownership assigned",
+                    json.dumps(audit_data, ensure_ascii=False, sort_keys=True),
+                    None,
+                    "owner",
+                    now,
+                    now,
+                    target["entityType"],
+                    target["id"],
+                ),
+            )
+        if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+            raise RuntimeError("SQLite integrity_check failed")
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+    before_correction = build_migration_plan(source_path)
+    correction_result = _apply_final_ownership_correction(
+        source_path,
+        expected_source_sha256=before_correction["sourceSha256"],
+        expected_manifest_sha256=before_correction["manifestSha256"],
+        rollback_manifest_path=rollback_path,
+        verified_backup_set=backup_path,
+        completed_targets=targets,
+    )
+    after = build_migration_plan(source_path)
+    unresolved_after = {
+        (record["table"], record["id"])
+        for record in after["records"]
+        if record["classification"] == CLASS_UNRESOLVED
+    }
+    if unresolved_after or not after["readyToMigrate"]:
+        raise RuntimeError(f"final ownership batch left {len(unresolved_after)} unresolved records")
+    corrected_targets = _corrected_final_targets(targets)
+    after_by_key = {(record["table"], record["id"]): record for record in after["records"]}
+    if any(
+        after_by_key[(target["table"], target["id"])]["classification"]
+        != (CLASS_CORE if target["projectId"] == YADRO_CONTROL_PLANE_PROJECT_ID else CLASS_PROJECT)
+        for target in corrected_targets
+    ):
+        raise RuntimeError("final ownership target classification differs from the approved split")
+    if len(after["records"]) != len(plan["records"]) + 93:
+        raise RuntimeError("final ownership audit row count changed unexpectedly")
+    if len(unresolved_before) != 348:
+        raise RuntimeError("final ownership original unresolved set changed unexpectedly")
+    connection = sqlite3.connect(source_path)
+    connection.row_factory = sqlite3.Row
+    try:
+        for old in rollback_rows:
+            current = connection.execute(
+                f'SELECT data_json,updated_at,version FROM "{old["table"]}" WHERE id=?',
+                (old["id"],),
+            ).fetchone()
+            if current is None or dict(current) != {
+                "data_json": old["oldDataJson"],
+                "updated_at": old["oldUpdatedAt"],
+                "version": old["oldVersion"],
+            }:
+                raise RuntimeError(f"final ownership target content changed: {old['table']}/{old['id']}")
+    finally:
+        connection.close()
+    return {
+        "batchKey": FINAL_OWNERSHIP_BATCH_KEY,
+        "correctionBatchKey": FINAL_OWNERSHIP_CORRECTION_BATCH_KEY,
+        "applied": 92 + correction_result["applied"],
+        "alreadyApplied": 0,
+        "auditRows": 93,
+        "directRoots": 92,
+        "correctionRows": 1,
+        "approvedSplit": {"controlPlaneRoots": 63, "metricHitRoots": 29},
+        "resolvedUnresolved": 348,
+        "targetIdsSha256": FINAL_OWNERSHIP_TARGET_IDS_SHA256,
+        "assignmentsSha256": FINAL_OWNERSHIP_CORRECTED_ASSIGNMENTS_SHA256,
+        "rollbackManifest": str(rollback_path),
+        "correctionRollbackManifest": correction_result["rollbackManifest"],
+        "sourceSha256Before": expected_source_sha256,
+        "sourceSha256After": after["sourceSha256"],
+        "planManifestSha256After": after["manifestSha256"],
+        "readyToMigrate": after["readyToMigrate"],
         "counts": after["counts"],
         "unresolvedCategories": after["unresolvedCategories"],
     }

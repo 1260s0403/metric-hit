@@ -33,6 +33,7 @@ from .operator_panel import run_operator_panel
 from .project_scope import DEFAULT_PROJECT_ID
 from .project_migration import (
     apply_approved_decision_ownership_batch,
+    apply_approved_final_ownership_batch,
     apply_approved_ownership_batch,
     build_migration_plan,
     migration_plan_summary,
@@ -105,6 +106,12 @@ def workflow_parser() -> argparse.ArgumentParser:
     decision_ownership_apply.add_argument("--expected-manifest-sha256", required=True)
     decision_ownership_apply.add_argument("--rollback-manifest", required=True)
     decision_ownership_apply.add_argument("--verified-backup-set", required=True)
+    final_ownership_apply = subparsers.add_parser("project-final-ownership-apply")
+    final_ownership_apply.add_argument("--db", required=True)
+    final_ownership_apply.add_argument("--expected-source-sha256", required=True)
+    final_ownership_apply.add_argument("--expected-manifest-sha256", required=True)
+    final_ownership_apply.add_argument("--rollback-manifest", required=True)
+    final_ownership_apply.add_argument("--verified-backup-set", required=True)
     handoff_create = subparsers.add_parser("handoff-create")
     handoff_create.add_argument("--db", required=True)
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
@@ -209,6 +216,15 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         return 0
     if arguments.command == "project-decision-ownership-apply":
         print_json(apply_approved_decision_ownership_batch(
+            database_path,
+            expected_source_sha256=arguments.expected_source_sha256,
+            expected_manifest_sha256=arguments.expected_manifest_sha256,
+            rollback_manifest_path=Path(arguments.rollback_manifest),
+            verified_backup_set=Path(arguments.verified_backup_set),
+        ))
+        return 0
+    if arguments.command == "project-final-ownership-apply":
+        print_json(apply_approved_final_ownership_batch(
             database_path,
             expected_source_sha256=arguments.expected_source_sha256,
             expected_manifest_sha256=arguments.expected_manifest_sha256,

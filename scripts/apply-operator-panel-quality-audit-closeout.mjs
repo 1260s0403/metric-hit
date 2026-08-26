@@ -60,7 +60,27 @@ export function applyOperatorPanelQualityAuditCloseout(databasePath = defaultDat
     roadmap_path: 'documents/roadmap.md',
     evidence: { path: decisionPath, completed_commit: '9f0ac1e' },
   });
-  const sourceId = uuid(`source:${decisionPath}`), documentId = uuid(`document:${decisionPath}`), versionId = uuid(`version:${decisionPath}`), candidateId = uuid(`candidate:${completionSemanticKey}`), evolvedCandidateId = uuid(`candidate:${originalSemanticKey}:2`);
+  const finalTitle = 'Этап разрешения принадлежности legacy-записей завершён';
+  const finalContent = 'По утверждённой границе между управляющим контуром «Ядра» и managed project MetricHit все актуальные 348 unresolved legacy-записей получили проверяемую принадлежность. 92 первичных назначения с итоговым разделением 63 «Ядро» / 29 MetricHit и одна append-only коррекция распространяются на связанные source/document/version/audit/task записи; migration plan теперь содержит 0 unresolved и readyToMigrate=true. Фактический перенос, export/import, cutover, project SQLite, runtime, schema и интерфейс не изменялись и требуют отдельного решения владельца.';
+  const finalData = JSON.stringify({
+    revision: 3,
+    supersedes_semantic_revision: 2,
+    supersedes_candidate_id: uuid(`candidate:${originalSemanticKey}:2`),
+    stage_status: 'completed',
+    resolved_unresolved: 348,
+    direct_roots: 92,
+    approved_split: { control_plane: 63, metric_hit: 29 },
+    target_ids_sha256: '9acce728383c9066f486a38e4aea791f64043651b0053cc28f5545258abe46ab',
+    assignments_sha256: '7ab5054bc0f4218a3c41e24ad00540b0f298f855896e773954d542e5f378f2f6',
+    final_plan: { unresolved: 0, ready_to_migrate: true },
+    next_gate: 'separate_owner_approval_for_migration_export_import_and_cutover',
+    evidence: {
+      roadmap_path: 'documents/roadmap.md',
+      storage_contract_path: 'documents/project-storage.md',
+      audit_batches: ['approved-final-project-ownership-2026-08-26-v3', 'approved-final-project-ownership-correction-2026-08-26-v3.1'],
+    },
+  });
+  const sourceId = uuid(`source:${decisionPath}`), documentId = uuid(`document:${decisionPath}`), versionId = uuid(`version:${decisionPath}`), candidateId = uuid(`candidate:${completionSemanticKey}`), evolvedCandidateId = uuid(`candidate:${originalSemanticKey}:2`), finalCandidateId = uuid(`candidate:${originalSemanticKey}:3`);
   const database = new DatabaseSync(databasePath);
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0, completedTasks: 0 };
 
@@ -68,12 +88,15 @@ export function applyOperatorPanelQualityAuditCloseout(databasePath = defaultDat
   try {
     const duplicate = database.prepare("SELECT id FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").get(completionSemanticKey, candidateId);
     if (duplicate) throw new Error(`Semantic duplicate or evolution blocks ${completionSemanticKey}`);
-    const originalLineage = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").all(originalSemanticKey, evolvedCandidateId)
-      .filter((row) => row.id !== originalCandidateId || row.status !== 'approved');
+    const originalLineage = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").all(originalSemanticKey, finalCandidateId)
+      .filter((row) => !(
+        (row.id === originalCandidateId || row.id === evolvedCandidateId)
+        && row.status === 'approved'
+      ));
     if (originalLineage.length) throw new Error(`Semantic duplicate or evolution requires an explicit superseding revision for ${originalSemanticKey}`);
     const conflict = database.prepare("SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))").get(candidateId, completionSemanticKey);
     if (conflict) throw new Error(`Open memory conflict blocks ${completionSemanticKey}`);
-    const evolvedConflict = database.prepare("SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))").get(evolvedCandidateId, originalSemanticKey);
+    const evolvedConflict = database.prepare("SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))").get(finalCandidateId, originalSemanticKey);
     if (evolvedConflict) throw new Error(`Open memory conflict blocks ${originalSemanticKey}`);
 
     created.sources += Number(database.prepare("INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-19', 'internal')").run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
@@ -81,10 +104,13 @@ export function applyOperatorPanelQualityAuditCloseout(databasePath = defaultDat
     created.versions += Number(database.prepare("INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-19', 'internal', 1)").run(versionId, documentId, title, decision, metadata, sourceId, owner).changes);
     created.candidates += Number(database.prepare("INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-19', 'internal', 1)").run(candidateId, completionSemanticKey, title, content, data, sourceId, owner).changes);
     created.candidates += Number(database.prepare("INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)").run(evolvedCandidateId, originalSemanticKey, evolvedTitle, evolvedContent, evolvedData, sourceId, owner).changes);
+    created.candidates += Number(database.prepare("INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)").run(finalCandidateId, originalSemanticKey, finalTitle, finalContent, finalData, sourceId, owner).changes);
     const candidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
     if (candidate.status === 'pending') database.prepare("UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?").run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 19.08.2026.', reviewedAt, candidateId);
     const evolvedCandidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(evolvedCandidateId);
     if (evolvedCandidate.status === 'pending') database.prepare("UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?").run(owner, '2026-08-26T00:00:00.000Z', 'Continuity-синхронизация перед новым Strategy-чатом: завершённый этап больше не является текущим ближайшим шагом.', '2026-08-26T00:00:00.000Z', evolvedCandidateId);
+    const finalCandidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(finalCandidateId);
+    if (finalCandidate.status === 'pending') database.prepare("UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?").run(owner, '2026-08-26T12:30:00.000Z', 'Одобрено прямым решением владельца для полного разрешения актуальных 348 legacy-записей.', '2026-08-26T12:30:00.000Z', finalCandidateId);
 
     const task = database.prepare('SELECT status, data_json FROM tasks WHERE id=?').get(originalTaskId);
     if (!task) throw new Error('Missing original quality-audit follow-up task');
@@ -97,12 +123,13 @@ export function applyOperatorPanelQualityAuditCloseout(databasePath = defaultDat
 
     assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), { type: 'decision', semantic_key: completionSemanticKey, title, content, data_json: data, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: reviewedAt }, 'quality-audit closeout decision');
     assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(evolvedCandidateId), { type: 'decision', semantic_key: originalSemanticKey, title: evolvedTitle, content: evolvedContent, data_json: evolvedData, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: '2026-08-26T00:00:00.000Z' }, 'quality-audit stage evolution');
+    assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(finalCandidateId), { type: 'decision', semantic_key: originalSemanticKey, title: finalTitle, content: finalContent, data_json: finalData, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: '2026-08-26T12:30:00.000Z' }, 'project-ownership stage evolution');
     assertRow(database.prepare('SELECT * FROM tasks WHERE id=?').get(originalTaskId), { status: 'completed', data_json: taskData }, 'completed quality-audit task');
     assertRow(database.prepare('SELECT * FROM sources WHERE id=?').get(sourceId), { data_json: metadata, status: 'active' }, 'source');
     assertRow(database.prepare('SELECT * FROM documents WHERE id=?').get(documentId), { content: decision, data_json: metadata, source_id: sourceId, version: 1 }, 'document');
     assertRow(database.prepare('SELECT * FROM document_versions WHERE id=?').get(versionId), { document_id: documentId, content: decision, data_json: metadata, version: 1 }, 'document version');
     database.exec('COMMIT');
-    return { databasePath, completionSemanticKey, candidateId, evolvedCandidateId, originalTaskId, created };
+    return { databasePath, completionSemanticKey, candidateId, evolvedCandidateId, finalCandidateId, originalTaskId, created };
   } catch (error) { database.exec('ROLLBACK'); throw error; } finally { database.close(); }
 }
 
