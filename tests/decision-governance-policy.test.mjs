@@ -61,7 +61,11 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.deepEqual(data.execution.small_change_fast_path.excluded, ['architecture', 'sqlite_schema_or_migrations', 'business_logic', 'authorization', 'security', 'backup_restore', 'data_integrity', 'multi_module_scope', 'unclear_scope_or_approval', 'overlapping_dirty_worktree', 'head_or_context_mismatch', 'material_contradiction']);
       assert.equal(data.execution.risk_routing.classifier_must_use_actual_risk, true);
       assert.equal(data.execution.risk_routing.ui_text_css_narrow_fix_are_not_architecture_by_default, true);
-      assert.equal(data.execution.risk_routing.ordinary_tasks_use_default_terra_without_separate_confirmation, true);
+      assert.equal(data.execution.risk_routing.fast_path_uses_fastest_available_compatible_approved_executor_model, true);
+      assert.equal(data.execution.risk_routing.fast_path_model_owner_confirmation_required, false);
+      assert.equal(data.execution.risk_routing.fast_path_model_unavailable_fallback, 'GPT-5.6 Terra / Medium');
+      assert.equal(data.execution.risk_routing.standard_tasks_model, 'GPT-5.6 Terra / Medium');
+      assert.equal(data.execution.risk_routing.owner_visible_strategy_model_automatically_changed, false);
       assert.deepEqual(data.execution.risk_routing.small.checks, ['targeted_tests', 'git_diff_check']);
       assert.deepEqual(data.execution.risk_routing.standard.checks, ['affected_module_tests', 'ui_e2e_when_ui_changes']);
       assert.deepEqual(data.execution.risk_routing.major.checks, ['full_startup_context', 'applicable_special_model_approval', 'full_regression', 'integrity_checks']);
@@ -82,7 +86,16 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 11);
+      assert.equal(operations.revision, 13);
+      assert.equal(operations.startup_surface.agents_is_compact_contract, true);
+      assert.equal(operations.startup_surface.safety_gates_preserved, true);
+      assert.equal(operations.targeted_check_map.docs_only, 'git diff --check');
+      assert.equal(operations.targeted_check_map.operator_panel_backend, '.\\.venv\\Scripts\\python.exe -m pytest tests_python\\test_operator_panel.py -q');
+      assert.equal(operations.targeted_check_map.operator_panel_ui_e2e, '.\\.venv\\Scripts\\python.exe -m pytest tests_python\\test_operator_panel_e2e.py -q');
+      assert.equal(operations.targeted_check_map.javascript_syntax, 'node --check src\\metrichit_os\\operator_panel_assets\\operator-panel.js');
+      assert.equal(operations.environment_readiness.no_reinstall_restart_or_port_change_without_evidence, true);
+      assert.equal(operations.executor_model_routing.owner_visible_strategy_model_automatically_changed, false);
+      assert.equal(operations.executor_model_routing.sol_luna_owner_gates_preserved, true);
       assert.deepEqual(operations.task_brief_template, ['result', 'scope', 'first_check', 'forbidden_changes']);
       assert.deepEqual(operations.delivery.result, ['verified_clean_git_result', 'exact_technical_blocker']);
       assert.equal(operations.delivery.partial_output_is_delivery, false);
@@ -105,11 +118,11 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operations.repository_mutation.responsible_executors, 1);
       assert.equal(operations.repository_mutation.commits, 1);
       assert.equal(operations.small_change_fast_path.repo_side_handoff_required, false);
-      assert.equal(operations.risk_routing.ordinary_tasks_use_default_terra_without_separate_confirmation, true);
+      assert.equal(operations.risk_routing.fast_path_uses_fastest_available_compatible_approved_executor_model, true);
       assert.equal(operations.repository_mutation.in_scope_owner_request_is_authorization, true);
       assert.equal(operations.repository_mutation.redundant_intermediate_confirmation_required, false);
       assert.equal(operations.platform_boundary.managed_sandbox_is_external, true);
-      assert.match(operationsCandidates[0].content, /репозиторий не может гарантировать Full access/);
+      assert.match(operationsCandidates[0].content, /managed sandbox/i);
       assert.equal(data.strategy.mode, 'read_only');
       assert.equal(data.strategy.role, 'human_facing_router');
       assert.equal(data.strategy.exact_scope_only, true);
@@ -141,7 +154,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 24);
+      assert.equal(data.revision, 26);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
@@ -170,6 +183,10 @@ test('canonical workflow documents preserve the small-change fast path and sandb
   assert.match(serverWorkflow, /Executor/i);
   assert.doesNotMatch(operating, /режиме Full access \+ Never ask/);
   assert.doesNotMatch(roadmap, /режиме Full access \+ Never ask/);
+  assert.match(operating, /Карта быстрых целевых проверок/);
+  assert.match(operating, /test_operator_panel_e2e\.py/);
+  assert.match(agents, /самую быструю доступную совместимую/);
+  assert.match(agents, /owner-facing порт/);
 });
 
 test('decision governance workflow refuses a competing approved truth', () => {

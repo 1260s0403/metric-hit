@@ -856,11 +856,15 @@ test('model routing decision is repeatable and creates an approved policy', (t) 
   database.close();
   assert.equal(policy.status, 'approved');
   assert.equal(policy.reviewed_by, 'owner');
-  assert.equal(policy.reviewed_at, '2026-08-16T10:00:00.000Z');
+  assert.equal(policy.reviewed_at, '2026-08-26T00:00:00.000Z');
   assert.equal(JSON.parse(policy.data_json).default_model, 'GPT-5.6 Terra');
   assert.deepEqual(JSON.parse(policy.data_json).spark_for, [
-    'isolated_ui_fixes', 'css', 'interface_copy', 'narrow_fixes', 'short_test_cycles',
+    'isolated_ui_fixes', 'css', 'interface_copy', 'narrow_fixes', 'documentation', 'short_test_cycles',
   ]);
+  assert.equal(JSON.parse(policy.data_json).fast_path_model, 'fastest_available_compatible_approved');
+  assert.equal(JSON.parse(policy.data_json).fast_path_owner_confirmation_required, false);
+  assert.equal(JSON.parse(policy.data_json).fast_path_unavailable_blocks, false);
+  assert.equal(JSON.parse(policy.data_json).owner_visible_strategy_model_changes_automatically, false);
   assert.equal(JSON.parse(policy.data_json).reclassify_before_each_new_task, true);
   assert.equal(JSON.parse(policy.data_json).special_model_approval_carries_to_next_task, false);
   assert.equal(JSON.parse(policy.data_json).engineering_task_thread_must_verify_actual_model_on_start, true);

@@ -8,8 +8,8 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/model-routing-policy-2026-08-13.md';
 const owner = 'owner';
-const reviewedAt = '2026-08-16T10:00:00.000Z';
-const revision = 4;
+const reviewedAt = '2026-08-26T00:00:00.000Z';
+const revision = 5;
 
 function stableUuid(key) {
   const hex = createHash('sha256').update(`metrichit-model-routing:${key}`).digest('hex');
@@ -40,26 +40,32 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
   const versionId = stableUuid(`document-version:${decisionPath}:${revision}`);
   const candidateId = stableUuid(`candidate:ai.model_routing_policy:${revision}`);
   const title = 'Политика выбора модели Codex';
-  const candidateContent = 'Требуемая модель определяется отдельно для каждой задачи; по умолчанию используется GPT-5.6 Terra, reasoning Medium. GPT-5.3-Codex-Spark — только для небольших изолированных UI-правок, CSS, текстов интерфейса, узких исправлений и коротких тестовых циклов; не для архитектуры, SQLite-схем, бизнес-логики, авторизации, security, backup/restore, миграций и больших сквозных модулей. Для сложной архитектуры, security и особо ответственных задач требуется GPT-5.6 Sol; для массовой однотипной обработки — GPT-5.6 Luna. Sol и Luna используются только после подтверждения владельца; разрешение действует только для конкретной задачи либо явно непрерывного этапа и не переносится автоматически на следующую задачу. Сразу после запуска автоматически созданный engineering task-thread обязан сверить фактическую модель с требуемой. Если для задачи требуется Sol или Luna, а фактическая модель иная, thread до любых критических действий останавливается и просит владельца переключить модель. После переключения thread продолжает с текущего состояния без отката, нового thread или перезапуска задачи. Если текущая модель избыточна для новой задачи, Codex до начала работы предлагает вернуться на Terra Medium. Модель самостоятельно не переключается.';
+  const candidateContent = 'Стандартные задачи выполняются внутренним executor на GPT-5.6 Terra, reasoning Medium. Fast-path задачи автоматически используют самую быструю доступную совместимую одобренную модель без отдельного вопроса владельцу; если она недоступна, executor без blocker использует Terra Medium. Маршрутизация применяется только к внутреннему executor там, где платформа позволяет выбрать модель, и не меняет owner-visible Strategy-модель. Быстрая модель не используется для архитектуры, SQLite-схем, бизнес-логики, авторизации, security, backup/restore, миграций и больших сквозных модулей. Для сложной архитектуры, security и особо ответственных задач требуется GPT-5.6 Sol; для массовой однотипной обработки — GPT-5.6 Luna. Sol и Luna используются только после подтверждения владельца; разрешение действует только для конкретной задачи либо явно непрерывного этапа и не переносится автоматически. Task-thread сверяет фактическую модель с требуемой; mismatch блокирует критические действия только для обязательных Sol/Luna. После подтверждённого переключения thread продолжает с текущего состояния без отката, нового thread или перезапуска.';
   const candidateData = JSON.stringify({
     default_model: 'GPT-5.6 Terra',
     default_reasoning: 'Medium',
-    spark_for: ['isolated_ui_fixes', 'css', 'interface_copy', 'narrow_fixes', 'short_test_cycles'],
+    fast_path_model: 'fastest_available_compatible_approved',
+    fast_path_owner_confirmation_required: false,
+    fast_path_fallback: 'GPT-5.6 Terra / Medium',
+    fast_path_unavailable_blocks: false,
+    routing_scope: 'internal_executor_where_platform_supports_model_selection',
+    owner_visible_strategy_model_changes_automatically: false,
+    spark_for: ['isolated_ui_fixes', 'css', 'interface_copy', 'narrow_fixes', 'documentation', 'short_test_cycles'],
     spark_excluded_for: ['architecture', 'sqlite_schema', 'business_logic', 'authorization', 'security', 'backup_restore', 'migrations', 'large_end_to_end_modules'],
     sol_for: ['complex_architecture', 'security_critical', 'high_responsibility'],
     luna_for: ['bulk_classification', 'bulk_extraction', 'large_homogeneous_processing', 'background_operations'],
-    owner_confirmation_required: true,
+    special_model_owner_confirmation_required: true,
     reclassify_before_each_new_task: true,
     special_model_approval_scope: 'task_or_explicit_continuous_stage_only',
     special_model_approval_carries_to_next_task: false,
     engineering_task_thread_must_verify_actual_model_on_start: true,
     special_model_mismatch_blocks_critical_actions: true,
+    ordinary_fast_path_mismatch_blocks: false,
     special_model_mismatch_action: 'pause_and_request_owner_model_switch',
     after_special_model_switch: 'continue_current_state_without_rollback_new_thread_or_restart',
-    recommend_terra_when_current_model_is_excessive: true,
-    return_recommendation: 'GPT-5.6 Terra / Medium',
+    standard_model: 'GPT-5.6 Terra / Medium',
     revision,
-    supersedes: 'ai.model_routing_policy revision 3',
+    supersedes: 'ai.model_routing_policy revision 4',
     evidence: { path: decisionPath },
   });
 
@@ -71,6 +77,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
       stableUuid('candidate:ai.model_routing_policy:2'),
       stableUuid('candidate:ai.model_routing_policy:3'),
       stableUuid('candidate:ai.model_routing_policy'),
+      stableUuid('candidate:ai.model_routing_policy:4'),
     ]);
     const competing = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key='ai.model_routing_policy' AND status IN ('pending','approved') AND id<>?").all(candidateId)
       .filter((row) => !(row.status === 'approved' && approvedLineage.has(row.id)));
@@ -103,7 +110,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
         SET status = 'approved', reviewed_by = ?, reviewed_at = ?,
             review_note = ?, updated_at = ?, version = version + 1
         WHERE id = ?
-      `).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 15.08.2026; заменяет редакцию маршрутизации моделей от 13.08.2026.', reviewedAt, candidateId);
+      `).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 26.08.2026; заменяет редакцию 4 и ускоряет fast-path routing без ослабления Sol/Luna gates.', reviewedAt, candidateId);
     }
     assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(candidateId), {
       type: 'ai_policy', semantic_key: 'ai.model_routing_policy', title,
