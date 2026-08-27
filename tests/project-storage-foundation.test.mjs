@@ -15,7 +15,7 @@ test('project storage decision workflow is exact and idempotent', () => {
     execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
     const first = applyProjectStorageFoundation(databasePath);
     const second = applyProjectStorageFoundation(databasePath);
-    assert.deepEqual(first.created, { sources: 2, documents: 1, versions: 1, candidates: 3, audits: 3 });
+    assert.deepEqual(first.created, { sources: 3, documents: 1, versions: 1, candidates: 4, audits: 5 });
     assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0, audits: 0 });
     const database = new DatabaseSync(databasePath, { readOnly: true });
     try {
@@ -41,6 +41,12 @@ test('project storage decision workflow is exact and idempotent', () => {
       assert.equal(runtimeData.source_sha256_at_cutover, '2b0e6b27826d580d355eb2dabd2ce6c7dcec20db65b951d6177aba3635c486bb');
       assert.equal(runtimeData.target_sha256, 'd9cb1d4635b0c917e9c61eca86cdc182e9db42471637711dae62a1f82a49fea6');
       assert.equal(runtimeData.central_database_role, 'control_plane');
+      const isolation = database.prepare('SELECT status,data_json FROM memory_candidates WHERE id=?').get(first.isolationCandidateId);
+      const isolationData = JSON.parse(isolation.data_json);
+      assert.equal(isolation.status, 'approved');
+      assert.deepEqual(isolationData.migration_plan, { core: 493, managed: 332, unresolved: 0, ready: true });
+      assert.equal(isolationData.next_priority, 'export_import_independent_project');
+      assert.equal(isolationData.operator_panel.http_status, 200);
       const scopeAudit = database.prepare('SELECT type,data_json FROM audit_log WHERE id=?').get(first.materializationScopeAuditId);
       assert.equal(scopeAudit.type, 'project_scope_metadata_correction');
       assert.equal(JSON.parse(scopeAudit.data_json).corrections[0].newValue, null);

@@ -12,6 +12,7 @@ const owner = 'owner';
 const reviewedAt = '2026-08-21T18:00:00.000Z';
 const materializationReviewedAt = '2026-08-26T13:30:00.000Z';
 const runtimeCutoverReviewedAt = '2026-08-27T06:07:32.000Z';
+const isolationReviewedAt = '2026-08-27T07:14:42.000Z';
 const controlPlaneProjectId = '00000000-0000-4000-a000-000000000101';
 
 function uuid(key) {
@@ -70,6 +71,10 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
   const runtimeCutoverCandidateId = uuid(`candidate:${semanticKey}:3`);
   const runtimeCutoverSourceScopeAuditId = uuid(`audit:${semanticKey}:3:source_scope`);
   const runtimeCutoverCandidateScopeAuditId = uuid(`audit:${semanticKey}:3:project_id`);
+  const isolationSourceId = uuid('source:git:51e9279b9e55b80dd182b3599e973460a774d943');
+  const isolationCandidateId = uuid(`candidate:${semanticKey}:4`);
+  const isolationSourceScopeAuditId = uuid(`audit:${semanticKey}:4:source_scope`);
+  const isolationCandidateScopeAuditId = uuid(`audit:${semanticKey}:4:project_id`);
   const materializationScopeAuditId = uuid(`audit:${semanticKey}:2:project_id`);
   const materializationTitle = 'Данные MetricHit материализованы в отдельном project SQLite';
   const materializationContent = 'Все 326 записей канонического managed project MetricHit материализованы в data/projects/00000000-0000-4000-a000-000000000102/project.sqlite вместе с 4 минимальными core provenance dependencies и 10 строками schema_migrations. Четыре ранее утверждённые metadata corrections применены только к эффективным target-связям; legacy SQLite не переписана и остаётся рабочим источником. Exact-source backup и restore-test прошли, target foreign keys и integrity проверены, идемпотентный replay не изменил файл. Runtime, reads/writes, UI, export/import и cutover не переключались.';
@@ -141,6 +146,31 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     committed_at: '2026-08-27T06:07:32.000Z',
     authority: 'verified_runtime_cutover_closeout',
   });
+  const isolationTitle = 'Независимый контур MetricHit готов к export/import';
+  const isolationContent = 'Независимый контур MetricHit завершён: runtime cutover `0150db7` направляет project-first reads и MetricHit-scoped writes в отдельный project SQLite при центральной control plane. На `a2d03b455ad8ca981c97415eaec71fe628639c4d` operator panel изолирована: локальные MetricHit задачи, идеи, память и activity project-only; global overview/search остаются federated; записи маршрутизируются в проект. На `51e9279b9e55b80dd182b3599e973460a774d943` readiness восстановлен append-only: исходное содержимое не менялось, effective classification исправлена в control plane. План: core=493, managed=332, unresolved=0, ready=true; project target cutover/integrity/FK valid. Backup `MetricHit-backup-20260827T071442Z` и restore-test прошли. Панель доступна на 8778 (HTTP 200), live screenshot: `work/ui-review/migration-readiness-overview.png`. UI-поставка подтверждена backend 27/27 и E2E 16/16; отдельная E2E-сессия readiness не имеет финальной сводки после 9 успешных сценариев и не считается подтверждением. Следующий утверждённый приоритет — export/import независимого проекта; generic routing второго проекта затем, cleanup legacy-копий — только по отдельному решению владельца.';
+  const isolationData = JSON.stringify({
+    revision: 4,
+    supersedes_semantic_revision: 3,
+    supersedes_candidate_id: runtimeCutoverCandidateId,
+    stage_status: 'completed',
+    runtime_cutover_commit: '0150db784e6795f9d08e36e0f70f786594247cee',
+    closeout_commit: '607b6d7',
+    operator_panel_isolation_commit: 'a2d03b455ad8ca981c97415eaec71fe628639c4d',
+    readiness_repair_commit: '51e9279b9e55b80dd182b3599e973460a774d943',
+    migration_plan: { core: 493, managed: 332, unresolved: 0, ready: true },
+    project_target: { cutover: true, integrity: 'ok', foreign_key_violations: 0 },
+    backup_restore: { backup_id: 'MetricHit-backup-20260827T071442Z', restore_test: 'passed' },
+    operator_panel: { port: 8778, http_status: 200, screenshot: 'work/ui-review/migration-readiness-overview.png' },
+    verification: { backend: '27/27', operator_panel_e2e: '16/16', readiness_e2e_final_summary: 'not_available_after_9_successful_scenarios' },
+    next_priority: 'export_import_independent_project',
+    deferred: ['generic_routing_second_project', 'legacy_cleanup_requires_separate_owner_gate'],
+  });
+  const isolationSourceData = JSON.stringify({
+    commit: '51e9279b9e55b80dd182b3599e973460a774d943',
+    title: 'fix: restore migration readiness classification',
+    committed_at: isolationReviewedAt,
+    authority: 'verified_independent_metrichit_closeout',
+  });
   const runtimeCutoverSourceScopeAuditData = JSON.stringify({
     batchKey: 'project-storage-runtime-cutover-scope-2026-08-27-v1',
     table: 'sources',
@@ -160,14 +190,22 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       reason: 'project_id describes the runtime target; the architecture decision belongs to the control plane',
     }],
   });
+  const isolationSourceScopeAuditData = JSON.stringify({
+    batchKey: 'project-storage-isolation-closeout-memory-scope-2026-08-27-v1', table: 'sources', entityId: isolationSourceId,
+    project_id: controlPlaneProjectId, basis: 'closeout provenance belongs to the control plane',
+  });
+  const isolationCandidateScopeAuditData = JSON.stringify({
+    batchKey: 'project-storage-isolation-closeout-memory-scope-2026-08-27-v1', table: 'memory_candidates', entityId: isolationCandidateId,
+    project_id: controlPlaneProjectId, corrections: [{ field: 'project_id', invalidValue: '00000000-0000-4000-a000-000000000102', newValue: null, reason: 'project_id describes the managed target; the closeout decision belongs to the control plane' }],
+  });
   const database = new DatabaseSync(databasePath);
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0, audits: 0 };
 
   database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
   try {
     const lineage = database.prepare(
-      "SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id NOT IN (?,?)",
-    ).all(semanticKey, materializationCandidateId, runtimeCutoverCandidateId);
+      "SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id NOT IN (?,?,?)",
+    ).all(semanticKey, materializationCandidateId, runtimeCutoverCandidateId, isolationCandidateId);
     if (lineage.some((row) => row.id !== candidateId || row.status !== 'approved')) {
       throw new Error(`Semantic duplicate or evolution blocks ${semanticKey}`);
     }
@@ -182,6 +220,9 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     created.sources += Number(database.prepare(
       "INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'git_commit', ?, ?, ?, 'active', ?, '2026-08-27', 'internal')",
     ).run(runtimeCutoverSourceId, runtimeCutoverTitle, 'Verified repository runtime cutover commit', runtimeCutoverSourceData, owner).changes);
+    created.sources += Number(database.prepare(
+      "INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'git_commit', ?, ?, ?, 'active', ?, '2026-08-27', 'internal')",
+    ).run(isolationSourceId, isolationTitle, 'Verified repository isolation and readiness closeout commit', isolationSourceData, owner).changes);
     created.documents += Number(database.prepare(
       "INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-21', 'internal', 1)",
     ).run(documentId, title, decision, metadata, sourceId, owner).changes);
@@ -197,6 +238,9 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     created.candidates += Number(database.prepare(
       "INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-27', 'internal', 1)",
     ).run(runtimeCutoverCandidateId, semanticKey, runtimeCutoverTitle, runtimeCutoverContent, runtimeCutoverData, runtimeCutoverSourceId, owner).changes);
+    created.candidates += Number(database.prepare(
+      "INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-27', 'internal', 1)",
+    ).run(isolationCandidateId, semanticKey, isolationTitle, isolationContent, isolationData, isolationSourceId, owner).changes);
     const candidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
     if (candidate.status === 'pending') {
       database.prepare(
@@ -214,6 +258,12 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       database.prepare(
         "UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?",
       ).run(owner, runtimeCutoverReviewedAt, 'Зафиксировано по проверенной поставке runtime cutover 0150db7.', runtimeCutoverReviewedAt, runtimeCutoverCandidateId);
+    }
+    const isolationCandidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(isolationCandidateId);
+    if (isolationCandidate.status === 'pending') {
+      database.prepare(
+        "UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?",
+      ).run(owner, isolationReviewedAt, 'Зафиксировано по проверенному закрытию независимого контура MetricHit.', isolationReviewedAt, isolationCandidateId);
     }
     created.audits += Number(database.prepare(
       "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_metadata_correction', 'Project materialization decision scope corrected', ?, ?, ?, ?, ?, 'restricted', 1, 'decision', ?, 'update')",
@@ -233,6 +283,12 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       runtimeCutoverCandidateScopeAuditId, runtimeCutoverCandidateScopeAuditData, runtimeCutoverSourceId, owner,
       runtimeCutoverReviewedAt, runtimeCutoverReviewedAt, runtimeCutoverCandidateId,
     ).changes);
+    created.audits += Number(database.prepare(
+      "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_assignment', 'Isolation closeout provenance scope assigned', ?, ?, ?, ?, ?, 'restricted', 1, 'git_commit', ?, 'update')",
+    ).run(isolationSourceScopeAuditId, isolationSourceScopeAuditData, isolationSourceId, owner, isolationReviewedAt, isolationReviewedAt, isolationSourceId).changes);
+    created.audits += Number(database.prepare(
+      "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_metadata_correction', 'Isolation closeout decision scope corrected', ?, ?, ?, ?, ?, 'restricted', 1, 'decision', ?, 'update')",
+    ).run(isolationCandidateScopeAuditId, isolationCandidateScopeAuditData, isolationSourceId, owner, isolationReviewedAt, isolationReviewedAt, isolationCandidateId).changes);
 
     assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), {
       type: 'decision', semantic_key: semanticKey, title, content, data_json: data,
@@ -248,6 +304,10 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       content: runtimeCutoverContent, data_json: runtimeCutoverData, status: 'approved',
       source_id: runtimeCutoverSourceId, reviewed_by: owner, reviewed_at: runtimeCutoverReviewedAt,
     }, 'project runtime cutover decision');
+    assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(isolationCandidateId), {
+      type: 'decision', semantic_key: semanticKey, title: isolationTitle, content: isolationContent, data_json: isolationData,
+      status: 'approved', source_id: isolationSourceId, reviewed_by: owner, reviewed_at: isolationReviewedAt,
+    }, 'project isolation closeout decision');
     assertRow(database.prepare('SELECT * FROM audit_log WHERE id=?').get(materializationScopeAuditId), {
       type: 'project_scope_metadata_correction', data_json: materializationScopeAuditData,
       source_id: sourceId, entity_type: 'decision', entity_id: materializationCandidateId,
@@ -263,12 +323,23 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       source_id: runtimeCutoverSourceId, entity_type: 'decision', entity_id: runtimeCutoverCandidateId,
       action: 'update',
     }, 'runtime cutover decision scope correction');
+    assertRow(database.prepare('SELECT * FROM audit_log WHERE id=?').get(isolationSourceScopeAuditId), {
+      type: 'project_scope_assignment', data_json: isolationSourceScopeAuditData, source_id: isolationSourceId,
+      entity_type: 'git_commit', entity_id: isolationSourceId, action: 'update',
+    }, 'isolation closeout provenance scope assignment');
+    assertRow(database.prepare('SELECT * FROM audit_log WHERE id=?').get(isolationCandidateScopeAuditId), {
+      type: 'project_scope_metadata_correction', data_json: isolationCandidateScopeAuditData, source_id: isolationSourceId,
+      entity_type: 'decision', entity_id: isolationCandidateId, action: 'update',
+    }, 'isolation closeout decision scope correction');
     assertRow(database.prepare('SELECT * FROM sources WHERE id=?').get(sourceId), {
       data_json: metadata, status: 'active',
     }, 'source');
     assertRow(database.prepare('SELECT * FROM sources WHERE id=?').get(runtimeCutoverSourceId), {
       data_json: runtimeCutoverSourceData, status: 'active',
     }, 'runtime cutover source');
+    assertRow(database.prepare('SELECT * FROM sources WHERE id=?').get(isolationSourceId), {
+      data_json: isolationSourceData, status: 'active',
+    }, 'isolation closeout source');
     assertRow(database.prepare('SELECT * FROM documents WHERE id=?').get(documentId), {
       content: decision, data_json: metadata, source_id: sourceId, version: 1,
     }, 'document');
@@ -276,7 +347,7 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       document_id: documentId, content: decision, data_json: metadata, version: 1,
     }, 'document version');
     database.exec('COMMIT');
-    return { databasePath, semanticKey, candidateId, materializationCandidateId, runtimeCutoverCandidateId, materializationScopeAuditId, runtimeCutoverSourceScopeAuditId, runtimeCutoverCandidateScopeAuditId, created };
+    return { databasePath, semanticKey, candidateId, materializationCandidateId, runtimeCutoverCandidateId, isolationCandidateId, materializationScopeAuditId, runtimeCutoverSourceScopeAuditId, runtimeCutoverCandidateScopeAuditId, isolationSourceScopeAuditId, isolationCandidateScopeAuditId, created };
   } catch (error) {
     database.exec('ROLLBACK');
     throw error;
