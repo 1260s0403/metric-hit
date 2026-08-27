@@ -9,6 +9,9 @@ const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.
 const decisionPath = 'knowledge/decisions/product-positioning-and-editorial-directness-2026-08-14.md';
 const owner = 'owner';
 const reviewedAt = '2026-08-14T00:00:00.000Z';
+const mechanicsReviewedAt = '2026-08-26T00:00:00.000Z';
+const metricHitProjectId = '00000000-0000-4000-a000-000000000102';
+const mechanicsSemanticKey = 'product.search_result_click_mechanics';
 const supersededRules = [
   'editorial.no_guarantees',
   'editorial.no_fabricated_metrics',
@@ -58,6 +61,8 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
   const decisionId = stableUuid('decision:content.editorial_directness_policy');
   const positioningId = stableUuid('candidate:product.positioning');
   const policyId = stableUuid('candidate:content.editorial_directness_policy');
+  const mechanicsSourceId = stableUuid('source:owner-chat:2026-08-26:search-result-click-mechanics');
+  const mechanicsCandidateId = stableUuid(`candidate:${mechanicsSemanticKey}`);
   const positioningTitle = 'Назначение MetricHit';
   const positioningContent = 'MetricHit — сервис накрутки и улучшения поведенческих факторов (ПФ) для продвижения сайтов в поисковой выдаче Яндекса. Пользователь настраивает сайт, регион, поисковые запросы, дневные лимиты и расписание, а затем контролирует выполненные клики, расходы и изменение позиций в личном кабинете. MetricHit используется как инструмент усиления подготовленного сайта и не является гарантией роста позиций или заменой технического SEO, релевантности страниц и коммерческой проработки.';
   const positioningData = JSON.stringify({
@@ -80,16 +85,43 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
     historical_materials: { posts: ['8', '9', '10'], automatically_prohibited: false, landing_demo_table_automatically_prohibited: false },
     evidence: { path: decisionPath },
   });
+  const mechanicsTitle = 'Канонический ответ о механике кликов MetricHit';
+  const mechanicsContent = 'Механика такая:\nБот работает с поисковой выдачей: по запросу сначала открывает несколько других результатов (не задерживается на них), ваш сайт — последним, после чего в поиск не возвращается.\nДля Яндекса это выглядит как завершённый успешный поиск.\nЭто не просто одиночный клик.\nДействий внутри сайта бот не совершает.\nВнутренние поведенческие факторы Яндекс не учитывает.';
+  const mechanicsData = JSON.stringify({
+    project_id: metricHitProjectId,
+    project_role: 'managed_project',
+    canonical_answer: true,
+    applies_to: ['previous_question', 'similar_questions'],
+    search_engine: 'yandex',
+    bot_actions_inside_client_site: false,
+    internal_behavioral_factors_counted_by_yandex: false,
+    evidence: { authority: 'direct_owner_confirmation', date: '2026-08-26' },
+  });
 
   const database = new DatabaseSync(databasePath);
   database.exec('PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;');
   const created = { sources: 0, documents: 0, versions: 0, decisions: 0, candidates: 0, conflictsResolved: 0 };
   try {
+    const mechanicsDuplicate = database.prepare("SELECT id FROM memory_candidates WHERE semantic_key = ? AND status IN ('pending', 'approved') AND id <> ?").get(mechanicsSemanticKey, mechanicsCandidateId);
+    if (mechanicsDuplicate) throw new Error(`Semantic duplicate or evolution blocks ${mechanicsSemanticKey}`);
+    const mechanicsConflict = database.prepare("SELECT id FROM memory_conflicts WHERE status = 'open' AND (candidate_id = ? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key = ?))").get(mechanicsCandidateId, mechanicsSemanticKey);
+    if (mechanicsConflict) throw new Error(`Open memory conflict blocks ${mechanicsSemanticKey}`);
     created.sources += Number(database.prepare(`
       INSERT OR IGNORE INTO sources
         (id, type, title, content, data_json, status, author, valid_at, access_level)
       VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-14', 'internal')
     `).run(sourceId, policyTitle, `Repository file: ${decisionPath}`, metadata, owner).changes);
+    created.sources += Number(database.prepare(`
+      INSERT OR IGNORE INTO sources
+        (id, type, title, content, data_json, status, author, valid_at, access_level)
+      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-26', 'internal')
+    `).run(
+      mechanicsSourceId,
+      mechanicsTitle,
+      'Прямое решение владельца в Strategy-чате от 26.08.2026.',
+      JSON.stringify({ authority: 'direct_owner_confirmation', decision_date: '2026-08-26', project_id: metricHitProjectId }),
+      owner,
+    ).changes);
     created.documents += Number(database.prepare(`
       INSERT OR IGNORE INTO documents
         (id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
@@ -115,10 +147,24 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
         (id, type, semantic_key, title, content, data_json, status, source_id, author, valid_at, access_level, version)
       VALUES (?, 'decision', 'content.editorial_directness_policy', ?, ?, ?, 'pending', ?, ?, '2026-08-14', 'internal', 1)
     `).run(policyId, policyTitle, policyContent, policyData, sourceId, owner).changes);
+    created.candidates += Number(database.prepare(`
+      INSERT OR IGNORE INTO memory_candidates
+        (id, type, semantic_key, title, content, data_json, status, source_id, author, valid_at, access_level, version)
+      VALUES (?, 'product_fact', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)
+    `).run(mechanicsCandidateId, mechanicsSemanticKey, mechanicsTitle, mechanicsContent, mechanicsData, mechanicsSourceId, owner).changes);
 
     const reviewNote = 'Одобрено на основании прямого решения владельца MetricHit от 14.08.2026.';
     approveCandidate(database, positioningId, reviewNote);
     approveCandidate(database, policyId, reviewNote);
+    const mechanicsCandidate = database.prepare('SELECT status FROM memory_candidates WHERE id = ?').get(mechanicsCandidateId);
+    if (mechanicsCandidate?.status === 'pending') {
+      database.prepare(`
+        UPDATE memory_candidates
+        SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ?,
+            updated_at = ?, version = version + 1
+        WHERE id = ?
+      `).run(owner, mechanicsReviewedAt, 'Одобрено прямым решением владельца MetricHit от 26.08.2026.', mechanicsReviewedAt, mechanicsCandidateId);
+    }
     assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(positioningId), {
       type: 'product_fact', semantic_key: 'product.positioning', title: positioningTitle,
       content: positioningContent, data_json: positioningData, source_id: sourceId,
@@ -129,6 +175,11 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
       content: policyContent, data_json: policyData, source_id: sourceId,
       status: 'approved', reviewed_by: owner, reviewed_at: reviewedAt,
     }, 'editorial policy candidate');
+    assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(mechanicsCandidateId), {
+      type: 'product_fact', semantic_key: mechanicsSemanticKey, title: mechanicsTitle,
+      content: mechanicsContent, data_json: mechanicsData, source_id: mechanicsSourceId,
+      status: 'approved', reviewed_by: owner, reviewed_at: mechanicsReviewedAt,
+    }, 'search result click mechanics candidate');
     assertFields(database.prepare('SELECT * FROM documents WHERE id = ?').get(documentId), {
       content, data_json: metadata, source_id: sourceId, version: 1,
     }, 'editorial policy document');
@@ -150,7 +201,7 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
       `).run('Разрешено прямым решением владельца от 14.08.2026: действует content.editorial_directness_policy.', reviewedAt, id).changes);
     }
     database.exec('COMMIT');
-    return { databasePath, created, sourceId, documentId, versionId, decisionId, positioningId, policyId };
+    return { databasePath, created, sourceId, documentId, versionId, decisionId, positioningId, policyId, mechanicsSemanticKey, mechanicsSourceId, mechanicsCandidateId };
   } catch (error) {
     database.exec('ROLLBACK');
     throw error;
