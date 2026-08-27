@@ -15,7 +15,7 @@ test('project storage decision workflow is exact and idempotent', () => {
     execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
     const first = applyProjectStorageFoundation(databasePath);
     const second = applyProjectStorageFoundation(databasePath);
-    assert.deepEqual(first.created, { sources: 2, documents: 1, versions: 1, candidates: 3, audits: 1 });
+    assert.deepEqual(first.created, { sources: 2, documents: 1, versions: 1, candidates: 3, audits: 3 });
     assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0, audits: 0 });
     const database = new DatabaseSync(databasePath, { readOnly: true });
     try {
@@ -44,6 +44,12 @@ test('project storage decision workflow is exact and idempotent', () => {
       const scopeAudit = database.prepare('SELECT type,data_json FROM audit_log WHERE id=?').get(first.materializationScopeAuditId);
       assert.equal(scopeAudit.type, 'project_scope_metadata_correction');
       assert.equal(JSON.parse(scopeAudit.data_json).corrections[0].newValue, null);
+      const sourceScopeAudit = database.prepare('SELECT type,data_json FROM audit_log WHERE id=?').get(first.runtimeCutoverSourceScopeAuditId);
+      assert.equal(sourceScopeAudit.type, 'project_scope_assignment');
+      assert.equal(JSON.parse(sourceScopeAudit.data_json).project_id, '00000000-0000-4000-a000-000000000101');
+      const runtimeScopeAudit = database.prepare('SELECT type,data_json FROM audit_log WHERE id=?').get(first.runtimeCutoverCandidateScopeAuditId);
+      assert.equal(runtimeScopeAudit.type, 'project_scope_metadata_correction');
+      assert.equal(JSON.parse(runtimeScopeAudit.data_json).corrections[0].newValue, null);
       assert.equal(database.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       database.close();

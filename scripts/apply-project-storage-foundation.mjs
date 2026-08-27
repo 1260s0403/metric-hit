@@ -68,6 +68,8 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
   const materializationCandidateId = uuid(`candidate:${semanticKey}:2`);
   const runtimeCutoverSourceId = uuid('source:git:0150db784e6795f9d08e36e0f70f786594247cee');
   const runtimeCutoverCandidateId = uuid(`candidate:${semanticKey}:3`);
+  const runtimeCutoverSourceScopeAuditId = uuid(`audit:${semanticKey}:3:source_scope`);
+  const runtimeCutoverCandidateScopeAuditId = uuid(`audit:${semanticKey}:3:project_id`);
   const materializationScopeAuditId = uuid(`audit:${semanticKey}:2:project_id`);
   const materializationTitle = 'Данные MetricHit материализованы в отдельном project SQLite';
   const materializationContent = 'Все 326 записей канонического managed project MetricHit материализованы в data/projects/00000000-0000-4000-a000-000000000102/project.sqlite вместе с 4 минимальными core provenance dependencies и 10 строками schema_migrations. Четыре ранее утверждённые metadata corrections применены только к эффективным target-связям; legacy SQLite не переписана и остаётся рабочим источником. Exact-source backup и restore-test прошли, target foreign keys и integrity проверены, идемпотентный replay не изменил файл. Runtime, reads/writes, UI, export/import и cutover не переключались.';
@@ -139,6 +141,25 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     committed_at: '2026-08-27T06:07:32.000Z',
     authority: 'verified_runtime_cutover_closeout',
   });
+  const runtimeCutoverSourceScopeAuditData = JSON.stringify({
+    batchKey: 'project-storage-runtime-cutover-scope-2026-08-27-v1',
+    table: 'sources',
+    entityId: runtimeCutoverSourceId,
+    project_id: controlPlaneProjectId,
+    basis: 'runtime cutover provenance belongs to the control plane',
+  });
+  const runtimeCutoverCandidateScopeAuditData = JSON.stringify({
+    batchKey: 'project-storage-runtime-cutover-scope-2026-08-27-v1',
+    table: 'memory_candidates',
+    entityId: runtimeCutoverCandidateId,
+    project_id: controlPlaneProjectId,
+    corrections: [{
+      field: 'project_id',
+      invalidValue: '00000000-0000-4000-a000-000000000102',
+      newValue: null,
+      reason: 'project_id describes the runtime target; the architecture decision belongs to the control plane',
+    }],
+  });
   const database = new DatabaseSync(databasePath);
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0, audits: 0 };
 
@@ -200,6 +221,18 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       materializationScopeAuditId, materializationScopeAuditData, sourceId, owner,
       materializationReviewedAt, materializationReviewedAt, materializationCandidateId,
     ).changes);
+    created.audits += Number(database.prepare(
+      "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_assignment', 'Runtime cutover provenance scope assigned', ?, ?, ?, ?, ?, 'restricted', 1, 'git_commit', ?, 'update')",
+    ).run(
+      runtimeCutoverSourceScopeAuditId, runtimeCutoverSourceScopeAuditData, runtimeCutoverSourceId, owner,
+      runtimeCutoverReviewedAt, runtimeCutoverReviewedAt, runtimeCutoverSourceId,
+    ).changes);
+    created.audits += Number(database.prepare(
+      "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_metadata_correction', 'Runtime cutover decision scope corrected', ?, ?, ?, ?, ?, 'restricted', 1, 'decision', ?, 'update')",
+    ).run(
+      runtimeCutoverCandidateScopeAuditId, runtimeCutoverCandidateScopeAuditData, runtimeCutoverSourceId, owner,
+      runtimeCutoverReviewedAt, runtimeCutoverReviewedAt, runtimeCutoverCandidateId,
+    ).changes);
 
     assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), {
       type: 'decision', semantic_key: semanticKey, title, content, data_json: data,
@@ -220,6 +253,16 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       source_id: sourceId, entity_type: 'decision', entity_id: materializationCandidateId,
       action: 'update',
     }, 'project materialization decision scope correction');
+    assertRow(database.prepare('SELECT * FROM audit_log WHERE id=?').get(runtimeCutoverSourceScopeAuditId), {
+      type: 'project_scope_assignment', data_json: runtimeCutoverSourceScopeAuditData,
+      source_id: runtimeCutoverSourceId, entity_type: 'git_commit', entity_id: runtimeCutoverSourceId,
+      action: 'update',
+    }, 'runtime cutover provenance scope assignment');
+    assertRow(database.prepare('SELECT * FROM audit_log WHERE id=?').get(runtimeCutoverCandidateScopeAuditId), {
+      type: 'project_scope_metadata_correction', data_json: runtimeCutoverCandidateScopeAuditData,
+      source_id: runtimeCutoverSourceId, entity_type: 'decision', entity_id: runtimeCutoverCandidateId,
+      action: 'update',
+    }, 'runtime cutover decision scope correction');
     assertRow(database.prepare('SELECT * FROM sources WHERE id=?').get(sourceId), {
       data_json: metadata, status: 'active',
     }, 'source');
@@ -233,7 +276,7 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       document_id: documentId, content: decision, data_json: metadata, version: 1,
     }, 'document version');
     database.exec('COMMIT');
-    return { databasePath, semanticKey, candidateId, materializationCandidateId, runtimeCutoverCandidateId, materializationScopeAuditId, created };
+    return { databasePath, semanticKey, candidateId, materializationCandidateId, runtimeCutoverCandidateId, materializationScopeAuditId, runtimeCutoverSourceScopeAuditId, runtimeCutoverCandidateScopeAuditId, created };
   } catch (error) {
     database.exec('ROLLBACK');
     throw error;
