@@ -792,8 +792,14 @@ def _materialization_database(path: Path) -> tuple[str, str, str, str]:
     return metric_source, core_source, child_project, other_project
 
 
-def _verified_materialization_backup(tmp_path: Path, source_sha256: str) -> Path:
-    backup_id = "MetricHit-backup-20260826T120000Z"
+def _verified_materialization_backup(
+    tmp_path: Path,
+    source_sha256: str,
+    *,
+    target_path: Path | None = None,
+    timestamp: str = "20260826T120000Z",
+) -> Path:
+    backup_id = f"MetricHit-backup-{timestamp}"
     backup = tmp_path / backup_id
     backup.mkdir()
     components = []
@@ -819,7 +825,18 @@ def _verified_materialization_backup(tmp_path: Path, source_sha256: str) -> Path
             "integrity": "ok",
             "method": "sqlite-online-backup",
         },
-        "projectStorages": {"root": "data/projects", "count": 0, "inventory": []},
+        "projectStorages": {
+            "root": "data/projects",
+            "count": 1 if target_path is not None else 0,
+            "inventory": ([{
+                "projectId": DEFAULT_PROJECT_ID,
+                "path": f"data/projects/{DEFAULT_PROJECT_ID}/project.sqlite",
+                "size": target_path.stat().st_size,
+                "sha256": hashlib.sha256(target_path.read_bytes()).hexdigest(),
+                "storageFormat": 1,
+                "integrity": "ok",
+            }] if target_path is not None else []),
+        },
     }
     (backup / f"{backup_id}-manifest.json").write_text(
         json.dumps(manifest), encoding="utf-8"
@@ -975,3 +992,74 @@ def test_materialization_rejects_source_or_backup_guard_before_target_creation(t
             project_storage_root=storage_root,
         )
     assert not storage_root.exists()
+
+
+def test_guarded_replacement_activates_mutable_runtime_storage(tmp_path: Path) -> None:
+    source = tmp_path / "legacy.sqlite"
+    _materialization_database(source)
+    first_plan = build_migration_plan(source)
+    storage_root = tmp_path / "projects"
+    first_backup = _verified_materialization_backup(tmp_path, first_plan["sourceSha256"])
+    materialize_metrichit_project(
+        source,
+        expected_source_sha256=first_plan["sourceSha256"],
+        expected_manifest_sha256=first_plan["manifestSha256"],
+        verified_backup_set=first_backup,
+        migration_manifest_path=tmp_path / "first-migration.json",
+        rollback_manifest_path=tmp_path / "first-rollback.json",
+        project_storage_root=storage_root,
+    )
+    target = storage_root / DEFAULT_PROJECT_ID / "project.sqlite"
+    old_target = target.read_bytes()
+
+    with sqlite3.connect(source) as database:
+        database.execute(
+            "INSERT INTO sources(id,type,title,data_json) VALUES(?,?,?,?)",
+            (
+                "81000000-0000-4000-a000-000000000099",
+                "owner_decision",
+                "Later MetricHit source",
+                json.dumps({"project_id": DEFAULT_PROJECT_ID}),
+            ),
+        )
+    current_plan = build_migration_plan(source)
+    replacement_backup = _verified_materialization_backup(
+        tmp_path,
+        current_plan["sourceSha256"],
+        target_path=target,
+        timestamp="20260826T130000Z",
+    )
+    backup_manifest_path = replacement_backup / f"{replacement_backup.name}-manifest.json"
+    backup_manifest = json.loads(backup_manifest_path.read_text(encoding="utf-8"))
+    backup_manifest["projectStorages"]["inventory"][0]["sha256"] = "2" * 64
+    backup_manifest_path.write_text(json.dumps(backup_manifest), encoding="utf-8")
+
+    result = materialize_metrichit_project(
+        source,
+        expected_source_sha256=current_plan["sourceSha256"],
+        expected_manifest_sha256=current_plan["manifestSha256"],
+        verified_backup_set=replacement_backup,
+        migration_manifest_path=tmp_path / "replacement-migration.json",
+        rollback_manifest_path=tmp_path / "replacement-rollback.json",
+        project_storage_root=storage_root,
+        replace_existing=True,
+        activate_runtime=True,
+    )
+
+    assert result["replacedExisting"] == 1 and result["cutover"] is True
+    assert target.read_bytes() != old_target
+    with sqlite3.connect(target) as database:
+        assert database.execute(
+            "SELECT count(*) FROM sources WHERE id='81000000-0000-4000-a000-000000000099'"
+        ).fetchone()[0] == 1
+        database.execute(
+            "INSERT INTO sources(id,type,title,data_json) VALUES(?,?,?,?)",
+            (
+                "81000000-0000-4000-a000-000000000100",
+                "owner_decision",
+                "Runtime-only MetricHit source",
+                json.dumps({"project_id": DEFAULT_PROJECT_ID}),
+            ),
+        )
+    manifest = project_migration.verify_metrichit_runtime_storage(source, target)
+    assert manifest["cutover"] is True

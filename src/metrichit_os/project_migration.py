@@ -1651,7 +1651,12 @@ def _read_row(
     return row
 
 
-def _backup_manifest_for_source(backup_set: Path, expected_source_sha256: str) -> dict[str, Any]:
+def _backup_manifest_for_source(
+    backup_set: Path,
+    expected_source_sha256: str,
+    *,
+    expected_existing_target_sha256: str | None = None,
+) -> dict[str, Any]:
     backup_path = backup_set.resolve()
     if not backup_path.is_dir() or not re.fullmatch(r"MetricHit-backup-\d{8}T\d{6}Z", backup_path.name):
         raise RuntimeError("verified backup set path is invalid or incomplete")
@@ -1700,8 +1705,24 @@ def _backup_manifest_for_source(backup_set: Path, expected_source_sha256: str) -
     inventory = projects.get("inventory")
     if not isinstance(inventory, list) or projects.get("count") != len(inventory):
         raise RuntimeError("verified backup project inventory is invalid")
-    if any(item.get("projectId") == DEFAULT_PROJECT_ID for item in inventory if isinstance(item, dict)):
-        raise RuntimeError("verified pre-migration backup unexpectedly contains the MetricHit target")
+    target_items = [
+        item for item in inventory
+        if isinstance(item, dict) and item.get("projectId") == DEFAULT_PROJECT_ID
+    ]
+    if expected_existing_target_sha256 is None:
+        if target_items:
+            raise RuntimeError("verified pre-migration backup unexpectedly contains the MetricHit target")
+    elif (
+        len(target_items) != 1
+        or target_items[0].get("path")
+        != f"data/projects/{DEFAULT_PROJECT_ID}/project.sqlite"
+        or not re.fullmatch(r"[0-9a-f]{64}", str(target_items[0].get("sha256", "")))
+        or not isinstance(target_items[0].get("size"), int)
+        or target_items[0]["size"] <= 0
+        or target_items[0].get("storageFormat") != STORAGE_FORMAT_VERSION
+        or target_items[0].get("integrity") != "ok"
+    ):
+        raise RuntimeError("verified replacement backup does not contain the guarded MetricHit target")
     return {
         "backupId": backup_path.name,
         "path": str(backup_path),
@@ -1709,6 +1730,8 @@ def _backup_manifest_for_source(backup_set: Path, expected_source_sha256: str) -
         "centralSnapshotSha256": central["sha256"],
         "centralSourceSha256": central["sourceSha256"],
         "projectStorageCount": len(inventory),
+        "existingTargetSourceSha256": expected_existing_target_sha256,
+        "projectSnapshotSha256": target_items[0]["sha256"] if target_items else None,
     }
 
 
@@ -1995,6 +2018,57 @@ def _verify_materialized_target(
         return manifest
 
 
+def verify_metrichit_runtime_storage(
+    source_path: Path,
+    target_path: Path,
+) -> dict[str, Any]:
+    """Fail closed unless the mutable MetricHit runtime storage is compatible.
+
+    The embedded materialization manifest remains the immutable cutover baseline.
+    Runtime rows may evolve after cutover, so startup validates identity, schema,
+    integrity and the unchanged legacy baseline without requiring the target to
+    keep the baseline's exact row inventory.
+    """
+    with read_only_database(target_path.resolve()) as connection:
+        integrity = [tuple(row) for row in connection.execute("PRAGMA integrity_check")]
+        foreign_keys = connection.execute("PRAGMA foreign_key_check").fetchall()
+        identity = connection.execute(
+            "SELECT project_id,storage_format FROM project_storage_metadata WHERE singleton=1"
+        ).fetchone()
+        stored = connection.execute(
+            "SELECT migration_key,schema_version,project_id,manifest_sha256,manifest_json "
+            "FROM project_migration_manifest WHERE singleton=1"
+        ).fetchone()
+        if integrity != [("ok",)] or foreign_keys:
+            raise RuntimeError("MetricHit runtime storage failed integrity or foreign-key checks")
+        if (
+            identity is None
+            or identity["project_id"] != DEFAULT_PROJECT_ID
+            or identity["storage_format"] != STORAGE_FORMAT_VERSION
+            or stored is None
+            or stored["migration_key"] != MATERIALIZATION_KEY
+            or stored["schema_version"] != MATERIALIZATION_SCHEMA_VERSION
+            or stored["project_id"] != DEFAULT_PROJECT_ID
+        ):
+            raise RuntimeError("MetricHit runtime storage identity or manifest is invalid")
+        manifest = json.loads(stored["manifest_json"])
+        unhashed = dict(manifest)
+        manifest_hash = unhashed.pop("manifestSha256", None)
+        if manifest_hash != stored["manifest_sha256"] or _json_sha256(unhashed) != manifest_hash:
+            raise RuntimeError("MetricHit runtime storage manifest hash mismatch")
+        if manifest.get("cutover") is not True:
+            raise RuntimeError("MetricHit runtime storage is not activated for cutover")
+        source_names = set(manifest["sourceSchema"]["objectNames"])
+        objects = _schema_objects(connection)
+        if {item["name"] for item in objects} != source_names | TARGET_METADATA_TABLES:
+            raise RuntimeError("MetricHit runtime storage schema inventory mismatch")
+        source_objects = [item for item in objects if item["name"] in source_names]
+        if _json_sha256(source_objects) != manifest["sourceSchema"]["sha256"]:
+            raise RuntimeError("MetricHit runtime storage schema hash mismatch")
+    _reconcile_source_project_rows(source_path.resolve(), manifest)
+    return manifest
+
+
 def _reconcile_source_project_rows(source_path: Path, manifest: dict[str, Any]) -> None:
     current_plan = build_migration_plan(source_path)
     if not current_plan["readyToMigrate"] or current_plan["counts"][CLASS_UNRESOLVED] != 0:
@@ -2049,13 +2123,16 @@ def materialize_metrichit_project(
     migration_manifest_path: Path,
     rollback_manifest_path: Path,
     project_storage_root: Path | None = None,
+    replace_existing: bool = False,
+    activate_runtime: bool = False,
 ) -> dict[str, Any]:
     """Atomically materialize the canonical MetricHit contour without changing legacy SQLite."""
     source_path = database_path.resolve()
     storage = ProjectStorage(project_storage_root) if project_storage_root is not None else ProjectStorage()
     location = storage.location(DEFAULT_PROJECT_ID)
 
-    if location.database.exists():
+    existing_target_sha256: str | None = None
+    if location.database.exists() and not replace_existing:
         manifest = _verify_materialized_target(location.database)
         if (
             manifest["sourceSha256"] != expected_source_sha256
@@ -2095,6 +2172,14 @@ def materialize_metrichit_project(
             "rollbackManifest": str(rollback_manifest_path.resolve()),
         }
 
+    if replace_existing:
+        if not location.database.exists():
+            raise RuntimeError("MetricHit target does not exist for guarded replacement")
+        _verify_materialized_target(location.database)
+        existing_target_sha256 = sha256_file(location.database)
+    elif activate_runtime:
+        raise RuntimeError("runtime activation requires guarded replacement of an existing target")
+
     source_hash_before = sha256_file(source_path)
     if source_hash_before != expected_source_sha256:
         raise RuntimeError("source SHA-256 guard mismatch")
@@ -2103,7 +2188,11 @@ def materialize_metrichit_project(
         raise RuntimeError("migration plan manifest guard mismatch")
     if not plan["readyToMigrate"] or plan["counts"][CLASS_UNRESOLVED] != 0:
         raise RuntimeError("migration plan is not ready to migrate")
-    backup = _backup_manifest_for_source(verified_backup_set, expected_source_sha256)
+    backup = _backup_manifest_for_source(
+        verified_backup_set,
+        expected_source_sha256,
+        expected_existing_target_sha256=existing_target_sha256,
+    )
 
     with read_only_database(source_path) as source:
         source_objects = _schema_objects(source)
@@ -2164,8 +2253,8 @@ def materialize_metrichit_project(
             "totalCopied": len(primary | dependencies | system),
             "metadataCorrections": len(applied_corrections),
         },
-        "legacyRuntimeState": "unchanged-working-source",
-        "cutover": False,
+        "legacyRuntimeState": "central-control-plane" if activate_runtime else "unchanged-working-source",
+        "cutover": activate_runtime,
     }
     manifest = {**manifest_without_hash, "manifestSha256": _json_sha256(manifest_without_hash)}
     manifest_json = json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -2236,11 +2325,17 @@ def materialize_metrichit_project(
             raise RuntimeError("migration plan changed during project materialization")
         location.directory.parent.mkdir(parents=True, exist_ok=True)
         location.directory.mkdir(exist_ok=True)
-        if any(location.directory.iterdir()):
-            raise RuntimeError("MetricHit project storage directory is not empty")
-        if location.database.exists():
-            raise RuntimeError("MetricHit target appeared during atomic materialization")
-        os.rename(staging_path, location.database)
+        entries = list(location.directory.iterdir())
+        if replace_existing:
+            if entries != [location.database] or sha256_file(location.database) != existing_target_sha256:
+                raise RuntimeError("MetricHit target changed before atomic replacement")
+            os.replace(staging_path, location.database)
+        else:
+            if entries:
+                raise RuntimeError("MetricHit project storage directory is not empty")
+            if location.database.exists():
+                raise RuntimeError("MetricHit target appeared during atomic materialization")
+            os.rename(staging_path, location.database)
     finally:
         if staging_path.exists():
             staging_path.unlink()
@@ -2261,7 +2356,11 @@ def materialize_metrichit_project(
         "targetDatabase": str(location.database),
         "targetSha256": target_sha256,
         "verifiedBackup": backup,
-        "rollbackMethod": "with separate owner approval, remove only the newly materialized target; legacy remains the working source; restore the verified full backup set if broader recovery is required",
+        "rollbackMethod": (
+            "restore the verified full backup set to revert the guarded target replacement and runtime cutover"
+            if replace_existing
+            else "with separate owner approval, remove only the newly materialized target; legacy remains the working source; restore the verified full backup set if broader recovery is required"
+        ),
     })
     _write_exact_json(migration_manifest_path, migration_artifact)
     _write_exact_json(rollback_manifest_path, rollback_artifact)
@@ -2269,6 +2368,7 @@ def materialize_metrichit_project(
         "migrationKey": MATERIALIZATION_KEY,
         "applied": 1,
         "alreadyMaterialized": 0,
+        "replacedExisting": int(replace_existing),
         "projectId": DEFAULT_PROJECT_ID,
         "targetDatabase": str(location.database),
         "targetSha256": target_sha256,
@@ -2282,5 +2382,5 @@ def materialize_metrichit_project(
         "rollbackManifest": str(rollback_manifest_path.resolve()),
         "integrity": "ok",
         "foreignKeys": "ok",
-        "cutover": False,
+        "cutover": activate_runtime,
     }

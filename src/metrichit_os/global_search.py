@@ -56,7 +56,14 @@ def _record(*, item_type: str, row: Any, title: str, text: str, tags: list[str],
     }
 
 
-def search(database_path: Path, *, query: str, item_type: str = "all", status: str = "all") -> list[dict[str, object]]:
+def search(
+    database_path: Path,
+    *,
+    query: str,
+    item_type: str = "all",
+    status: str = "all",
+    max_results: int | None = MAX_RESULTS,
+) -> list[dict[str, object]]:
     if item_type not in SEARCH_TYPES or status not in SEARCH_STATUSES:
         raise ValueError("invalid search filter")
     normalized_query = normalize(query)
@@ -111,4 +118,48 @@ def search(database_path: Path, *, query: str, item_type: str = "all", status: s
         results.append({**record, "rank": rank, "snippet": _snippet(str(record["text"]), query)})
     results.sort(key=lambda item: str(item["date"]), reverse=True)
     results.sort(key=lambda item: int(item["rank"]))
-    return results[:MAX_RESULTS]
+    return results if max_results is None else results[:max_results]
+
+
+def search_many(
+    database_paths: tuple[Path, ...],
+    *,
+    query: str,
+    item_type: str = "all",
+    status: str = "all",
+) -> list[dict[str, object]]:
+    """Federate isolated stores, preferring the first store for mirrored IDs."""
+    def identities(path: Path) -> set[tuple[str, str]]:
+        result: set[tuple[str, str]] = set()
+        with read_only_database(path) as database:
+            for row in database.execute("SELECT id,data_json FROM documents WHERE type='knowledge_entry'"):
+                data = _data(row["data_json"])
+                kind = "artem" if data.get("kind") == "artem_recommendation" else "idea" if data.get("kind") == "owner_idea" else None
+                if kind:
+                    result.add((kind, str(row["id"])))
+            result.update(("task", str(row["id"])) for row in database.execute("SELECT id FROM tasks WHERE type IN ('knowledge_task','standalone_task')"))
+            result.update(("fact", str(row["id"])) for row in database.execute("SELECT id FROM memory_items"))
+            result.update(("decision", str(row["id"])) for row in database.execute("SELECT id FROM decisions"))
+            result.update(("document", str(row["id"])) for row in database.execute("SELECT id FROM documents WHERE type!='knowledge_entry'"))
+        return result
+
+    combined: list[dict[str, object]] = []
+    seen: set[tuple[str, str]] = set()
+    shadowed = identities(database_paths[0]) if len(database_paths) > 1 else set()
+    for index, path in enumerate(database_paths):
+        for item in search(
+            path,
+            query=query,
+            item_type=item_type,
+            status=status,
+            max_results=None,
+        ):
+            identity = (str(item["type"]), str(item["id"]))
+            if index > 0 and identity in shadowed:
+                continue
+            if identity not in seen:
+                seen.add(identity)
+                combined.append(item)
+    combined.sort(key=lambda item: str(item["date"]), reverse=True)
+    combined.sort(key=lambda item: int(item["rank"]))
+    return combined[:MAX_RESULTS]

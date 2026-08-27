@@ -13,13 +13,14 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import CURRENT_CONTEXT, MEMORY_DATABASE
-from .activity import list_activity
+from .activity import list_activity_many
 from .database import read_only_database
-from .global_search import search as global_search
+from .global_search import search_many as global_search
 from .knowledge_store import KnowledgeError, KnowledgeStore
 from .memory_review import MemoryReviewError, MemoryReviewStore
 from .project_store import ProjectStore
 from .project_scope import DEFAULT_PROJECT_ID
+from .runtime import RoutedKnowledgeStore, RoutedMemoryReviewStore, RuntimeDatabases
 
 
 LOCAL_HOST = "127.0.0.1"
@@ -88,47 +89,92 @@ def _action_plan(items: list[dict[str, object]], tasks: list[dict[str, object]])
     return {**groups, "markdown": "\n".join(lines), "without_task": without_task}
 
 
-def _memory_items(database_path: Path, query: str) -> list[dict[str, object]]:
+def _memory_items(database_paths: tuple[Path, ...], query: str) -> list[dict[str, object]]:
     pattern = f"%{query.strip()}%"
-    with read_only_database(database_path) as database:
-        rows = database.execute(
-            """
-            SELECT id, semantic_key, title, content, updated_at, version FROM memory_items
-            WHERE status='active' AND (?='' OR semantic_key LIKE ? OR title LIKE ? OR content LIKE ?)
-            ORDER BY updated_at DESC, semantic_key ASC
-            """,
-            (query.strip(), pattern, pattern, pattern),
-        ).fetchall()
-    return [dict(row) for row in rows]
+    items: list[dict[str, object]] = []
+    seen: set[str] = set()
+    shadowed: set[str] = set()
+    if len(database_paths) > 1:
+        with read_only_database(database_paths[0]) as database:
+            shadowed = {str(row["id"]) for row in database.execute("SELECT id FROM memory_items")}
+    for index, path in enumerate(database_paths):
+        with read_only_database(path) as database:
+            rows = database.execute(
+                """
+                SELECT id, semantic_key, title, content, updated_at, version FROM memory_items
+                WHERE status='active' AND (?='' OR semantic_key LIKE ? OR title LIKE ? OR content LIKE ?)
+                ORDER BY updated_at DESC, semantic_key ASC
+                """,
+                (query.strip(), pattern, pattern, pattern),
+            ).fetchall()
+        for row in rows:
+            identity = str(row["id"])
+            if index > 0 and identity in shadowed:
+                continue
+            if identity not in seen:
+                seen.add(identity)
+                items.append(dict(row))
+    items.sort(key=lambda item: (str(item["updated_at"]), str(item["semantic_key"])), reverse=True)
+    return items
 
 
-def _decisions(database_path: Path, query: str) -> list[dict[str, object]]:
+def _decisions(database_paths: tuple[Path, ...], query: str) -> list[dict[str, object]]:
     pattern = f"%{query.strip()}%"
-    with read_only_database(database_path) as database:
-        rows = database.execute(
-            """
-            SELECT id, title, content, updated_at, version FROM decisions
-            WHERE status='active' AND (?='' OR title LIKE ? OR content LIKE ?)
-            ORDER BY updated_at DESC, title ASC
-            """,
-            (query.strip(), pattern, pattern),
-        ).fetchall()
-    return [dict(row) for row in rows]
+    items: list[dict[str, object]] = []
+    seen: set[str] = set()
+    shadowed: set[str] = set()
+    if len(database_paths) > 1:
+        with read_only_database(database_paths[0]) as database:
+            shadowed = {str(row["id"]) for row in database.execute("SELECT id FROM decisions")}
+    for index, path in enumerate(database_paths):
+        with read_only_database(path) as database:
+            rows = database.execute(
+                """
+                SELECT id, title, content, updated_at, version FROM decisions
+                WHERE status='active' AND (?='' OR title LIKE ? OR content LIKE ?)
+                ORDER BY updated_at DESC, title ASC
+                """,
+                (query.strip(), pattern, pattern),
+            ).fetchall()
+        for row in rows:
+            identity = str(row["id"])
+            if index > 0 and identity in shadowed:
+                continue
+            if identity not in seen:
+                seen.add(identity)
+                items.append(dict(row))
+    items.sort(key=lambda item: (str(item["updated_at"]), str(item["title"])), reverse=True)
+    return items
 
 
-def _memory_documents(database_path: Path, query: str) -> list[dict[str, object]]:
+def _memory_documents(database_paths: tuple[Path, ...], query: str) -> list[dict[str, object]]:
     pattern = f"%{query.strip()}%"
-    with read_only_database(database_path) as database:
-        rows = database.execute(
-            """
-            SELECT id, title, content, updated_at, version FROM documents
-            WHERE type!='knowledge_entry' AND status='active'
-              AND (?='' OR title LIKE ? OR content LIKE ?)
-            ORDER BY updated_at DESC, id ASC
-            """,
-            (query.strip(), pattern, pattern),
-        ).fetchall()
-    return [dict(row) for row in rows]
+    items: list[dict[str, object]] = []
+    seen: set[str] = set()
+    shadowed: set[str] = set()
+    if len(database_paths) > 1:
+        with read_only_database(database_paths[0]) as database:
+            shadowed = {str(row["id"]) for row in database.execute("SELECT id FROM documents")}
+    for index, path in enumerate(database_paths):
+        with read_only_database(path) as database:
+            rows = database.execute(
+                """
+                SELECT id, title, content, updated_at, version FROM documents
+                WHERE type!='knowledge_entry' AND status='active'
+                  AND (?='' OR title LIKE ? OR content LIKE ?)
+                ORDER BY updated_at DESC, id ASC
+                """,
+                (query.strip(), pattern, pattern),
+            ).fetchall()
+        for row in rows:
+            identity = str(row["id"])
+            if index > 0 and identity in shadowed:
+                continue
+            if identity not in seen:
+                seen.add(identity)
+                items.append(dict(row))
+    items.sort(key=lambda item: (str(item["updated_at"]), str(item["id"])), reverse=True)
+    return items
 
 
 def _current_context(context_path: Path = CURRENT_CONTEXT) -> dict[str, object]:
@@ -137,13 +183,16 @@ def _current_context(context_path: Path = CURRENT_CONTEXT) -> dict[str, object]:
     return {"content": content}
 
 
-def _dashboard(store: KnowledgeStore, database_path: Path) -> dict[str, object]:
+def _dashboard(store: KnowledgeStore | RoutedKnowledgeStore, projects: ProjectStore, database_paths: tuple[Path, ...]) -> dict[str, object]:
     """Build independent, read-only dashboard blocks without exposing raw tables."""
     result: dict[str, object] = {}
     try:
         open_tasks = store.list_tasks(status="open", sort="recommended")
-        with read_only_database(database_path) as connection:
-            project_names = {str(row["id"]): str(row["title"]) for row in connection.execute("SELECT id,title FROM documents WHERE type='project'")}
+        project_names = {
+            str(item["id"]): str(item["name"])
+            for item in projects.list()
+            if item["id"] != "unassigned"
+        }
         for task in open_tasks:
             project_id = task.get("project_id")
             task["project_name"] = project_names.get(str(project_id)) if project_id else None
@@ -170,18 +219,28 @@ def _dashboard(store: KnowledgeStore, database_path: Path) -> dict[str, object]:
         except (KnowledgeError, sqlite3.Error):
             result[kind] = {"error": "Записи временно недоступны."}
 
-    def count(sql: str) -> int | None:
+    def count(table: str, where: str = "") -> int | None:
         try:
-            with read_only_database(database_path) as connection:
-                return int(connection.execute(sql).fetchone()[0])
+            identities: set[str] = set()
+            shadowed: set[str] = set()
+            if len(database_paths) > 1:
+                with read_only_database(database_paths[0]) as connection:
+                    shadowed = {str(row["id"]) for row in connection.execute(f'SELECT id FROM "{table}"')}
+            for index, path in enumerate(database_paths):
+                with read_only_database(path) as connection:
+                    for row in connection.execute(f'SELECT id FROM "{table}" {where}'):
+                        identity = str(row["id"])
+                        if index == 0 or identity not in shadowed:
+                            identities.add(identity)
+            return len(identities)
         except sqlite3.Error:
             return None
 
     memory = {
-        "approved": count("SELECT count(*) FROM memory_items WHERE status='active'"),
-        "pending": count("SELECT count(*) FROM memory_candidates WHERE status='pending'"),
-        "conflicts": count("SELECT count(*) FROM memory_conflicts WHERE status='open'"),
-        "sources": count("SELECT count(*) FROM sources"),
+        "approved": count("memory_items", "WHERE status='active'"),
+        "pending": count("memory_candidates", "WHERE status='pending'"),
+        "conflicts": count("memory_conflicts", "WHERE status='open'"),
+        "sources": count("sources"),
     }
     result["memory"] = memory if all(value is not None for value in memory.values()) else {
         "approved": "недоступно", "pending": "недоступно", "conflicts": "недоступно", "sources": "недоступно",
@@ -192,11 +251,12 @@ def _dashboard(store: KnowledgeStore, database_path: Path) -> dict[str, object]:
 
 from .operator_panel_ui import OPERATOR_PANEL_ASSETS, _page
 
-def create_operator_app(database_path: Path) -> FastAPI:
-    store = KnowledgeStore(database_path)
-    projects = ProjectStore(database_path)
-    context_path = CURRENT_CONTEXT if database_path.resolve() == MEMORY_DATABASE.resolve() else database_path.with_name("current-context.md")
-    memory_review = MemoryReviewStore(database_path, context_path)
+def create_operator_app(database_path: Path, project_database_path: Path | None = None) -> FastAPI:
+    databases = RuntimeDatabases.resolve(database_path, project_database_path)
+    store = RoutedKnowledgeStore(databases) if databases.metrichit else KnowledgeStore(databases.central)
+    projects = ProjectStore(databases.central, databases.metrichit)
+    context_path = CURRENT_CONTEXT if databases.central == MEMORY_DATABASE.resolve() else databases.central.with_name("current-context.md")
+    memory_review = RoutedMemoryReviewStore(databases, context_path) if databases.metrichit else MemoryReviewStore(databases.central, context_path)
     token = secrets.token_urlsafe(32)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/assets", StaticFiles(directory=OPERATOR_PANEL_ASSETS), name="operator-panel-assets")
@@ -233,7 +293,7 @@ def create_operator_app(database_path: Path) -> FastAPI:
 
     @app.get("/api/dashboard")
     def dashboard() -> JSONResponse:
-        return JSONResponse(_dashboard(store, database_path))
+        return JSONResponse(_dashboard(store, projects, databases.read_paths))
 
     @app.get("/api/projects")
     def project_list() -> JSONResponse:
@@ -277,14 +337,14 @@ def create_operator_app(database_path: Path) -> FastAPI:
     @app.get("/api/search")
     def search(query: str = "", item_type: str = "all", status: str = "all") -> JSONResponse:
         try:
-            return JSONResponse({"query": query, "results": global_search(database_path, query=query, item_type=item_type, status=status)})
+            return JSONResponse({"query": query, "results": global_search(databases.read_paths, query=query, item_type=item_type, status=status)})
         except ValueError as error:
             return _error(str(error), 400)
 
     @app.get("/api/activity")
     def activity(period: str = "all", item_type: str = "all", action: str = "all", project: str = "all", offset: int = 0) -> JSONResponse:
         try:
-            return JSONResponse(list_activity(database_path, period=period, item_type=item_type, action=action, project=project, offset=offset))
+            return JSONResponse(list_activity_many(databases.read_paths, period=period, item_type=item_type, action=action, project=project, offset=offset))
         except ValueError as error:
             return _error(str(error), 400)
 
@@ -355,15 +415,15 @@ def create_operator_app(database_path: Path) -> FastAPI:
 
     @app.get("/api/memory/facts")
     def memory_facts(query: str = "") -> JSONResponse:
-        return JSONResponse(_memory_items(database_path, query))
+        return JSONResponse(_memory_items(databases.read_paths, query))
 
     @app.get("/api/memory/decisions")
     def memory_decisions(query: str = "") -> JSONResponse:
-        return JSONResponse(_decisions(database_path, query))
+        return JSONResponse(_decisions(databases.read_paths, query))
 
     @app.get("/api/memory/documents")
     def memory_documents(query: str = "") -> JSONResponse:
-        return JSONResponse(_memory_documents(database_path, query))
+        return JSONResponse(_memory_documents(databases.read_paths, query))
 
     @app.post("/api/entries")
     async def add_entry(request: Request) -> JSONResponse:

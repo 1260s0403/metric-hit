@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from metrichit_os.config import CURRENT_CONTEXT
 from metrichit_os.operator_panel import create_operator_app, run_operator_panel
 from metrichit_os.operator_panel_ui import _page
+from metrichit_os.project_scope import DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID
 
 
 def temporary_database(tmp_path):
@@ -27,6 +28,29 @@ def panel(tmp_path):
     assert startup is not None
     token = json.loads(startup.group(1))["token"]
     return client, token, database
+
+
+def routed_panel(tmp_path, monkeypatch):
+    central_root = tmp_path / "central"
+    project_root = tmp_path / "project"
+    central_root.mkdir()
+    project_root.mkdir()
+    central = temporary_database(central_root)
+    project = temporary_database(project_root)
+    with sqlite3.connect(project) as database:
+        database.execute(
+            "DELETE FROM documents WHERE id=?", (YADRO_CONTROL_PLANE_PROJECT_ID,)
+        )
+    monkeypatch.setattr(
+        "metrichit_os.runtime.verify_metrichit_runtime_storage",
+        lambda source, target: {"cutover": True},
+    )
+    client = TestClient(create_operator_app(central, project))
+    page = client.get("/")
+    startup = re.search(r'<script id="operator-panel-startup" type="application/json">(.*?)</script>', page.text)
+    assert startup is not None
+    token = json.loads(startup.group(1))["token"]
+    return client, token, central, project
 
 
 def presentation(client):
@@ -68,6 +92,76 @@ def seed_memory(database, visible_content="Найти это"):
 def test_refuses_external_host(tmp_path):
     with pytest.raises(ValueError, match="127.0.0.1"):
         run_operator_panel(temporary_database(tmp_path), port=8765, host="0.0.0.0")
+
+
+def test_runtime_routes_project_and_control_plane_reads_and_writes(tmp_path, monkeypatch):
+    client, token, central, project = routed_panel(tmp_path, monkeypatch)
+
+    project_entry = client.post(
+        "/api/entries",
+        headers={"X-Operator-Token": token},
+        json={
+            "kind": "idea",
+            "topic": "Проектная идея",
+            "text": "Только MetricHit",
+            "project_id": DEFAULT_PROJECT_ID,
+        },
+    ).json()
+    core_entry = client.post(
+        "/api/entries",
+        headers={"X-Operator-Token": token},
+        json={
+            "kind": "idea",
+            "topic": "Управляющая идея",
+            "text": "Только Ядро",
+            "project_id": YADRO_CONTROL_PLANE_PROJECT_ID,
+        },
+    ).json()
+    project_task = client.post(
+        "/api/tasks",
+        headers={"X-Operator-Token": token},
+        json={"id": project_entry["id"], "project_id": DEFAULT_PROJECT_ID},
+    ).json()
+    core_task = client.post(
+        "/api/tasks",
+        headers={"X-Operator-Token": token},
+        json={"id": core_entry["id"], "project_id": YADRO_CONTROL_PLANE_PROJECT_ID},
+    ).json()
+
+    with sqlite3.connect(central) as database:
+        assert database.execute("SELECT count(*) FROM documents WHERE id=?", (project_entry["id"],)).fetchone()[0] == 0
+        assert database.execute("SELECT count(*) FROM documents WHERE id=?", (core_entry["id"],)).fetchone()[0] == 1
+        assert database.execute("SELECT count(*) FROM tasks WHERE id=?", (project_task["id"],)).fetchone()[0] == 0
+        assert database.execute("SELECT count(*) FROM tasks WHERE id=?", (core_task["id"],)).fetchone()[0] == 1
+    with sqlite3.connect(project) as database:
+        assert database.execute("SELECT count(*) FROM documents WHERE id=?", (project_entry["id"],)).fetchone()[0] == 1
+        assert database.execute("SELECT count(*) FROM documents WHERE id=?", (core_entry["id"],)).fetchone()[0] == 0
+        assert database.execute("SELECT count(*) FROM tasks WHERE id=?", (project_task["id"],)).fetchone()[0] == 1
+        assert database.execute("SELECT count(*) FROM tasks WHERE id=?", (core_task["id"],)).fetchone()[0] == 0
+
+    assert {item["id"] for item in client.get("/api/entries", params={"kind": "idea"}).json()} >= {
+        project_entry["id"], core_entry["id"],
+    }
+    assert {item["id"] for item in client.get("/api/tasks").json()} >= {
+        project_task["id"], core_task["id"],
+    }
+
+    project_status = client.post(
+        f"/api/tasks/{project_task['id']}/status",
+        headers={"X-Operator-Token": token},
+        json={"status": "completed"},
+    )
+    assert project_status.status_code == 200
+    with sqlite3.connect(project) as database:
+        assert database.execute("SELECT status FROM tasks WHERE id=?", (project_task["id"],)).fetchone()[0] == "completed"
+
+    cross_storage = client.post(
+        "/api/projects/assign",
+        headers={"X-Operator-Token": token},
+        json={"object_id": project_entry["id"], "project_id": YADRO_CONTROL_PLANE_PROJECT_ID},
+    )
+    assert cross_storage.status_code == 400
+    assert "separate migration" in cross_storage.json()["message"]
 
 
 def test_page_title_stays_metrichit_while_visual_heading_is_yadro(tmp_path):

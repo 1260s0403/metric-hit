@@ -28,7 +28,35 @@ TOP_LEVEL_SCOPE_TYPES = {"control_plane", "managed_project"}
 
 
 class ProjectStore:
-    def __init__(self, path: Path): self.path = path.resolve()
+    def __init__(self, path: Path, project_path: Path | None = None):
+        self.path = path.resolve()
+        self.project_path = project_path.resolve() if project_path is not None else None
+        self.data_paths = tuple(
+            candidate for candidate in (self.project_path, self.path)
+            if candidate is not None
+        )
+
+    def _project_row(self, project_id: str) -> tuple[Path, sqlite3.Row] | None:
+        for path in self.data_paths:
+            with read_only_database(path) as db:
+                row = db.execute(
+                    "SELECT * FROM documents WHERE id=? AND type='project'", (project_id,)
+                ).fetchone()
+            if row is not None:
+                return path, row
+        return None
+
+    def _object_path(self, object_id: str) -> Path | None:
+        for path in self.data_paths:
+            with read_only_database(path) as db:
+                row = db.execute(
+                    "SELECT id FROM tasks WHERE id=? AND type IN ('knowledge_task','standalone_task') "
+                    "UNION ALL SELECT id FROM documents WHERE id=? AND type='knowledge_entry'",
+                    (object_id, object_id),
+                ).fetchone()
+            if row is not None:
+                return path
+        return None
 
     def _project(self, row: sqlite3.Row | dict[str, object]) -> dict[str, object]:
         metadata = _meta(row["data_json"])
@@ -39,22 +67,37 @@ class ProjectStore:
             if required: raise KnowledgeError("project scope is required")
             if subproject_id: raise KnowledgeError("subproject requires a project")
             return None, None
-        with read_only_database(self.path) as db:
-            row = db.execute("SELECT status,data_json FROM documents WHERE id=? AND type='project'", (project_id,)).fetchone()
-            if not row or row["status"] != "active" or _meta(row["data_json"]).get("scope_type") not in TOP_LEVEL_SCOPE_TYPES:
-                raise KnowledgeError("project must be an active top-level project")
-            if subproject_id:
-                child = db.execute("SELECT status,data_json FROM documents WHERE id=? AND type='project'", (subproject_id,)).fetchone()
-                child_meta = _meta(child["data_json"]) if child else {}
-                if not child or child["status"] != "active" or child_meta.get("scope_type") != "subproject" or child_meta.get("parent_project_id") != project_id:
-                    raise KnowledgeError("subproject must belong to the selected project")
+        found = self._project_row(project_id)
+        row = found[1] if found else None
+        if not row or row["status"] != "active" or _meta(row["data_json"]).get("scope_type") not in TOP_LEVEL_SCOPE_TYPES:
+            raise KnowledgeError("project must be an active top-level project")
+        if subproject_id:
+            child_found = self._project_row(subproject_id)
+            child = child_found[1] if child_found else None
+            child_meta = _meta(child["data_json"]) if child else {}
+            if not child or child["status"] != "active" or child_meta.get("scope_type") != "subproject" or child_meta.get("parent_project_id") != project_id:
+                raise KnowledgeError("subproject must belong to the selected project")
         return project_id, subproject_id
 
     def list(self) -> list[dict[str, object]]:
-        with read_only_database(self.path) as db:
-            rows = db.execute("SELECT id,title,content,data_json,status,created_at,updated_at FROM documents WHERE type='project' ORDER BY status,title COLLATE NOCASE,id").fetchall()
-            projects = [self._project(row) for row in rows]
-            objects = db.execute("SELECT data_json,status,type FROM tasks UNION ALL SELECT data_json,status,type FROM documents WHERE type='knowledge_entry'").fetchall()
+        projects: list[dict[str, object]] = []
+        objects: list[sqlite3.Row] = []
+        seen_projects: set[str] = set()
+        seen_objects: set[tuple[str, str]] = set()
+        for path in self.data_paths:
+            with read_only_database(path) as db:
+                rows = db.execute("SELECT id,title,content,data_json,status,created_at,updated_at FROM documents WHERE type='project' ORDER BY status,title COLLATE NOCASE,id").fetchall()
+                for row in rows:
+                    identity = str(row["id"])
+                    if identity not in seen_projects:
+                        seen_projects.add(identity)
+                        projects.append(self._project(row))
+                rows = db.execute("SELECT id,data_json,status,type FROM tasks UNION ALL SELECT id,data_json,status,type FROM documents WHERE type='knowledge_entry'").fetchall()
+                for row in rows:
+                    identity = (str(row["type"]), str(row["id"]))
+                    if identity not in seen_objects:
+                        seen_objects.add(identity)
+                        objects.append(row)
         role_order = {"control_plane": 0, "managed_project": 1, "subproject": 2}
         projects.sort(key=lambda item: (
             item["status"] != "active",
@@ -83,8 +126,16 @@ class ProjectStore:
         if not project or project_id == "unassigned":
             raise KnowledgeError("project was not found")
         groups: dict[str, list[dict[str, object]]] = {"tasks": [], "artem": [], "ideas": []}
-        with read_only_database(self.path) as db:
-            rows = db.execute("SELECT id,type,title,content,data_json,status FROM documents WHERE type='knowledge_entry' UNION ALL SELECT id,type,title,content,data_json,status FROM tasks WHERE type IN ('knowledge_task','standalone_task')").fetchall()
+        rows: list[sqlite3.Row] = []
+        seen: set[tuple[str, str]] = set()
+        for path in self.data_paths:
+            with read_only_database(path) as db:
+                candidates = db.execute("SELECT id,type,title,content,data_json,status FROM documents WHERE type='knowledge_entry' UNION ALL SELECT id,type,title,content,data_json,status FROM tasks WHERE type IN ('knowledge_task','standalone_task')").fetchall()
+            for row in candidates:
+                identity = (str(row["type"]), str(row["id"]))
+                if identity not in seen:
+                    seen.add(identity)
+                    rows.append(row)
         for row in rows:
             metadata = _meta(row["data_json"])
             scope_key = "subproject_id" if project.get("scope_type") == "subproject" else "project_id"
@@ -100,10 +151,11 @@ class ProjectStore:
     def create(self, *, name: str, description: str, parent_project_id: str | None = None, author: str = "owner") -> tuple[dict[str, object], bool]:
         if not name.strip(): raise KnowledgeError("project name must not be empty")
         if parent_project_id: self.validate_assignment(parent_project_id, required=True)
-        with sqlite3.connect(self.path) as db:
+        destination = self._project_row(parent_project_id)[0] if parent_project_id else self.path
+        with sqlite3.connect(destination) as db:
             db.row_factory = sqlite3.Row; db.execute("BEGIN IMMEDIATE")
-            for row in db.execute("SELECT id,title,content,data_json,status,created_at,updated_at FROM documents WHERE type='project' AND status='active'"):
-                if _name(str(row["title"])) == _name(name): return self._project(row), False
+            existing = next((item for item in self.list() if item.get("status") == "active" and _name(str(item.get("name", ""))) == _name(name)), None)
+            if existing is not None: return existing, False
             now, project_id = _utc(), str(uuid4()); metadata_dict = {"kind":"project", "scope_type":"subproject" if parent_project_id else "managed_project"}
             if parent_project_id: metadata_dict["parent_project_id"] = parent_project_id
             metadata = json.dumps(metadata_dict, ensure_ascii=False, sort_keys=True)
@@ -113,7 +165,9 @@ class ProjectStore:
 
     def edit(self, *, project_id: str, name: str, description: str) -> dict[str, object]:
         if not name.strip(): raise KnowledgeError("project name must not be empty")
-        with sqlite3.connect(self.path) as db:
+        found = self._project_row(project_id)
+        if found is None: raise KnowledgeError("project was not found")
+        with sqlite3.connect(found[0]) as db:
             db.row_factory=sqlite3.Row; db.execute("BEGIN IMMEDIATE"); row=db.execute("SELECT * FROM documents WHERE id=? AND type='project'",(project_id,)).fetchone()
             if not row: raise KnowledgeError("project was not found")
             for other in db.execute("SELECT id,title FROM documents WHERE type='project' AND status='active' AND id<>?",(project_id,)):
@@ -123,7 +177,9 @@ class ProjectStore:
             value=dict(row); value.update(title=name.strip(),content=description,updated_at=now); return self._project(value)
 
     def archive(self, project_id: str) -> dict[str, object]:
-        with sqlite3.connect(self.path) as db:
+        found = self._project_row(project_id)
+        if found is None: raise KnowledgeError("project was not found")
+        with sqlite3.connect(found[0]) as db:
             db.row_factory=sqlite3.Row; db.execute("BEGIN IMMEDIATE"); row=db.execute("SELECT * FROM documents WHERE id=? AND type='project'",(project_id,)).fetchone()
             if not row: raise KnowledgeError("project was not found")
             if row["status"]=="archived": return self._project(row)
@@ -131,7 +187,13 @@ class ProjectStore:
 
     def assign(self, *, object_id: str, project_id: str | None, subproject_id: str | None = None) -> None:
         self.validate_assignment(project_id, subproject_id, required=bool(project_id or subproject_id))
-        with sqlite3.connect(self.path) as db:
+        source_path = self._object_path(object_id)
+        if source_path is None: raise KnowledgeError("object was not found")
+        target_found = self._project_row(project_id) if project_id else None
+        target_path = target_found[0] if target_found else self.path
+        if source_path != target_path:
+            raise KnowledgeError("cross-storage project assignment requires a separate migration")
+        with sqlite3.connect(source_path) as db:
             db.row_factory=sqlite3.Row; db.execute("BEGIN IMMEDIATE"); row=db.execute("SELECT id,type,data_json,author FROM tasks WHERE id=? AND type IN ('knowledge_task','standalone_task') UNION ALL SELECT id,type,data_json,author FROM documents WHERE id=? AND type='knowledge_entry'",(object_id,object_id)).fetchone()
             if not row: raise KnowledgeError("object was not found")
             try:

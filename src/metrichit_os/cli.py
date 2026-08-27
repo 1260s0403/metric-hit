@@ -40,6 +40,7 @@ from .project_migration import (
     migration_plan_summary,
 )
 from .project_store import ProjectStore
+from .runtime import RoutedKnowledgeStore, RuntimeDatabases
 from .services import current_context, editorial_status, memory_summary
 from .text_providers import ProviderError
 
@@ -120,6 +121,8 @@ def workflow_parser() -> argparse.ArgumentParser:
     migration_apply.add_argument("--verified-backup-set", required=True)
     migration_apply.add_argument("--migration-manifest", required=True)
     migration_apply.add_argument("--rollback-manifest", required=True)
+    migration_apply.add_argument("--replace-existing", action="store_true")
+    migration_apply.add_argument("--activate-runtime", action="store_true")
     handoff_create = subparsers.add_parser("handoff-create")
     handoff_create.add_argument("--db", required=True)
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
@@ -248,6 +251,8 @@ def run_workflow_command(arguments_list: list[str]) -> int:
             verified_backup_set=Path(arguments.verified_backup_set),
             migration_manifest_path=Path(arguments.migration_manifest),
             rollback_manifest_path=Path(arguments.rollback_manifest),
+            replace_existing=arguments.replace_existing,
+            activate_runtime=arguments.activate_runtime,
         ))
         return 0
     if arguments.command == "handoff-create":
@@ -281,8 +286,9 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         print_json(HandoffStore(database_path).dispatcher_complete(arguments.id, arguments.commit, arguments.result, arguments.dispatcher))
         return 0
     if arguments.command.startswith("knowledge-"):
-        store = KnowledgeStore(database_path)
-        projects = ProjectStore(database_path)
+        databases = RuntimeDatabases.resolve(database_path)
+        store = RoutedKnowledgeStore(databases) if databases.metrichit else KnowledgeStore(databases.central)
+        projects = ProjectStore(databases.central, databases.metrichit)
         if arguments.command == "knowledge-add":
             projects.validate_assignment(arguments.project_id, arguments.subproject_id, required=True)
             print_json(store.add(

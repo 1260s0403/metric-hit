@@ -97,5 +97,7 @@ desktop.ini
 work/search-v5-*.png
 .pytest-project-migration/
 .pytest-migration-focused/
+.pytest-runtime-cutover-preflight/
+/.pytest-runtime-cutover/
 .pytest-final-ownership-full/
 .pytest-owner-batch/

@@ -51,8 +51,8 @@ def _timestamp(value: object) -> datetime | None:
     return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
-def list_activity(database_path: Path, *, period: str = "all", item_type: str = "all", action: str = "all", project: str = "all", offset: int = 0, limit: int = 50) -> dict[str, object]:
-    if period not in {"today", "7", "30", "all"} or item_type not in {"all", "task", "artem", "idea", "memory", "project"} or action not in {"all", "create", "update", "completed", "cancelled"} or offset < 0 or not 1 <= limit <= 50:
+def _activity_items(database_path: Path, *, period: str, item_type: str, action: str, project: str) -> list[dict[str, object]]:
+    if period not in {"today", "7", "30", "all"} or item_type not in {"all", "task", "artem", "idea", "memory", "project"} or action not in {"all", "create", "update", "completed", "cancelled"}:
         raise ValueError("invalid activity filter")
     now = datetime.now(timezone.utc)
     cutoff = None if period == "all" else (now.replace(hour=0, minute=0, second=0, microsecond=0) if period == "today" else now - timedelta(days=int(period)))
@@ -116,5 +116,28 @@ def list_activity(database_path: Path, *, period: str = "all", item_type: str = 
             labels = {"create": "Создано", "update": "Изменено", "completed": "Задача выполнена", "cancelled": "Задача отменена"}
             display_scope = subproject_id or project_id
             items.append({"id": str(row["id"]), "object_type": target_type, "title": title, "date": str(row["created_at"]), "action": event_action, "label": labels[event_action], "changes": changes, "available": current is not None, "target_id": target_id, "target_view": target_view, "project_id": str(display_scope) if display_scope else None, "project_name": project_names.get(str(display_scope)) if display_scope else None, "author": str(row["author"] or "—")})
+    return items
+
+
+def list_activity(database_path: Path, *, period: str = "all", item_type: str = "all", action: str = "all", project: str = "all", offset: int = 0, limit: int = 50) -> dict[str, object]:
+    if offset < 0 or not 1 <= limit <= 50:
+        raise ValueError("invalid activity filter")
+    items = _activity_items(database_path, period=period, item_type=item_type, action=action, project=project)
+    page = items[offset:offset + limit + 1]
+    return {"items": page[:limit], "has_more": len(page) > limit, "next_offset": offset + limit}
+
+
+def list_activity_many(database_paths: tuple[Path, ...], *, period: str = "all", item_type: str = "all", action: str = "all", project: str = "all", offset: int = 0, limit: int = 50) -> dict[str, object]:
+    if offset < 0 or not 1 <= limit <= 50:
+        raise ValueError("invalid activity filter")
+    items: list[dict[str, object]] = []
+    seen: set[str] = set()
+    for path in database_paths:
+        for item in _activity_items(path, period=period, item_type=item_type, action=action, project=project):
+            identity = str(item["id"])
+            if identity not in seen:
+                seen.add(identity)
+                items.append(item)
+    items.sort(key=lambda item: (str(item["date"]), str(item["id"])), reverse=True)
     page = items[offset:offset + limit + 1]
     return {"items": page[:limit], "has_more": len(page) > limit, "next_offset": offset + limit}
