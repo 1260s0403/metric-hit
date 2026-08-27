@@ -115,7 +115,7 @@
     .mini-table{width:100%;border-collapse:collapse;font-size:12px}.mini-table th,.mini-table td{padding:11px;border-bottom:1px solid var(--line);text-align:left}.mini-table th{color:#718091;font-size:9px;text-transform:uppercase}.mini-table td:nth-child(n+2){text-align:center}.mini-table .up{color:var(--green);font-weight:900}
     .pricing-wrap{display:grid;grid-template-columns:.9fr 1.1fr;gap:22px;align-items:start}
     .price-panel,.calc{border:1px solid var(--line);background:linear-gradient(150deg,var(--surface),rgba(8,12,18,.95));border-radius:24px;padding:24px;box-shadow:var(--shadow)}
-    .tariff-table{width:100%;border-collapse:collapse}.tariff-table th{padding:0 14px 15px;color:#758393;font-size:10px;text-transform:uppercase;letter-spacing:.1em;text-align:left}.tariff-table th:last-child{text-align:right}.tariff-table td{padding:15px 14px;border-top:1px solid var(--line);font-size:14px}.tariff-table td:last-child{text-align:right;font-weight:900}.tariff-table tbody tr{cursor:pointer;transition:.2s}.tariff-table tbody tr:hover,.tariff-table tbody tr.selected{background:rgba(0,231,242,.055)}.tariff-table tbody tr.selected td:last-child{color:var(--cyan)}.tariff-table .best td:first-child::after{content:"Выгодно";font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:#061013;background:var(--cyan);padding:4px 6px;border-radius:5px;margin-left:8px;font-weight:900}
+    .tariff-table{width:100%;border-collapse:collapse}.tariff-table th{padding:0 14px 15px;color:#758393;font-size:10px;text-transform:uppercase;letter-spacing:.1em;text-align:left}.tariff-table th:last-child{text-align:right}.tariff-table td{padding:15px 14px;border-top:1px solid var(--line);font-size:14px}.tariff-table td:nth-child(2){font-weight:900}.tariff-table td:last-child{text-align:right}.tariff-table tbody tr{cursor:pointer;transition:.2s}.tariff-table tbody tr:hover,.tariff-table tbody tr.selected{background:rgba(0,231,242,.055)}.tariff-table tbody tr.selected td:nth-child(2){color:var(--cyan)}.tariff-table .best td:first-child::after{content:"Выгодно";font-size:8px;text-transform:uppercase;letter-spacing:.08em;color:#061013;background:var(--cyan);padding:4px 6px;border-radius:5px;margin-left:8px;font-weight:900}
     .price-foot{padding:17px 14px 0;color:#8190a0;font-size:12px;display:flex;gap:8px}.price-foot svg{width:16px;height:16px;stroke:var(--cyan);flex:0 0 auto;margin-top:2px}
     .calc-top{display:flex;justify-content:space-between;gap:20px;align-items:flex-start;margin-bottom:20px}.calc-top h3{margin:0}.calc-top span{color:var(--muted);font-size:12px}
     .presets{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:22px}.preset{border:1px solid var(--line);background:rgba(255,255,255,.02);border-radius:9px;padding:8px 10px;font-size:11px;font-weight:800;cursor:pointer;transition:.2s}.preset:hover,.preset.active{border-color:rgba(0,231,242,.35);background:rgba(0,231,242,.08);color:var(--cyan)}
@@ -196,7 +196,7 @@
         </div>
         <div class="stats reveal">
           <div class="stat"><strong>1–3 дня</strong><span>средний срок появления динамики</span></div>
-          <div class="stat"><strong>от 0,20 ₽</strong><span>стоимость одного клика</span></div>
+          <div class="stat"><strong>от 0,15 ₽</strong><span>стоимость одного клика</span></div>
           <div class="stat"><strong>1000</strong><span>кликов новым аккаунтам</span></div>
           <div class="stat"><strong>0 ₽</strong><span>абонентская плата</span></div>
         </div>
@@ -260,22 +260,22 @@
         <div class="section-head reveal"><span class="eyebrow">Цена</span><h2>Стоимость накрутки <span class="gradient">поведенческих факторов</span></h2><p>Цена зависит от объёма пополнения. Абонентской платы нет: чем больше объём, тем ниже стоимость одного перехода. Неиспользованные клики остаются на балансе.</p></div>
         <div class="pricing-wrap">
           <div class="price-panel reveal">
-            <table class="tariff-table" id="tariffTable"><thead><tr><th>Объём пополнения</th><th>Цена за клик</th></tr></thead><tbody>
-              <tr data-amount="1000" data-cpc="1.50" class="selected"><td>от 1 000 ₽</td><td>1,50 ₽</td></tr>
-              <tr data-amount="15000" data-cpc="1.20"><td>от 15 000 ₽</td><td>1,20 ₽</td></tr>
-              <tr data-amount="50000" data-cpc="0.90"><td>от 50 000 ₽</td><td>0,90 ₽</td></tr>
-              <tr data-amount="100000" data-cpc="0.50"><td>от 100 000 ₽</td><td>0,50 ₽</td></tr>
-              <tr data-amount="150000" data-cpc="0.35"><td>от 150 000 ₽</td><td>0,35 ₽</td></tr>
-              <tr data-amount="250000" data-cpc="0.20" class="best"><td>от 250 000 ₽</td><td>0,20 ₽</td></tr>
-              <tr data-amount="500000"><td>от 500 000 ₽</td><td>Индивидуально</td></tr>
+            <table class="tariff-table" id="tariffTable"><thead><tr><th>Объём пополнения</th><th>Цена за клик</th><th>Скидка</th></tr></thead><tbody>
+              <tr data-amount="1000" data-cpc="0.50" class="selected"><td>от 1 000 ₽</td><td>0,50 ₽</td><td>—</td></tr>
+              <tr data-amount="10000" data-cpc="0.40"><td>от 10 000 ₽</td><td>0,40 ₽</td><td>20%</td></tr>
+              <tr data-amount="50000" data-cpc="0.30"><td>от 50 000 ₽</td><td>0,30 ₽</td><td>40%</td></tr>
+              <tr data-amount="100000" data-cpc="0.25"><td>от 100 000 ₽</td><td>0,25 ₽</td><td>50%</td></tr>
+              <tr data-amount="150000" data-cpc="0.20"><td>от 150 000 ₽</td><td>0,20 ₽</td><td>60%</td></tr>
+              <tr data-amount="200000" data-cpc="0.15" class="best"><td>от 200 000 ₽</td><td>0,15 ₽</td><td>70%</td></tr>
+              <tr data-amount="250000"><td>от 250 000 ₽</td><td>По договорённости</td><td>Индивидуально</td></tr>
             </tbody></table>
             <div class="price-foot"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z"/><path d="M12 11v6m0-10v.01"/></svg><span>Управляете пулом сайтов? Для агентств и партнёров доступен закрытый прайс — напишите нам в Telegram.</span></div>
           </div>
           <div class="calc reveal" id="calculator">
             <div class="calc-top"><div><h3>Калькулятор бюджета</h3><span>Выберите сумму пополнения</span></div><span>от 1 000 ₽</span></div>
-            <div class="presets"><button class="preset active" type="button" data-value="1000">1 000 ₽</button><button class="preset" type="button" data-value="15000">15 000 ₽</button><button class="preset" type="button" data-value="50000">50 000 ₽</button><button class="preset" type="button" data-value="100000">100 000 ₽</button><button class="preset" type="button" data-value="150000">150 000 ₽</button><button class="preset" type="button" data-value="250000">250 000 ₽</button></div>
+            <div class="presets"><button class="preset active" type="button" data-value="1000">1 000 ₽</button><button class="preset" type="button" data-value="10000">10 000 ₽</button><button class="preset" type="button" data-value="50000">50 000 ₽</button><button class="preset" type="button" data-value="100000">100 000 ₽</button><button class="preset" type="button" data-value="150000">150 000 ₽</button><button class="preset" type="button" data-value="200000">200 000 ₽</button><button class="preset" type="button" data-value="250000">250 000 ₽</button></div>
             <div class="range-row"><input id="amountRange" type="range" min="1000" max="500000" step="1000" value="1000" aria-label="Сумма пополнения"><div class="amount" id="amountDisplay">1 000 ₽</div></div>
-            <div class="calc-results"><div class="result"><small>Пополнение</small><strong id="resultAmount">1 000 ₽</strong></div><div class="result"><small>Цена клика</small><strong id="resultCpc">1,50 ₽</strong><span id="resultSaving">базовый тариф</span></div><div class="result emphasis"><small>Переходов на сайт</small><strong id="resultClicks">≈ 667</strong><span id="resultExtra">тестовый запуск проекта</span></div></div>
+            <div class="calc-results"><div class="result"><small>Пополнение</small><strong id="resultAmount">1 000 ₽</strong></div><div class="result"><small>Цена клика</small><strong id="resultCpc">0,50 ₽</strong><span id="resultSaving">базовый тариф</span></div><div class="result emphasis"><small>Переходов на сайт</small><strong id="resultClicks">≈ 2 000</strong><span id="resultExtra">тестовый запуск проекта</span></div></div>
             <div class="calc-note" id="calcNote">Этого хватит на тестовый запуск одного проекта. Дальше объём можно наращивать по результатам.</div>
             <div class="payment-flow"><div class="pay-step"><b>01</b><span><strong>Пополняете баланс</strong>Минимальная сумма — 1000 ₽</span></div><div class="pay-step"><b>02</b><span><strong>Получаете клики</strong>По цене выбранного тарифа</span></div><div class="pay-step"><b>03</b><span><strong>Используете постепенно</strong>Остаток не сгорает</span></div></div>
           </div>
@@ -323,7 +323,7 @@
         <div class="faq reveal">
           <details><summary>Что такое накрутка ПФ?</summary><div class="answer"><p>ПФ — это поведенческие факторы. Термином «накрутка ПФ» обычно называют управляемое создание поведенческих сигналов при взаимодействии с поисковой выдачей и сайтом.</p></div></details>
           <details><summary>Как работает накрутка поведенческих факторов в Яндексе?</summary><div class="answer"><p>В MetricHit проект настраивается по сайту, запросам и региону. Система распределяет сценарии взаимодействия по заданным параметрам, а результаты можно отслеживать по статистике проекта и независимому мониторингу позиций.</p></div></details>
-          <details><summary>Сколько стоит накрутка ПФ?</summary><div class="answer"><p>Минимальное пополнение — 1 000 ₽. Цена одного клика начинается с 1,50 ₽ и снижается с ростом объёма до 0,20 ₽ при пополнении от 250 000 ₽. От 500 000 ₽ условия рассчитываются индивидуально.</p></div></details>
+          <details><summary>Сколько стоит накрутка ПФ?</summary><div class="answer"><p>Минимальное пополнение — 1 000 ₽. Цена одного клика начинается с 0,50 ₽ и снижается с ростом объёма до 0,15 ₽ при пополнении от 200 000 ₽. От 250 000 ₽ условия рассчитываются индивидуально.</p></div></details>
           <details><summary>Как заказать накрутку ПФ для сайта?</summary><div class="answer"><p>Зарегистрируйтесь в MetricHit, добавьте сайт, поисковые запросы и регион, после чего запустите проект. Новому аккаунту доступно 1000 тестовых кликов после обращения в Telegram.</p></div></details>
           <details><summary>Для каких сайтов подходит продвижение поведенческими факторами?</summary><div class="answer"><p>Сервис можно использовать для коммерческих, региональных и информационных сайтов. Перед запуском важно, чтобы продвигаемая страница соответствовала запросу и была нормально оптимизирована технически и по контенту.</p></div></details>
           <details><summary>Сколько переходов потребуется?</summary><div class="answer"><p>Количество зависит от частотности запросов, конкуренции, региона, текущих позиций и качества SEO-оптимизации. Необходимый объём следует оценивать по конкретному проекту и его динамике.</p></div></details>
@@ -352,7 +352,7 @@
     "mainEntity":[
       {"@type":"Question","name":"Что такое накрутка ПФ?","acceptedAnswer":{"@type":"Answer","text":"ПФ — это поведенческие факторы. Термином накрутка ПФ обычно называют управляемое создание поведенческих сигналов при взаимодействии с поисковой выдачей и сайтом."}},
       {"@type":"Question","name":"Как работает накрутка поведенческих факторов в Яндексе?","acceptedAnswer":{"@type":"Answer","text":"В MetricHit проект настраивается по сайту, запросам и региону. Система распределяет сценарии взаимодействия по заданным параметрам."}},
-      {"@type":"Question","name":"Сколько стоит накрутка ПФ?","acceptedAnswer":{"@type":"Answer","text":"Минимальное пополнение — 1 000 ₽. Цена клика зависит от объёма и составляет от 1,50 ₽ до 0,20 ₽. От 500 000 ₽ условия рассчитываются индивидуально."}},
+      {"@type":"Question","name":"Сколько стоит накрутка ПФ?","acceptedAnswer":{"@type":"Answer","text":"Минимальное пополнение — 1 000 ₽. Цена клика зависит от объёма и составляет от 0,50 ₽ до 0,15 ₽. От 250 000 ₽ условия рассчитываются индивидуально."}},
       {"@type":"Question","name":"Как заказать накрутку ПФ для сайта?","acceptedAnswer":{"@type":"Answer","text":"Зарегистрируйтесь в MetricHit, добавьте сайт, поисковые запросы и регион, после чего запустите проект."}},
       {"@type":"Question","name":"Можно ли выбрать конкретные запросы и регион?","acceptedAnswer":{"@type":"Answer","text":"Да. При создании проекта задаются поисковые фразы и регион продвижения."}}
     ]
@@ -375,7 +375,7 @@
     demoTabs.forEach((tab,i)=>tab.addEventListener('click',()=>{demoTabs.forEach((t,n)=>{t.classList.toggle('active',n===i);t.setAttribute('aria-selected',String(n===i));});demoPanes.forEach((p,n)=>p.classList.toggle('active',n===i));}));
 
     const formatNumber=n=>Math.round(n).toLocaleString('ru-RU');
-    const getTier=amount=>{if(amount>=500000)return{min:500000,cpc:null};if(amount>=250000)return{min:250000,cpc:.20};if(amount>=150000)return{min:150000,cpc:.35};if(amount>=100000)return{min:100000,cpc:.50};if(amount>=50000)return{min:50000,cpc:.90};if(amount>=15000)return{min:15000,cpc:1.20};return{min:1000,cpc:1.50};};
+    const getTier=amount=>{if(amount>=250000)return{min:250000,cpc:null};if(amount>=200000)return{min:200000,cpc:.15};if(amount>=150000)return{min:150000,cpc:.20};if(amount>=100000)return{min:100000,cpc:.25};if(amount>=50000)return{min:50000,cpc:.30};if(amount>=10000)return{min:10000,cpc:.40};return{min:1000,cpc:.50};};
     const range=document.getElementById('amountRange');
     const presets=[...document.querySelectorAll('.preset')];
     const rows=[...document.querySelectorAll('#tariffTable tbody tr')];
@@ -392,11 +392,11 @@
         document.getElementById('resultSaving').textContent='условия по запросу';
         document.getElementById('resultClicks').textContent='—';
         document.getElementById('resultExtra').textContent='рассчитаем персонально';
-        document.getElementById('calcNote').innerHTML='При пополнении от 500 000 ₽ условия согласуются индивидуально. <strong>Напишите в Telegram</strong> для расчёта.';
+        document.getElementById('calcNote').innerHTML='При пополнении от 250 000 ₽ условия согласуются индивидуально. <strong>Напишите в Telegram</strong> для расчёта.';
         return;
       }
       const clicks=value/tier.cpc;
-      const baseCpc=1.50;
+      const baseCpc=.50;
       const baseClicks=value/baseCpc;
       const extra=clicks-baseClicks;
       document.getElementById('resultCpc').textContent=tier.cpc.toFixed(2).replace('.',',')+' ₽';
