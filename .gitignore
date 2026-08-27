@@ -99,5 +99,6 @@ work/search-v5-*.png
 .pytest-migration-focused/
 .pytest-runtime-cutover-preflight/
 /.pytest-runtime-cutover/
+/.pytest-runtime-cutover-closeout/
 .pytest-final-ownership-full/
 .pytest-owner-batch/

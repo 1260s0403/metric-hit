@@ -901,7 +901,7 @@ test('product positioning and editorial directness decision is repeatable and su
 
   const first = applyProductPositioningAndEditorialDirectness(databasePath);
   const second = applyProductPositioningAndEditorialDirectness(databasePath);
-  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, decisions: 1, candidates: 2, conflictsResolved: 0 });
+  assert.deepEqual(first.created, { sources: 2, documents: 1, versions: 1, decisions: 1, candidates: 3, conflictsResolved: 0 });
   assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, decisions: 0, candidates: 0, conflictsResolved: 0 });
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
@@ -950,7 +950,7 @@ test('memory CLI reads approved memory without modifying the database', (t) => {
   const after = afterDatabase.prepare('SELECT count(*) AS count FROM memory_candidates').get().count;
   afterDatabase.close();
 
-  assert.match(summary, /Approved candidates: 27/);
+  assert.match(summary, /Approved candidates: 28/);
   assert.match(avito, /Пять активных объявлений Avito/);
   assert.match(tasks, /registration_click/);
   assert.match(facts, /Действующая тарифная сетка/);
