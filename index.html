@@ -76,6 +76,7 @@
     .hero-note{display:flex;align-items:flex-start;gap:11px;color:#aab6c4;font-size:13px;max-width:570px}
     .hero-note svg{width:18px;height:18px;stroke:var(--green);flex:0 0 auto;margin-top:2px}
     .hero-visual{position:relative;min-width:0}
+    .hero-result-image{display:block;width:100%;height:auto}
     .orbit{position:absolute;inset:-42px;border:1px solid rgba(0,231,242,.08);border-radius:50%;animation:spin 32s linear infinite;pointer-events:none}.orbit::before,.orbit::after{content:"";position:absolute;border-radius:50%;background:var(--cyan);box-shadow:0 0 18px var(--cyan)}.orbit::before{width:7px;height:7px;top:14%;left:8%}.orbit::after{width:5px;height:5px;right:5%;bottom:24%}
     .dashboard{position:relative;border:1px solid rgba(255,255,255,.1);background:linear-gradient(145deg,rgba(17,25,37,.96),rgba(7,11,17,.98));border-radius:26px;padding:18px;box-shadow:var(--shadow),0 0 80px rgba(0,231,242,.06);overflow:hidden}
     .dashboard::before{content:"";position:absolute;inset:0;background:linear-gradient(120deg,rgba(0,231,242,.07),transparent 30%);pointer-events:none}
@@ -179,20 +180,7 @@
             </div>
             <div class="hero-note"><svg fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="m5 12 4 4L19 6"/></svg><span><strong>1000 кликов новым пользователям.</strong> Зарегистрируйтесь и сообщите логин в Telegram — пополнение не требуется.</span></div>
           </div>
-          <div class="hero-visual" role="img" aria-label="Пример динамики позиций сайта в Яндексе">
-            <div class="orbit"></div>
-            <div class="dashboard">
-              <div class="dash-top"><div class="dash-brand"><img src="assets/logo-mark.svg" alt="" width="370" height="205">MetricHit / Динамика</div><span class="live">● Активно</span></div>
-              <div class="dash-metrics">
-                <div class="metric"><small>Запросов в кейсе</small><b>1 197</b></div>
-                <div class="metric"><small>В ТОП-10</small><b class="cyan">45%</b></div>
-                <div class="metric"><small>Рост доли</small><b class="green">+24 п.п.</b></div>
-              </div>
-              <div class="chart"><div class="chart-grid"></div><svg viewBox="0 0 500 140" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="chartGradient" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#00e7f2" stop-opacity=".28"/><stop offset="1" stop-color="#00e7f2" stop-opacity="0"/></linearGradient></defs><path class="chart-fill" d="M0 125 C50 120 64 110 98 112 S151 91 181 97 S234 72 270 80 S329 47 360 58 S414 30 500 19 L500 140 L0 140Z"/><path class="chart-path" d="M0 125 C50 120 64 110 98 112 S151 91 181 97 S234 72 270 80 S329 47 360 58 S414 30 500 19"/></svg></div>
-              <div class="dash-row"><span>«рецессия в экономике»</span><strong>#16 → <span class="position-chip">#1</span></strong></div>
-            </div>
-            <div class="floating-card"><span>↑ Положительная динамика</span><strong>Данные из Topvisor</strong>Фактический результат проекта</div>
-          </div>
+          <div class="hero-visual"><img class="hero-result-image" src="assets/metric-hit-result.png" alt="MetricHit: рост видимости сайта по нужным запросам"></div>
         </div>
         <div class="stats reveal">
           <div class="stat"><strong>1–3 дня</strong><span>средний срок появления динамики</span></div>
