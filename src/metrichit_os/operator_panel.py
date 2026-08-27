@@ -20,7 +20,7 @@ from .knowledge_store import KnowledgeError, KnowledgeStore
 from .memory_review import MemoryReviewError, MemoryReviewStore
 from .project_store import ProjectStore
 from .project_scope import DEFAULT_PROJECT_ID
-from .runtime import RoutedKnowledgeStore, RoutedMemoryReviewStore, RuntimeDatabases
+from .runtime import RoutedKnowledgeStore, RuntimeDatabases
 
 
 LOCAL_HOST = "127.0.0.1"
@@ -183,6 +183,12 @@ def _current_context(context_path: Path = CURRENT_CONTEXT) -> dict[str, object]:
     return {"content": content}
 
 
+def _project_context(database_path: Path) -> dict[str, object]:
+    items = _memory_items((database_path,), "")
+    content = "\n\n".join(f"## {item['title']}\n\n{item['content']}" for item in items)
+    return {"content": content}
+
+
 def _dashboard(store: KnowledgeStore | RoutedKnowledgeStore, projects: ProjectStore, database_paths: tuple[Path, ...]) -> dict[str, object]:
     """Build independent, read-only dashboard blocks without exposing raw tables."""
     result: dict[str, object] = {}
@@ -254,9 +260,12 @@ from .operator_panel_ui import OPERATOR_PANEL_ASSETS, _page
 def create_operator_app(database_path: Path, project_database_path: Path | None = None) -> FastAPI:
     databases = RuntimeDatabases.resolve(database_path, project_database_path)
     store = RoutedKnowledgeStore(databases) if databases.metrichit else KnowledgeStore(databases.central)
+    local_path = databases.metrichit or databases.central
+    local_paths = (local_path,)
+    local_store = KnowledgeStore(local_path)
     projects = ProjectStore(databases.central, databases.metrichit)
     context_path = CURRENT_CONTEXT if databases.central == MEMORY_DATABASE.resolve() else databases.central.with_name("current-context.md")
-    memory_review = RoutedMemoryReviewStore(databases, context_path) if databases.metrichit else MemoryReviewStore(databases.central, context_path)
+    memory_review = MemoryReviewStore(local_path, None if databases.metrichit else context_path)
     token = secrets.token_urlsafe(32)
     app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
     app.mount("/assets", StaticFiles(directory=OPERATOR_PANEL_ASSETS), name="operator-panel-assets")
@@ -267,14 +276,14 @@ def create_operator_app(database_path: Path, project_database_path: Path | None 
 
     @app.get("/", response_class=HTMLResponse)
     def page(request: Request, view: str = "overview", focus_task: str | None = None) -> str:
-        focused = focus_task if focus_task and any(task["id"] == focus_task for task in store.list_tasks()) else None
+        focused = focus_task if focus_task and any(task["id"] == focus_task for task in local_store.list_tasks()) else None
         return _page(token, focused, view)
 
     @app.get("/api/entries")
     def entries(kind: str, query: str = "") -> JSONResponse:
         try:
-            tasks = {task["knowledge_entry_id"]: task for task in store.list_tasks()}
-            items = _entries(store, kind, query)
+            tasks = {task["knowledge_entry_id"]: task for task in local_store.list_tasks()}
+            items = _entries(local_store, kind, query)
             return JSONResponse([{**item, "task": tasks.get(item["id"])} for item in items])
         except KnowledgeError as error:
             return _error(str(error), 400)
@@ -286,8 +295,8 @@ def create_operator_app(database_path: Path, project_database_path: Path | None 
         ``converted`` counts owner ideas with a task. The idea dashboard groups
         its chart by each idea's explicit project assignment.
         """
-        ideas = store.list_all(kind="idea")
-        tasks = store.list_tasks(sort="newest")
+        ideas = local_store.list_all(kind="idea")
+        tasks = local_store.list_tasks(sort="newest")
         by_entry = {str(task.get("knowledge_entry_id")): task for task in tasks if task.get("knowledge_entry_id")}
         return JSONResponse({"ideas": [{**item, "task": by_entry.get(str(item["id"]))} for item in ideas], "tasks": tasks, "projects": projects.list()})
 
@@ -342,29 +351,30 @@ def create_operator_app(database_path: Path, project_database_path: Path | None 
             return _error(str(error), 400)
 
     @app.get("/api/activity")
-    def activity(period: str = "all", item_type: str = "all", action: str = "all", project: str = "all", offset: int = 0) -> JSONResponse:
+    def activity(period: str = "all", item_type: str = "all", action: str = "all", project: str = "all", offset: int = 0, scope: str = "project") -> JSONResponse:
         try:
-            return JSONResponse(list_activity_many(databases.read_paths, period=period, item_type=item_type, action=action, project=project, offset=offset))
+            paths = databases.read_paths if scope == "global" else local_paths
+            return JSONResponse(list_activity_many(paths, period=period, item_type=item_type, action=action, project=project, offset=offset))
         except ValueError as error:
             return _error(str(error), 400)
 
     @app.get("/api/summary")
     def summary(kind: str, query: str = "") -> JSONResponse:
         try:
-            return JSONResponse(_summary(_entries(store, kind, query)))
+            return JSONResponse(_summary(_entries(local_store, kind, query)))
         except KnowledgeError as error:
             return _error(str(error), 400)
 
     @app.get("/api/action-plan")
     def action_plan(kind: str, query: str = "") -> JSONResponse:
         try:
-            return JSONResponse(_action_plan(_entries(store, kind, query), store.list_tasks()))
+            return JSONResponse(_action_plan(_entries(local_store, kind, query), local_store.list_tasks()))
         except KnowledgeError as error:
             return _error(str(error), 400)
 
     @app.get("/api/memory/context")
     def memory_context() -> JSONResponse:
-        return JSONResponse(_current_context(context_path))
+        return JSONResponse(_project_context(local_path) if databases.metrichit else _current_context(context_path))
 
     @app.get("/api/memory/candidates")
     def memory_candidates(query: str = "") -> JSONResponse:
@@ -415,15 +425,15 @@ def create_operator_app(database_path: Path, project_database_path: Path | None 
 
     @app.get("/api/memory/facts")
     def memory_facts(query: str = "") -> JSONResponse:
-        return JSONResponse(_memory_items(databases.read_paths, query))
+        return JSONResponse(_memory_items(local_paths, query))
 
     @app.get("/api/memory/decisions")
     def memory_decisions(query: str = "") -> JSONResponse:
-        return JSONResponse(_decisions(databases.read_paths, query))
+        return JSONResponse(_decisions(local_paths, query))
 
     @app.get("/api/memory/documents")
     def memory_documents(query: str = "") -> JSONResponse:
-        return JSONResponse(_memory_documents(databases.read_paths, query))
+        return JSONResponse(_memory_documents(local_paths, query))
 
     @app.post("/api/entries")
     async def add_entry(request: Request) -> JSONResponse:
@@ -476,13 +486,13 @@ def create_operator_app(database_path: Path, project_database_path: Path | None 
     @app.get("/api/tasks")
     def tasks(query: str = "", status: str = "all", priority: str = "all", due: str = "all", sort: str = "recommended", project: str = "all") -> JSONResponse:
         try:
-            return JSONResponse(store.list_tasks(query=query, status=status, priority=priority, due=due, sort=sort, project=project))
+            return JSONResponse(local_store.list_tasks(query=query, status=status, priority=priority, due=due, sort=sort, project=project))
         except KnowledgeError as error:
             return _error(str(error), 400)
 
     @app.get("/api/tasks/today")
     def today_tasks() -> JSONResponse:
-        return JSONResponse(store.today_tasks())
+        return JSONResponse(local_store.today_tasks())
 
     @app.post("/api/tasks/{task_id}/edit")
     async def edit_task(task_id: str, request: Request) -> JSONResponse:

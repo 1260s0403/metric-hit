@@ -139,12 +139,27 @@ def test_runtime_routes_project_and_control_plane_reads_and_writes(tmp_path, mon
         assert database.execute("SELECT count(*) FROM tasks WHERE id=?", (project_task["id"],)).fetchone()[0] == 1
         assert database.execute("SELECT count(*) FROM tasks WHERE id=?", (core_task["id"],)).fetchone()[0] == 0
 
-    assert {item["id"] for item in client.get("/api/entries", params={"kind": "idea"}).json()} >= {
+    assert {item["id"] for item in client.get("/api/entries", params={"kind": "idea"}).json()} == {
+        project_entry["id"],
+    }
+    assert {item["id"] for item in client.get("/api/tasks").json()} == {project_task["id"]}
+    assert {item["id"] for item in client.get("/api/search", params={"query": "идея"}).json()["results"]} >= {
         project_entry["id"], core_entry["id"],
     }
-    assert {item["id"] for item in client.get("/api/tasks").json()} >= {
-        project_task["id"], core_task["id"],
+    assert {item["id"] for item in client.get("/api/dashboard").json()["idea"]["items"]} >= {
+        project_entry["id"], core_entry["id"],
     }
+    local_activity_projects = {item["project_id"] for item in client.get("/api/activity").json()["items"]}
+    assert DEFAULT_PROJECT_ID in local_activity_projects
+    assert YADRO_CONTROL_PLANE_PROJECT_ID not in local_activity_projects
+    assert {item["project_id"] for item in client.get("/api/activity", params={"scope": "global"}).json()["items"]} >= {
+        DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID,
+    }
+
+    seed_memory(central, "Только память Ядра")
+    seed_memory(project, "Только память MetricHit")
+    assert "Только память MetricHit" in client.get("/api/memory/context").json()["content"]
+    assert "Только память Ядра" not in client.get("/api/memory/context").json()["content"]
 
     project_status = client.post(
         f"/api/tasks/{project_task['id']}/status",

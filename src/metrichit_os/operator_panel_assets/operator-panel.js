@@ -383,3 +383,6 @@ window.addEventListener('popstate',()=>{if(q().get('view')==='search')setTimeout
   window.addEventListener('popstate',()=>{if(params().get('view')==='idea'){view='idea';renderIdeas()}});
   setTimeout(()=>{if(view==='idea')renderIdeas()},0);
 })();
+
+/* Overview is the federated control-plane screen; local activity stays project-scoped. */
+(()=>{const scopedApi=api;api=(path,options={})=>scopedApi(view==='overview'&&path.startsWith('/api/activity?')&&!path.includes('scope=')?`${path}&scope=global`:path,options)})();
