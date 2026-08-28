@@ -214,13 +214,14 @@ def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_acti
 
 def test_task_creation_refreshes_current_tasks_view_without_navigation(page: Page, panel: str, tmp_path: Path) -> None:
     page.goto(f"{panel}/?view=tasks")
+    expect(page.get_by_test_id("tasks-summary")).to_be_visible()
+    expect(page.get_by_test_id("tasks-by-project")).to_contain_text("Задачи по проектам")
+    expect(page.get_by_test_id("tasks-create-form")).to_be_visible()
+    page.get_by_test_id("task-dashboard-title").fill("Задача без перехода")
+    page.get_by_test_id("task-dashboard-description").fill("Список должен обновиться на текущем экране.")
     page.get_by_test_id("new-task").click()
-    expect(page.get_by_test_id("task-modal")).to_be_visible()
-    page.get_by_test_id("task-title").fill("Задача без перехода")
-    page.get_by_test_id("task-description").fill("Список должен обновиться на текущем экране.")
-    page.get_by_test_id("task-save").click()
     expect(page).to_have_url(re.compile(r"view=tasks"))
-    expect(page.get_by_test_id("task-modal")).to_be_hidden()
+    expect(page.get_by_test_id("tasks-create-form")).to_be_visible()
     expect(page.locator('[data-testid^="task-card-"]').filter(has_text="Задача без перехода")).to_be_visible()
     page.screenshot(path=str(tmp_path / "tasks-after-create.png"), full_page=True)
 
