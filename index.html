@@ -106,8 +106,6 @@
     .service-summary{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,1fr);margin-top:10px;border:1px solid transparent;border-radius:17px;overflow:hidden;background:rgba(3,10,16,.82);box-shadow:0 0 34px rgba(0,231,242,.52),0 0 34px rgba(255,154,22,.52),inset 0 0 22px rgba(0,231,242,.035);position:relative}.service-summary::before{content:"";position:absolute;inset:-1px;padding:1px;border-radius:inherit;background:linear-gradient(100deg,var(--cyan),var(--orange));-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}.summary-item{display:grid;grid-template-columns:98px 1fr;align-items:center;gap:16px;padding:20px;border-right:1px solid rgba(143,207,220,.2)}.summary-item:last-child{border-right:0}.summary-icon{display:grid;place-items:center;width:70px;height:70px;border-radius:50%;border:1px solid rgba(0,231,242,.6);background:rgba(0,231,242,.06)}.summary-icon svg{width:42px;height:42px;stroke:var(--cyan)}.summary-item:nth-child(2) .summary-icon,.summary-item:nth-child(3) .summary-icon{border-color:rgba(255,154,22,.52)}.summary-item:nth-child(2) .summary-icon svg .orange-accent,.summary-item:nth-child(3) .summary-icon svg .orange-accent{stroke:var(--orange)}.summary-item strong{display:block;font-size:20px;letter-spacing:-.03em;margin-bottom:4px}.summary-item p{margin:0;color:#b9c5d1;font-size:14px;line-height:1.45}.summary-item p::first-letter{color:var(--orange)}
     /* Reference-accurate service illustration: the supplied approved visual is cropped to this illustration only. */
     .service-visual{min-height:676px;overflow:hidden}
-    .service-reference-art{position:absolute;inset:0;z-index:1;overflow:hidden;pointer-events:none}
-    .service-reference-art img{position:absolute;display:block;width:1229px;height:auto;max-width:none;left:-440px;top:0}
     .about-orbit{z-index:2;left:326px;top:264px;border-color:rgba(0,231,242,.08)!important;box-shadow:none}
     .about-orbit.one{width:280px;height:280px}.about-orbit.two{width:376px;height:376px}.about-orbit.three{width:472px;height:472px}.about-orbit.four{width:532px;height:532px}
     .about-orbit-run{z-index:3;left:326px;top:264px;transform:translate3d(-50%,-50%,0);transform-origin:50% 50%;will-change:transform;backface-visibility:hidden;contain:layout paint style}.about-orbit-run.one{width:280px;height:280px}.about-orbit-run.two{width:376px;height:376px}.about-orbit-run.three{width:472px;height:472px}.about-orbit-run.four{width:532px;height:532px}
@@ -132,9 +130,6 @@
       .service-benefit strong{font-size:20px;margin-bottom:5px}
       .service-benefit p{font-size:14px;line-height:1.48}
       .service-visual{min-height:820px}
-      .service-reference-art{inset:0 auto auto 0;width:100%;height:820px;overflow:hidden}
-      .service-reference-art img{width:1536px;left:-560px;top:0;mix-blend-mode:lighten}
-      .service-reference-art::after{content:none}
       .about-orbit,.about-orbit-run{left:398px;top:330px}
       .about-orbit.one,.about-orbit-run.one{width:350px;height:350px}
       .about-orbit.two,.about-orbit-run.two{width:470px;height:470px}
@@ -147,16 +142,6 @@
       .summary-item strong{font-size:21px;line-height:1.14;margin-bottom:7px}
       .summary-item p{font-size:14px;line-height:1.48}
     }
-    /* Exact icon crops from the approved 1536×1024 service reference. */
-    .service-benefit-icon,.summary-icon{flex:none;border:0!important;border-radius:0!important;background-color:transparent!important;background-image:url('assets/service-reference.png')!important;background-repeat:no-repeat!important;background-size:auto 1044.897959%!important;box-shadow:none!important}
-    .service-benefit-icon::after{display:none!important}
-    .service-benefit-icon svg,.summary-icon svg{display:none!important}
-    .service-benefit:nth-child(1) .service-benefit-icon{background-position:4.3811% 50.8639%!important}
-    .service-benefit:nth-child(2) .service-benefit-icon{background-position:4.3811% 63.9309%!important}
-    .service-benefit:nth-child(3) .service-benefit-icon{background-position:4.3811% 77.2138%!important}
-    .summary-item:nth-child(1) .summary-icon{background-position:5.7024% 92.8726%!important}
-    .summary-item:nth-child(2) .summary-icon{background-position:38.2476% 92.8726%!important}
-    .summary-item:nth-child(3) .summary-icon{background-position:67.4548% 92.8726%!important}
     .bento{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}
     .card{position:relative;border:1px solid var(--line);background:linear-gradient(145deg,rgba(17,25,37,.82),rgba(10,15,22,.88));border-radius:var(--radius);padding:30px;overflow:hidden}
     .card::after{content:"";position:absolute;width:180px;height:180px;border-radius:50%;right:-80px;top:-100px;background:rgba(0,231,242,.035);filter:blur(2px)}
@@ -204,8 +189,6 @@
     @media(max-width:720px){.result-visual{width:100%;margin:0;min-height:480px;padding:22px 18px}.result-title{margin-top:28px;font-size:34px}.result-search{width:80%;height:49px;margin-bottom:18px}.result-stack{height:236px}.result-card.front{padding:24px 22px}.site-line{font-size:22px}.site-globe{width:45px;height:45px}.site-bar,.site-rule{margin-left:58px}.result-benefits{left:18px;right:18px;bottom:18px}.result-benefit{min-height:63px;padding:8px;font-size:10px;gap:6px}.result-benefit svg{width:22px;height:22px}}
     /* Service reference corrections: crisp full orbit lines, dots animate independently, and the summary has a balanced cyan-to-orange edge glow. */
     .service-visual{overflow:visible}
-    /* Conceal only the seven frozen raster markers. These small patches are beneath the CSS rings (z-index:2), so they cannot break a ring. */
-    .service-reference-art::after{content:""!important;position:absolute;inset:0;background:radial-gradient(circle at 326px 23px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 450px 82px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 542px 126px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 454px 530px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 384px 550px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 262px 579px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 187px 524px,#02070d 0 6px,transparent 7px);pointer-events:none}
     .about-orbit{z-index:2;border:1px solid rgba(0,231,242,.34)!important;box-shadow:0 0 8px rgba(0,231,242,.18),inset 0 0 8px rgba(0,231,242,.035)}
     .about-orbit.one{border-color:rgba(0,231,242,.38)!important}.about-orbit.two{border-color:rgba(0,231,242,.34)!important}.about-orbit.three{border-color:rgba(0,231,242,.31)!important}.about-orbit.four{border-color:rgba(0,231,242,.29)!important}
     .about-orbit-run{z-index:3;width:0!important;height:0!important;transform:none!important;animation:none!important;contain:layout style paint;will-change:auto}
@@ -215,16 +198,54 @@
     @keyframes about-dot-orbit{from{transform:rotate(0deg) translate3d(var(--radius),0,0)}to{transform:rotate(360deg) translate3d(var(--radius),0,0)}}
     .service-summary{box-shadow:-34px 0 34px rgba(0,231,242,.34),34px 0 34px rgba(255,154,22,.34),inset 0 0 22px rgba(0,231,242,.035)}
     .service-summary::before{background:linear-gradient(90deg,#00e7f2 0%,rgba(0,231,242,.72) 34%,rgba(184,198,198,.5) 50%,rgba(255,192,113,.72) 68%,#ff9a16 100%)}
-    @media(min-width:1001px){.service-reference-art::after{background:radial-gradient(circle at 398px 29px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 552px 102px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 668px 158px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 558px 662px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 470px 688px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 318px 724px,#02070d 0 6px,transparent 7px),radial-gradient(circle at 224px 655px,#02070d 0 6px,transparent 7px)}.about-orbit,.about-orbit-run{left:398px;top:330px}.about-orbit.one{width:350px;height:350px}.about-orbit.two{width:470px;height:470px}.about-orbit.three{width:590px;height:590px}.about-orbit.four{width:665px;height:665px}}
+    @media(min-width:1001px){.about-orbit,.about-orbit-run{left:398px;top:330px}.about-orbit.one{width:350px;height:350px}.about-orbit.two{width:470px;height:470px}.about-orbit.three{width:590px;height:590px}.about-orbit.four{width:665px;height:665px}}
     @media(min-width:721px) and (max-width:1000px){.about-orbit,.about-orbit-run{left:326px;top:264px}.about-orbit.one{width:280px;height:280px}.about-orbit.two{width:376px;height:376px}.about-orbit.three{width:472px;height:472px}.about-orbit.four{width:532px;height:532px}.about-orbit-run.one{--radius:140px}.about-orbit-run.two{--radius:188px}.about-orbit-run.three{--radius:236px}.about-orbit-run.four{--radius:266px}}
-    @media(max-width:720px){.service-visual{min-height:430px;overflow:visible}.service-reference-art{height:430px;overflow:hidden}.service-reference-art img{width:720px;left:-263px;top:0}.service-reference-art::after{background:radial-gradient(circle at 186px 14px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 258px 48px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 313px 74px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 261px 310px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 220px 323px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 149px 339px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 105px 307px,#02070d 0 5px,transparent 6px)}.about-orbit,.about-orbit-run{left:187px;top:157px}.about-orbit.one{width:164px;height:164px}.about-orbit.two{width:220px;height:220px}.about-orbit.three{width:277px;height:277px}.about-orbit.four{width:312px;height:312px}.about-orbit-run.one{--radius:82px}.about-orbit-run.two{--radius:110px}.about-orbit-run.three{--radius:138.5px}.about-orbit-run.four{--radius:156px}}
+    @media(max-width:720px){.service-visual{min-height:430px;overflow:visible}.about-orbit,.about-orbit-run{left:187px;top:157px}.about-orbit.one{width:164px;height:164px}.about-orbit.two{width:220px;height:220px}.about-orbit.three{width:277px;height:277px}.about-orbit.four{width:312px;height:312px}.about-orbit-run.one{--radius:82px}.about-orbit-run.two{--radius:110px}.about-orbit-run.three{--radius:138.5px}.about-orbit-run.four{--radius:156px}}
     @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.reveal{opacity:1;transform:none;transition:none}*{transition-duration:.01ms!important}.orbit{animation:none!important}}
-    /* The service block is the supplied approved reference itself. The 44px page header
-       visible in the source screenshot is cropped because the site already owns that UI. */
-    .service-section{padding:0;background:#000;overflow:hidden}
-    .service-reference-exact{position:relative;width:100%;aspect-ratio:1439/1015;overflow:hidden;background:#000}
-    .service-reference-exact>img{display:block;width:100%;height:auto;max-width:none;transform:translateY(-4.155%);transform-origin:top center}
-    .service-semantic{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+    /* Code-drawn service section. The supplied screenshot is used only as a visual reference. */
+    .service-section{padding:84px 0 44px;background:#02070d;overflow:hidden}
+    .service-section>.container{width:min(1376px,calc(100% - 64px))}
+    .service-benefit-icon,.summary-icon{display:grid!important;place-items:center;background:radial-gradient(circle at 42% 40%,rgba(0,231,242,.14),rgba(0,13,22,.78) 72%)!important;background-image:none!important;border:1px solid rgba(0,231,242,.68)!important;border-radius:50%!important;box-shadow:inset 0 0 20px rgba(0,231,242,.08),0 0 18px rgba(0,231,242,.08)!important}
+    .service-benefit-icon::after{display:block!important}
+    .service-benefit-icon svg,.summary-icon svg{display:block!important;width:52px;height:52px}
+    .service-benefit:nth-child(2) .service-benefit-icon{border-color:rgba(255,154,22,.72)!important;box-shadow:inset 0 0 20px rgba(255,154,22,.08),0 0 18px rgba(255,154,22,.08)!important}
+    .summary-item:nth-child(2) .summary-icon,.summary-item:nth-child(3) .summary-icon{border-color:rgba(255,154,22,.48)!important}
+    .project-graph::before{display:none}
+    .sparkline{position:absolute;inset:8px;width:calc(100% - 16px);height:calc(100% - 16px);overflow:visible}
+    .sparkline-grid{stroke:rgba(0,231,242,.075);stroke-width:1}
+    .sparkline-path{fill:none;stroke:#00e7f2;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 4px rgba(0,231,242,.62))}
+    .sparkline-dot{fill:#00e7f2}.sparkline-end{fill:#ff9a16;filter:drop-shadow(0 0 4px #ff9a16)}
+    .project-mini-bars{display:flex;align-items:end;gap:4px;height:34px;margin-left:auto;padding-right:2px}
+    .project-mini-bars i{display:block;width:6px;background:linear-gradient(180deg,#26eefa,#0588a1);box-shadow:0 0 5px rgba(0,231,242,.3)}
+    .project-mini-bars i:nth-child(1){height:12px}.project-mini-bars i:nth-child(2){height:19px}.project-mini-bars i:nth-child(3){height:27px}.project-mini-bars i:nth-child(4){height:34px}
+    .console-dots{position:absolute;z-index:3;right:16px;top:17px;display:flex;gap:4px}.console-dots i{width:3px;height:3px;border-radius:50%;background:#34505d}.console-dots i:last-child{background:#ff9a16;box-shadow:0 0 5px #ff9a16}
+    .console-ring{background:repeating-radial-gradient(circle,transparent 0 15px,rgba(0,231,242,.18) 15px 16px)}
+    .console-ring::before{inset:0;border:0;border-radius:0;background:linear-gradient(transparent calc(50% - .5px),rgba(0,231,242,.18) 50%,transparent calc(50% + .5px)),linear-gradient(90deg,transparent calc(50% - .5px),rgba(0,231,242,.18) 50%,transparent calc(50% + .5px))}
+    .console-ring::after{inset:23px;border-color:rgba(0,231,242,.22);box-shadow:0 0 0 22px rgba(0,231,242,.025)}
+    .radar-node{position:absolute;z-index:2;width:5px;height:5px;border-radius:50%;background:#00e7f2;box-shadow:0 0 7px #00e7f2}.radar-node.n1{left:18%;top:32%}.radar-node.n2{right:18%;top:23%}.radar-node.n3{right:8%;top:62%}.radar-node.n4{left:25%;bottom:7%}
+    .console-chart{display:block;height:47px}
+    .console-chart .sparkline{inset:6px 8px;width:calc(100% - 16px);height:calc(100% - 12px)}
+    .console-chart::after{display:none}
+    .console-pie{position:relative;overflow:hidden;background:conic-gradient(#00dcea 0 28%,#0a6a80 28% 48%,#123449 48% 74%,rgba(255,255,255,.055) 74% 100%)}
+    .console-pie::after{content:"";position:absolute;left:50%;top:50%;width:1px;height:50%;background:#02070d;transform-origin:bottom;transform:translate(-50%,-100%) rotate(-10deg);box-shadow:18px 24px 0 rgba(2,7,13,.85)}
+    @media(min-width:1001px){
+      .service-showcase{grid-template-columns:480px minmax(0,1fr);column-gap:18px;row-gap:18px;align-items:start;background:#02070d}
+      .service-showcase::before{inset:0;background:radial-gradient(circle at 66% 38%,rgba(0,231,242,.065),transparent 33%),#02070d}
+      .service-copy{align-self:start;padding:2px 0 0 8px}.service-copy .eyebrow{font-size:14px;letter-spacing:.23em;margin-bottom:20px}
+      .service-copy h2{max-width:none;margin-bottom:24px;font-size:59px;line-height:1.12;letter-spacing:-.045em}.service-copy h2>span{white-space:nowrap}
+      .service-copy>p{max-width:414px;margin-bottom:27px;font-size:19px;line-height:1.52}.service-benefits{max-width:435px}
+      .service-benefit{grid-template-columns:96px 1fr;gap:18px;padding:10px 0}.service-benefit-icon{width:98px;height:98px}.service-benefit strong{font-size:20px;margin-bottom:5px}.service-benefit p{font-size:14px;line-height:1.48}
+      .service-visual{min-height:738px;overflow:visible;margin:0;max-width:none}
+      .about-orbit,.about-orbit-run{left:398px;top:245px}.about-orbit.one{width:350px;height:350px}.about-orbit.two{width:470px;height:470px}.about-orbit.three{width:590px;height:590px}.about-orbit.four{width:665px;height:665px}
+      .about-orbit-run.one{--radius:175px;--orbit-duration:16s;--orbit-delay:-5s;--orbit-direction:normal}.about-orbit-run.two{--radius:235px;--orbit-duration:20s;--orbit-delay:-12s;--orbit-direction:reverse}.about-orbit-run.three{--radius:295px;--orbit-duration:24s;--orbit-delay:-19s;--orbit-direction:normal}.about-orbit-run.four{--radius:332.5px;--orbit-duration:28s;--orbit-delay:-25s;--orbit-direction:reverse}
+      .service-console{left:398px;top:276px;width:332px;height:467px;border-color:transparent;background:linear-gradient(145deg,rgba(7,20,30,.99),rgba(3,8,14,.98)) padding-box,linear-gradient(120deg,#00e7f2 0%,#78f8ff 66%,#fff0d3 79%,#ff9a16 100%) border-box}
+      .project-card{border-color:transparent;background:linear-gradient(145deg,rgba(7,21,30,.98),rgba(4,9,15,.98)) padding-box,linear-gradient(120deg,rgba(0,231,242,.9) 0%,rgba(112,240,255,.72) 62%,rgba(255,154,22,.88) 100%) border-box}
+      .project-one{left:15px;top:172px;width:201px;transform:rotate(2.5deg)}.project-two{right:-20px;top:164px;width:230px;transform:rotate(-3deg)}.project-three{left:398px;top:542px;bottom:auto;width:267px;transform:translateX(-50%)}
+      .project-link.one{left:206px;right:auto;top:263px;width:26px}.project-link.two{left:564px;right:auto;top:263px;width:88px}.project-link.three{left:398px;top:509px;height:33px}
+      .service-summary{min-height:138px;margin-top:0;border-radius:18px;background:rgba(3,10,16,.9);box-shadow:-22px 0 26px rgba(0,231,242,.22),22px 0 26px rgba(255,154,22,.22),inset 0 0 22px rgba(0,231,242,.035)}.summary-item{grid-template-columns:108px 1fr;gap:18px;padding:17px 20px}.summary-icon{width:98px;height:98px}.summary-item strong{font-size:21px;line-height:1.14;margin-bottom:7px}.summary-item p{font-size:14px;line-height:1.48}
+    }
+    @media(max-width:1000px){.service-section{padding:76px 0 42px}.service-section>.container{width:min(var(--max),calc(100% - 40px))}.service-showcase{display:grid}.service-visual{overflow:hidden}}
+    @media(max-width:720px){.service-section{padding:66px 0 34px}.service-section>.container{width:min(100% - 28px,var(--max))}.service-visual{min-height:600px}.service-console{left:50%;top:47%}.about-orbit,.about-orbit-run{left:50%;top:47%}.project-three{top:auto;bottom:1%}}
   </style>
   <script type="application/ld+json">
   {
@@ -284,19 +305,41 @@
       </div>
     </section>
 
-    <section class="service-section" id="service" aria-labelledby="service-title">
-      <div class="service-reference-exact">
-        <img src="assets/service-reference-exact.png" alt="" aria-hidden="true" width="1439" height="1059">
-        <div class="service-semantic">
-          <p>Возможности сервиса</p>
-          <h2 id="service-title">Продвижение всех проектов — в одном кабинете</h2>
-          <p>Настраивайте запросы и регионы, управляйте бюджетом и отслеживайте динамику каждого сайта.</p>
-          <h3>Целевые запросы</h3><p>Собирайте, группируйте и отслеживайте только важные запросы.</p>
-          <h3>Контроль позиций</h3><p>Ежедневно отслеживайте позиции и динамику по каждому проекту.</p>
-          <h3>Понятная статистика</h3><p>Наглядные отчёты и тренды для быстрых решений и роста трафика.</p>
-          <h3>Любое число проектов</h3><p>Добавляйте и управляйте любым количеством сайтов.</p>
-          <h3>Единый баланс</h3><p>Пополняйте баланс один раз и распределяйте бюджет.</p>
-          <h3>Все данные в одном месте</h3><p>Запросы, позиции, отчёты и бюджет — в едином кабинете.</p>
+    <section class="section service-section" id="service" aria-labelledby="service-title">
+      <div class="container">
+        <div class="service-showcase reveal">
+          <div class="service-copy">
+            <span class="eyebrow">Возможности сервиса</span>
+            <h2 id="service-title"><span>Продвижение</span><br><span>всех проектов —</span><br><span class="cyan-text">в одном кабинете</span></h2>
+            <p>Настраивайте запросы и регионы, управляйте бюджетом и отслеживайте динамику каждого сайта.</p>
+            <div class="service-benefits">
+              <article class="service-benefit"><span class="service-benefit-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><circle cx="24" cy="24" r="8"/><circle cx="24" cy="24" r="16"/><path d="M24 3v10m0 22v10M3 24h10m22 0h10M9 9l7 7m16 16 7 7M39 9l-7 7M16 32l-7 7"/><circle cx="24" cy="24" r="3" fill="#ff9a16" stroke="#ff9a16"/></svg></span><span><strong>Целевые запросы</strong><p>Собирайте, группируйте и отслеживайте только важные запросы.</p></span></article>
+              <article class="service-benefit"><span class="service-benefit-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><path d="M7 37V28m9 9V21m9 16V26m9 11V12"/><path d="m7 21 10-8 8 5 15-12"/><path d="M35 6h5v5"/></svg></span><span><strong>Контроль позиций</strong><p>Ежедневно отслеживайте позиции и динамику по каждому проекту.</p></span></article>
+              <article class="service-benefit"><span class="service-benefit-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><path d="M24 5a19 19 0 1 0 19 19H24Z"/><path class="orange-accent" d="M27 5v16h16A16 16 0 0 0 27 5Z"/></svg></span><span><strong>Понятная статистика</strong><p>Наглядные отчёты и тренды для быстрых решений и роста трафика.</p></span></article>
+            </div>
+          </div>
+          <div class="service-visual" aria-hidden="true">
+            <span class="about-orbit one"></span><span class="about-orbit two"></span><span class="about-orbit three"></span><span class="about-orbit four"></span>
+            <span class="about-orbit-run one"><i></i></span><span class="about-orbit-run two"><i></i></span><span class="about-orbit-run three"><i></i></span><span class="about-orbit-run four"><i></i></span>
+            <span class="project-link one"></span><span class="project-link two"></span><span class="project-link three"></span>
+            <div class="service-console">
+              <div class="console-name">ЕДИНЫЙ КАБИНЕТ</div>
+              <div class="console-screen">
+                <span class="console-dots"><i></i><i></i><i></i></span>
+                <span class="console-ring"><i class="radar-node n1"></i><i class="radar-node n2"></i><i class="radar-node n3"></i><i class="radar-node n4"></i></span>
+                <span class="console-bars"><i></i><i></i><i></i></span>
+                <div class="console-data"><div class="console-data-top"><span class="console-lines"><i></i><i></i><i></i></span><span class="console-pie"></span></div><span class="console-chart"><svg class="sparkline" viewBox="0 0 220 50" preserveAspectRatio="none"><polyline class="sparkline-path" points="5,40 33,29 59,34 87,20 116,35 146,22 176,33 214,15"/><circle class="sparkline-dot" cx="5" cy="40" r="2"/><circle class="sparkline-dot" cx="33" cy="29" r="2"/><circle class="sparkline-dot" cx="87" cy="20" r="2"/><circle class="sparkline-dot" cx="146" cy="22" r="2"/><circle class="sparkline-end" cx="214" cy="15" r="3"/></svg></span></div>
+              </div>
+            </div>
+            <article class="project-card project-one"><div class="project-head"><span class="project-globe"><svg fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16"/></svg></span>Проект 01</div><div class="project-progress"><i></i></div><div class="project-graph"><svg class="sparkline" viewBox="0 0 180 70" preserveAspectRatio="none"><path class="sparkline-grid" d="M0 18H180M0 36H180M0 54H180"/><polyline class="sparkline-path" points="5,56 31,38 54,50 80,31 108,48 138,27 174,14"/><g class="sparkline-dot"><circle cx="5" cy="56" r="2"/><circle cx="31" cy="38" r="2"/><circle cx="54" cy="50" r="2"/><circle cx="80" cy="31" r="2"/><circle cx="108" cy="48" r="2"/><circle cx="138" cy="27" r="2"/></g><circle class="sparkline-end" cx="174" cy="14" r="3"/></svg></div><div class="project-meta"><span><i></i><i></i><i></i></span><span class="project-mini-bars"><i></i><i></i><i></i><i></i></span></div></article>
+            <article class="project-card project-two"><div class="project-head"><span class="project-globe"><svg fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16"/></svg></span>Проект 02</div><div class="project-progress"><i></i></div><div class="project-graph"><svg class="sparkline" viewBox="0 0 180 70" preserveAspectRatio="none"><path class="sparkline-grid" d="M0 18H180M0 36H180M0 54H180"/><polyline class="sparkline-path" points="5,56 31,37 55,49 81,35 108,20 137,39 174,18"/><g class="sparkline-dot"><circle cx="5" cy="56" r="2"/><circle cx="31" cy="37" r="2"/><circle cx="55" cy="49" r="2"/><circle cx="81" cy="35" r="2"/><circle cx="108" cy="20" r="2"/><circle cx="137" cy="39" r="2"/></g><circle class="sparkline-end" cx="174" cy="18" r="3"/></svg></div><div class="project-meta"><span><i></i><i></i><i></i></span><span class="project-mini-bars"><i></i><i></i><i></i><i></i></span></div></article>
+            <article class="project-card project-three"><div class="project-head"><span class="project-globe"><svg fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16"/></svg></span>Проект 03</div><div class="project-progress"><i></i></div><div class="project-graph"><svg class="sparkline" viewBox="0 0 180 70" preserveAspectRatio="none"><path class="sparkline-grid" d="M0 18H180M0 36H180M0 54H180"/><polyline class="sparkline-path" points="5,54 30,34 54,46 81,28 109,43 136,25 174,12"/><g class="sparkline-dot"><circle cx="5" cy="54" r="2"/><circle cx="30" cy="34" r="2"/><circle cx="54" cy="46" r="2"/><circle cx="81" cy="28" r="2"/><circle cx="109" cy="43" r="2"/><circle cx="136" cy="25" r="2"/></g><circle class="sparkline-end" cx="174" cy="12" r="3"/></svg></div><div class="project-meta"><span><i></i><i></i><i></i></span><span class="project-mini-bars"><i></i><i></i><i></i><i></i></span></div></article>
+          </div>
+          <div class="service-summary">
+            <article class="summary-item"><span class="summary-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><circle cx="14" cy="16" r="5"/><circle cx="34" cy="16" r="5"/><circle cx="24" cy="34" r="5"/><circle cx="12" cy="34" r="5"/><path d="m18 18 12 0M17 20l4 10m8-10-3 10m-9 5h3m9 0h-1"/></svg></span><span><strong>Любое число проектов</strong><p>• Добавляйте и управляйте любым количеством сайтов.</p></span></article>
+            <article class="summary-item"><span class="summary-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><path d="M7 16h29v24H7z"/><path d="M7 16 17 7l19 9M17 25h20m-22 7h13"/><rect class="orange-accent" x="29" y="27" width="13" height="11" rx="2"/></svg></span><span><strong>Единый баланс</strong><p>• Пополняйте баланс один раз и распределяйте бюджет.</p></span></article>
+            <article class="summary-item"><span class="summary-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><ellipse cx="24" cy="10" rx="15" ry="6"/><path d="M9 10v11c0 3.3 6.7 6 15 6s15-2.7 15-6V10M9 21v11c0 3.3 6.7 6 15 6s15-2.7 15-6V21M9 31v7c0 3.3 6.7 6 15 6s15-2.7 15-6v-7"/><path class="orange-accent" d="M39 30v8"/></svg></span><span><strong>Все данные в одном месте</strong><p>• Запросы, позиции, отчёты и бюджет — в едином кабинете.</p></span></article>
+          </div>
         </div>
       </div>
     </section>
