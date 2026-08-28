@@ -45,6 +45,8 @@ try {
     if ($LASTEXITCODE -ne 0 -or -not $symbolicHead) { throw 'Detached HEAD is not allowed for a complete backup set.' }
     $repositoryRefsBefore = @(& git -C $repoRoot for-each-ref --format='%(refname) %(objectname)' | Sort-Object)
     if ($LASTEXITCODE -ne 0) { throw 'Unable to enumerate Git refs before backup.' }
+    $repositoryRefNames = @($repositoryRefsBefore | ForEach-Object { ($_ -split '\s+', 2)[0] })
+    if ($repositoryRefNames.Count -eq 0) { throw 'No canonical Git refs are available for backup.' }
     $refObjectIds = @($repositoryRefsBefore | ForEach-Object { ($_ -split '\s+', 2)[1] } | Sort-Object -Unique)
     $headRefLine = @($repositoryRefsBefore | Where-Object { $_.StartsWith("$symbolicHead ", [StringComparison]::Ordinal) })
     if ($headRefLine.Count -ne 1 -or ($headRefLine[0] -split '\s+', 2)[1] -cne $repositoryHeadBefore) {
@@ -155,7 +157,7 @@ try {
         $globalSourceAfterArchive = Get-RequiredSourceInventory
         Assert-BackupInventoriesEqual -Expected $globalSourceBefore -Actual $globalSourceAfterArchive -Label 'Global backup source after archive creation'
 
-        & git -C $repoRoot bundle create $bundlePath --all
+        & git -C $repoRoot bundle create $bundlePath HEAD @repositoryRefNames
         if ($LASTEXITCODE -ne 0) { throw 'Git bundle creation failed.' }
         & git -C $repoRoot bundle verify $bundlePath
         if ($LASTEXITCODE -ne 0) { throw 'Git bundle verification failed after creation.' }

@@ -213,6 +213,49 @@ test('Git batch parser fails closed on truncated or malformed protocol', () => {
   `);
 });
 
+test('canonical ref bundle excludes linked-worktree pseudo-refs without losing branches', () => {
+  const testRoot = join(tmpdir(), `MetricHitBundleRefs-${randomUUID()}`);
+  const repository = join(testRoot, 'repository');
+  const linkedWorktree = join(testRoot, 'linked-worktree');
+  const bundle = join(testRoot, 'canonical.bundle');
+  const clone = join(testRoot, 'clone');
+  try {
+    mkdirSync(repository, { recursive: true });
+    const git = (...args) => spawnSync('git', ['-C', repository, ...args], { encoding: 'utf8' });
+    assert.equal(git('init', '-q', '-b', 'main').status, 0);
+    assert.equal(git('config', 'user.email', 'test@example.invalid').status, 0);
+    assert.equal(git('config', 'user.name', 'Test').status, 0);
+    writeFileSync(join(repository, 'tracked.txt'), 'main\n');
+    assert.equal(git('add', 'tracked.txt').status, 0);
+    assert.equal(git('commit', '-qm', 'main').status, 0);
+    const worktreeResult = git('worktree', 'add', '-q', '-b', 'linked', linkedWorktree);
+    assert.equal(worktreeResult.status, 0, worktreeResult.stderr || worktreeResult.stdout);
+
+    const inventoryResult = git('for-each-ref', '--format=%(refname) %(objectname)');
+    assert.equal(inventoryResult.status, 0, inventoryResult.stderr);
+    const inventory = inventoryResult.stdout.trim().split(/\r?\n/).sort();
+    const refNames = inventory.map((line) => line.split(/\s+/, 1)[0]);
+    assert.deepEqual(refNames, ['refs/heads/linked', 'refs/heads/main']);
+
+    const createResult = git('bundle', 'create', bundle, 'HEAD', ...refNames);
+    assert.equal(createResult.status, 0, createResult.stderr || createResult.stdout);
+    const headsResult = git('bundle', 'list-heads', bundle);
+    assert.equal(headsResult.status, 0, headsResult.stderr);
+    const bundleInventory = headsResult.stdout.trim().split(/\r?\n/).filter((line) => !line.endsWith(' HEAD')).map((line) => {
+      const [objectName, refName] = line.split(/\s+/, 2);
+      return `${refName} ${objectName}`;
+    }).sort();
+    assert.deepEqual(bundleInventory, inventory);
+    const cloneResult = spawnSync('git', ['clone', '--no-local', bundle, clone], { encoding: 'utf8' });
+    assert.equal(cloneResult.status, 0, cloneResult.stderr || cloneResult.stdout);
+    const cloneHead = spawnSync('git', ['-C', clone, 'rev-parse', 'HEAD'], { encoding: 'utf8' });
+    assert.equal(cloneHead.status, 0, cloneHead.stderr);
+    assert.equal(cloneHead.stdout.trim(), inventory.find((line) => line.startsWith('refs/heads/main ')).split(/\s+/, 2)[1]);
+  } finally {
+    rmSync(testRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
 test('project storage snapshot supports zero and two isolated online SQLite backups', async () => {
   const testRoot = join(tmpdir(), `MetricHitProjectBackup-${randomUUID()}`);
   const source = join(testRoot, 'source');
