@@ -15,7 +15,7 @@ test('project storage decision workflow is exact and idempotent', () => {
     execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
     const first = applyProjectStorageFoundation(databasePath);
     const second = applyProjectStorageFoundation(databasePath);
-    assert.deepEqual(first.created, { sources: 4, documents: 1, versions: 1, candidates: 5, audits: 7 });
+    assert.deepEqual(first.created, { sources: 5, documents: 1, versions: 1, candidates: 6, audits: 9 });
     assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0, audits: 0 });
     const database = new DatabaseSync(databasePath, { readOnly: true });
     try {
@@ -55,6 +55,18 @@ test('project storage decision workflow is exact and idempotent', () => {
       assert.equal(transferData.verification.atomic_import, true);
       assert.equal(transferData.verification.idempotent_reimport, true);
       assert.equal(transferData.next_priority, 'generic_routing_second_project');
+      const genericRouting = database.prepare('SELECT status,data_json FROM memory_candidates WHERE id=?').get(first.genericRoutingCandidateId);
+      const genericRoutingData = JSON.parse(genericRouting.data_json);
+      assert.equal(genericRouting.status, 'approved');
+      assert.equal(genericRoutingData.commit, 'acff1db909c9cf9b7b85f0c2a18b035f3d3fa2c0');
+      assert.equal(genericRoutingData.separation_status, 'technically_completed');
+      assert.equal(genericRoutingData.routing.scope, 'n_projects');
+      assert.equal(genericRoutingData.routing.central_database_role, 'control_plane');
+      assert.deepEqual(genericRoutingData.fail_closed, ['invalid_project_id', 'unknown_project', 'unregistered_project', 'missing_project_storage']);
+      assert.equal(genericRoutingData.verification.temporary_projects, 2);
+      assert.equal(genericRoutingData.verification.real_second_project_created, false);
+      assert.deepEqual(genericRoutingData.verification.readiness, { unresolved: 0, ready: true });
+      assert.equal(genericRoutingData.next_product_step, 'real_second_project_or_separate_ui_decision');
       const scopeAudit = database.prepare('SELECT type,data_json FROM audit_log WHERE id=?').get(first.materializationScopeAuditId);
       assert.equal(scopeAudit.type, 'project_scope_metadata_correction');
       assert.equal(JSON.parse(scopeAudit.data_json).corrections[0].newValue, null);
@@ -64,6 +76,12 @@ test('project storage decision workflow is exact and idempotent', () => {
       const runtimeScopeAudit = database.prepare('SELECT type,data_json FROM audit_log WHERE id=?').get(first.runtimeCutoverCandidateScopeAuditId);
       assert.equal(runtimeScopeAudit.type, 'project_scope_metadata_correction');
       assert.equal(JSON.parse(runtimeScopeAudit.data_json).corrections[0].newValue, null);
+      const genericSourceScopeAudit = database.prepare('SELECT type,data_json FROM audit_log WHERE id=?').get(first.genericRoutingSourceScopeAuditId);
+      assert.equal(genericSourceScopeAudit.type, 'project_scope_assignment');
+      assert.equal(JSON.parse(genericSourceScopeAudit.data_json).project_id, '00000000-0000-4000-a000-000000000101');
+      const genericCandidateScopeAudit = database.prepare('SELECT type,data_json FROM audit_log WHERE id=?').get(first.genericRoutingCandidateScopeAuditId);
+      assert.equal(genericCandidateScopeAudit.type, 'project_scope_metadata_correction');
+      assert.equal(JSON.parse(genericCandidateScopeAudit.data_json).corrections[0].newValue, null);
       assert.equal(database.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       database.close();

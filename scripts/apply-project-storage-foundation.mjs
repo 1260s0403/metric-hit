@@ -14,6 +14,7 @@ const materializationReviewedAt = '2026-08-26T13:30:00.000Z';
 const runtimeCutoverReviewedAt = '2026-08-27T06:07:32.000Z';
 const isolationReviewedAt = '2026-08-27T07:14:42.000Z';
 const transferReviewedAt = '2026-08-28T08:00:00.000Z';
+const genericRoutingReviewedAt = '2026-08-28T08:29:03.000Z';
 const controlPlaneProjectId = '00000000-0000-4000-a000-000000000101';
 
 function uuid(key) {
@@ -80,6 +81,10 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
   const transferCandidateId = uuid(`candidate:${semanticKey}:5`);
   const transferSourceScopeAuditId = uuid(`audit:${semanticKey}:5:source_scope`);
   const transferCandidateScopeAuditId = uuid(`audit:${semanticKey}:5:project_id`);
+  const genericRoutingSourceId = uuid('source:git:acff1db909c9cf9b7b85f0c2a18b035f3d3fa2c0');
+  const genericRoutingCandidateId = uuid(`candidate:${semanticKey}:6`);
+  const genericRoutingSourceScopeAuditId = uuid(`audit:${semanticKey}:6:source_scope`);
+  const genericRoutingCandidateScopeAuditId = uuid(`audit:${semanticKey}:6:project_id`);
   const materializationScopeAuditId = uuid(`audit:${semanticKey}:2:project_id`);
   const materializationTitle = 'Данные MetricHit материализованы в отдельном project SQLite';
   const materializationContent = 'Все 326 записей канонического managed project MetricHit материализованы в data/projects/00000000-0000-4000-a000-000000000102/project.sqlite вместе с 4 минимальными core provenance dependencies и 10 строками schema_migrations. Четыре ранее утверждённые metadata corrections применены только к эффективным target-связям; legacy SQLite не переписана и остаётся рабочим источником. Exact-source backup и restore-test прошли, target foreign keys и integrity проверены, идемпотентный replay не изменил файл. Runtime, reads/writes, UI, export/import и cutover не переключались.';
@@ -209,6 +214,54 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     batchKey: 'project-storage-transfer-closeout-memory-scope-2026-08-28-v1', table: 'memory_candidates', entityId: transferCandidateId,
     project_id: controlPlaneProjectId, corrections: [{ field: 'project_id', invalidValue: '00000000-0000-4000-a000-000000000102', newValue: null, reason: 'project_id describes the verified transfer target; the architecture decision belongs to the control plane' }],
   });
+  const genericRoutingTitle = 'Техническое разделение независимых проектов завершено';
+  const genericRoutingContent = 'На commit acff1db909c9cf9b7b85f0c2a18b035f3d3fa2c0 завершена универсальная маршрутизация независимых проектов. Любой зарегистрированный managed project направляется по canonical project_id в собственный project.sqlite; центральная SQLite остаётся control plane. Некорректные, неизвестные, незарегистрированные проекты и проекты без хранилища отклоняются fail-closed. Federated/project store и memory routing работают для N проектов, совместимость MetricHit сохранена. Два временных проекта подтвердили взаимную изоляцию и export/import; реальный второй проект не создавался. Подтверждены Python 196 passed, 1 skipped; Node 63/63; integrity и foreign keys valid; readiness unresolved=0, ready=true. Разделение технически завершено. Следующий продуктовый шаг нужен только при появлении реального второго проекта или по отдельному решению о UI; cleanup legacy-копий требует отдельного решения владельца.';
+  const genericRoutingData = JSON.stringify({
+    revision: 6,
+    supersedes_semantic_revision: 5,
+    supersedes_candidate_id: transferCandidateId,
+    stage_status: 'completed',
+    separation_status: 'technically_completed',
+    commit: 'acff1db909c9cf9b7b85f0c2a18b035f3d3fa2c0',
+    routing: {
+      project_selector: 'canonical_project_id',
+      managed_project_store: 'dedicated_project_sqlite',
+      central_database_role: 'control_plane',
+      scope: 'n_projects',
+      federated_store: true,
+      project_store: true,
+      memory_routing: true,
+      metrichit_compatibility: true,
+    },
+    fail_closed: ['invalid_project_id', 'unknown_project', 'unregistered_project', 'missing_project_storage'],
+    verification: {
+      temporary_projects: 2,
+      real_second_project_created: false,
+      isolation: true,
+      export_import: true,
+      python: '196 passed, 1 skipped',
+      node: '63/63',
+      integrity: 'ok',
+      foreign_key_violations: 0,
+      readiness: { unresolved: 0, ready: true },
+    },
+    next_product_step: 'real_second_project_or_separate_ui_decision',
+    deferred: ['legacy_cleanup_requires_separate_owner_gate'],
+  });
+  const genericRoutingSourceData = JSON.stringify({
+    commit: 'acff1db909c9cf9b7b85f0c2a18b035f3d3fa2c0',
+    title: 'feat: generalize managed project routing',
+    committed_at: '2026-08-28T08:29:03.000Z',
+    authority: 'verified_generic_managed_project_routing_closeout',
+  });
+  const genericRoutingSourceScopeAuditData = JSON.stringify({
+    batchKey: 'project-storage-generic-routing-closeout-memory-scope-2026-08-28-v1', table: 'sources', entityId: genericRoutingSourceId,
+    project_id: controlPlaneProjectId, basis: 'generic managed-project routing closeout provenance belongs to the control plane',
+  });
+  const genericRoutingCandidateScopeAuditData = JSON.stringify({
+    batchKey: 'project-storage-generic-routing-closeout-memory-scope-2026-08-28-v1', table: 'memory_candidates', entityId: genericRoutingCandidateId,
+    project_id: controlPlaneProjectId, corrections: [{ field: 'project_id', invalidValue: 'managed_project', newValue: null, reason: 'the architecture decision applies to all registered managed projects and belongs to the control plane' }],
+  });
   const runtimeCutoverSourceScopeAuditData = JSON.stringify({
     batchKey: 'project-storage-runtime-cutover-scope-2026-08-27-v1',
     table: 'sources',
@@ -242,14 +295,14 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
   database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
   try {
     const lineage = database.prepare(
-      "SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id NOT IN (?,?,?,?)",
-    ).all(semanticKey, materializationCandidateId, runtimeCutoverCandidateId, isolationCandidateId, transferCandidateId);
+      "SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id NOT IN (?,?,?,?,?)",
+    ).all(semanticKey, materializationCandidateId, runtimeCutoverCandidateId, isolationCandidateId, transferCandidateId, genericRoutingCandidateId);
     if (lineage.some((row) => row.id !== candidateId || row.status !== 'approved')) {
       throw new Error(`Semantic duplicate or evolution blocks ${semanticKey}`);
     }
     const conflict = database.prepare(
       "SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))",
-    ).get(transferCandidateId, semanticKey);
+    ).get(genericRoutingCandidateId, semanticKey);
     if (conflict) throw new Error(`Open memory conflict blocks ${semanticKey}`);
 
     created.sources += Number(database.prepare(
@@ -264,6 +317,9 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     created.sources += Number(database.prepare(
       "INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'git_commit', ?, ?, ?, 'active', ?, '2026-08-28', 'internal')",
     ).run(transferSourceId, transferTitle, 'Verified independent project transfer commit', transferSourceData, owner).changes);
+    created.sources += Number(database.prepare(
+      "INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'git_commit', ?, ?, ?, 'active', ?, '2026-08-28', 'internal')",
+    ).run(genericRoutingSourceId, genericRoutingTitle, 'Verified generic managed-project routing commit', genericRoutingSourceData, owner).changes);
     created.documents += Number(database.prepare(
       "INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-21', 'internal', 1)",
     ).run(documentId, title, decision, metadata, sourceId, owner).changes);
@@ -285,6 +341,9 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     created.candidates += Number(database.prepare(
       "INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-28', 'internal', 1)",
     ).run(transferCandidateId, semanticKey, transferTitle, transferContent, transferData, transferSourceId, owner).changes);
+    created.candidates += Number(database.prepare(
+      "INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-28', 'internal', 1)",
+    ).run(genericRoutingCandidateId, semanticKey, genericRoutingTitle, genericRoutingContent, genericRoutingData, genericRoutingSourceId, owner).changes);
     const candidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
     if (candidate.status === 'pending') {
       database.prepare(
@@ -314,6 +373,12 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       database.prepare(
         "UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?",
       ).run(owner, transferReviewedAt, 'Зафиксировано по проверенной поставке export/import bd203a1.', transferReviewedAt, transferCandidateId);
+    }
+    const genericRoutingCandidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(genericRoutingCandidateId);
+    if (genericRoutingCandidate.status === 'pending') {
+      database.prepare(
+        "UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?",
+      ).run(owner, genericRoutingReviewedAt, 'Зафиксировано по проверенной поставке generic managed-project routing acff1db.', genericRoutingReviewedAt, genericRoutingCandidateId);
     }
     created.audits += Number(database.prepare(
       "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_metadata_correction', 'Project materialization decision scope corrected', ?, ?, ?, ?, ?, 'restricted', 1, 'decision', ?, 'update')",
@@ -345,6 +410,12 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     created.audits += Number(database.prepare(
       "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_metadata_correction', 'Transfer closeout decision scope corrected', ?, ?, ?, ?, ?, 'restricted', 1, 'decision', ?, 'update')",
     ).run(transferCandidateScopeAuditId, transferCandidateScopeAuditData, transferSourceId, owner, transferReviewedAt, transferReviewedAt, transferCandidateId).changes);
+    created.audits += Number(database.prepare(
+      "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_assignment', 'Generic routing closeout provenance scope assigned', ?, ?, ?, ?, ?, 'restricted', 1, 'git_commit', ?, 'update')",
+    ).run(genericRoutingSourceScopeAuditId, genericRoutingSourceScopeAuditData, genericRoutingSourceId, owner, genericRoutingReviewedAt, genericRoutingReviewedAt, genericRoutingSourceId).changes);
+    created.audits += Number(database.prepare(
+      "INSERT OR IGNORE INTO audit_log(id,type,title,data_json,source_id,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES(?, 'project_scope_metadata_correction', 'Generic routing closeout decision scope corrected', ?, ?, ?, ?, ?, 'restricted', 1, 'decision', ?, 'update')",
+    ).run(genericRoutingCandidateScopeAuditId, genericRoutingCandidateScopeAuditData, genericRoutingSourceId, owner, genericRoutingReviewedAt, genericRoutingReviewedAt, genericRoutingCandidateId).changes);
 
     assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), {
       type: 'decision', semantic_key: semanticKey, title, content, data_json: data,
@@ -368,6 +439,10 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       type: 'decision', semantic_key: semanticKey, title: transferTitle, content: transferContent, data_json: transferData,
       status: 'approved', source_id: transferSourceId, reviewed_by: owner, reviewed_at: transferReviewedAt,
     }, 'project transfer closeout decision');
+    assertRow(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(genericRoutingCandidateId), {
+      type: 'decision', semantic_key: semanticKey, title: genericRoutingTitle, content: genericRoutingContent, data_json: genericRoutingData,
+      status: 'approved', source_id: genericRoutingSourceId, reviewed_by: owner, reviewed_at: genericRoutingReviewedAt,
+    }, 'generic managed-project routing closeout decision');
     assertRow(database.prepare('SELECT * FROM audit_log WHERE id=?').get(materializationScopeAuditId), {
       type: 'project_scope_metadata_correction', data_json: materializationScopeAuditData,
       source_id: sourceId, entity_type: 'decision', entity_id: materializationCandidateId,
@@ -403,6 +478,9 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
     assertRow(database.prepare('SELECT * FROM sources WHERE id=?').get(transferSourceId), {
       data_json: transferSourceData, status: 'active',
     }, 'project transfer closeout source');
+    assertRow(database.prepare('SELECT * FROM sources WHERE id=?').get(genericRoutingSourceId), {
+      data_json: genericRoutingSourceData, status: 'active',
+    }, 'generic managed-project routing closeout source');
     assertRow(database.prepare('SELECT * FROM documents WHERE id=?').get(documentId), {
       content: decision, data_json: metadata, source_id: sourceId, version: 1,
     }, 'document');
@@ -410,7 +488,7 @@ export function applyProjectStorageFoundation(databasePath = defaultDatabase) {
       document_id: documentId, content: decision, data_json: metadata, version: 1,
     }, 'document version');
     database.exec('COMMIT');
-    return { databasePath, semanticKey, candidateId, materializationCandidateId, runtimeCutoverCandidateId, isolationCandidateId, transferCandidateId, materializationScopeAuditId, runtimeCutoverSourceScopeAuditId, runtimeCutoverCandidateScopeAuditId, isolationSourceScopeAuditId, isolationCandidateScopeAuditId, transferSourceScopeAuditId, transferCandidateScopeAuditId, created };
+    return { databasePath, semanticKey, candidateId, materializationCandidateId, runtimeCutoverCandidateId, isolationCandidateId, transferCandidateId, genericRoutingCandidateId, materializationScopeAuditId, runtimeCutoverSourceScopeAuditId, runtimeCutoverCandidateScopeAuditId, isolationSourceScopeAuditId, isolationCandidateScopeAuditId, transferSourceScopeAuditId, transferCandidateScopeAuditId, genericRoutingSourceScopeAuditId, genericRoutingCandidateScopeAuditId, created };
   } catch (error) {
     database.exec('ROLLBACK');
     throw error;
