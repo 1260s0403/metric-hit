@@ -57,6 +57,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .pytest-export-import-*/
+.pytest-generic-routing-*/
 .pytest-intake-*-tmp/
 .pytest-overview-*/
 .pytest-projects-ui-*/

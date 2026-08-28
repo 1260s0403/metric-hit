@@ -259,11 +259,11 @@ from .operator_panel_ui import OPERATOR_PANEL_ASSETS, _page
 
 def create_operator_app(database_path: Path, project_database_path: Path | None = None) -> FastAPI:
     databases = RuntimeDatabases.resolve(database_path, project_database_path)
-    store = RoutedKnowledgeStore(databases) if databases.metrichit else KnowledgeStore(databases.central)
+    store = RoutedKnowledgeStore(databases) if databases.projects else KnowledgeStore(databases.central)
     local_path = databases.metrichit or databases.central
     local_paths = (local_path,)
     local_store = KnowledgeStore(local_path)
-    projects = ProjectStore(databases.central, databases.metrichit)
+    projects = ProjectStore(databases.central, tuple(path for _, path in databases.projects))
     context_path = CURRENT_CONTEXT if databases.central == MEMORY_DATABASE.resolve() else databases.central.with_name("current-context.md")
     memory_review = MemoryReviewStore(local_path, None if databases.metrichit else context_path)
     token = secrets.token_urlsafe(32)

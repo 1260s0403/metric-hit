@@ -28,13 +28,12 @@ TOP_LEVEL_SCOPE_TYPES = {"control_plane", "managed_project"}
 
 
 class ProjectStore:
-    def __init__(self, path: Path, project_path: Path | None = None):
+    def __init__(self, path: Path, project_paths: Path | tuple[Path, ...] | None = None):
         self.path = path.resolve()
-        self.project_path = project_path.resolve() if project_path is not None else None
-        self.data_paths = tuple(
-            candidate for candidate in (self.project_path, self.path)
-            if candidate is not None
-        )
+        if isinstance(project_paths, Path):
+            project_paths = (project_paths,)
+        self.project_paths = tuple(candidate.resolve() for candidate in (project_paths or ()))
+        self.data_paths = (*self.project_paths, self.path)
 
     def _project_row(self, project_id: str) -> tuple[Path, sqlite3.Row] | None:
         for path in self.data_paths:

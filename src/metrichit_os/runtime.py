@@ -11,41 +11,118 @@ from .knowledge_store import KnowledgeError, KnowledgeStore
 from .memory_review import MemoryReviewError, MemoryReviewStore
 from .project_migration import verify_metrichit_runtime_storage
 from .project_scope import DEFAULT_PROJECT_ID
+from .project_storage import InvalidProjectIdError, canonical_project_id
 
 
 @dataclass(frozen=True)
 class RuntimeDatabases:
-    """Validated central/control-plane and MetricHit runtime databases."""
+    """Validated central/control-plane and managed-project runtime databases."""
 
     central: Path
-    metrichit: Path | None = None
+    projects: tuple[tuple[str, Path], ...] = ()
 
     @classmethod
     def resolve(
         cls,
         central_path: Path,
         project_path: Path | None = None,
+        project_paths: tuple[Path, ...] | None = None,
     ) -> "RuntimeDatabases":
         central = central_path.resolve()
-        candidate = project_path
-        if candidate is None and central == MEMORY_DATABASE.resolve():
-            candidate = PROJECT_STORAGE_ROOT / DEFAULT_PROJECT_ID / "project.sqlite"
-        if candidate is None:
+        candidates = list(project_paths or ())
+        if project_path is not None:
+            candidates.append(project_path)
+        if not candidates and central == MEMORY_DATABASE.resolve() and PROJECT_STORAGE_ROOT.is_dir():
+            candidates.extend(sorted(PROJECT_STORAGE_ROOT.glob("*/project.sqlite")))
+        if not candidates:
             return cls(central=central)
-        target = candidate.resolve()
-        verify_metrichit_runtime_storage(central, target)
-        return cls(central=central, metrichit=target)
+
+        registered = cls._registered_projects(central)
+        resolved: dict[str, Path] = {}
+        for candidate in candidates:
+            target = candidate.resolve()
+            project_id = cls._validate_project_storage(target)
+            if project_id not in registered:
+                raise RuntimeError("project runtime storage is not registered as an active managed project")
+            if project_id in resolved and resolved[project_id] != target:
+                raise RuntimeError("project runtime storage is duplicated")
+            if project_id == DEFAULT_PROJECT_ID:
+                verify_metrichit_runtime_storage(central, target)
+            resolved[project_id] = target
+        return cls(central=central, projects=tuple(sorted(resolved.items())))
+
+    @staticmethod
+    def _registered_projects(central: Path) -> set[str]:
+        with read_only_database(central) as connection:
+            rows = connection.execute(
+                "SELECT id FROM documents WHERE type='project' AND status='active' "
+                "AND json_extract(data_json,'$.scope_type')='managed_project'"
+            ).fetchall()
+        return {str(row["id"]) for row in rows}
+
+    @staticmethod
+    def _validate_project_storage(path: Path) -> str:
+        try:
+            with read_only_database(path) as connection:
+                if [tuple(row) for row in connection.execute("PRAGMA integrity_check")] != [("ok",)]:
+                    raise RuntimeError("project runtime storage failed integrity check")
+                if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                    raise RuntimeError("project runtime storage failed foreign-key check")
+                rows = connection.execute(
+                    "SELECT project_id,storage_format FROM project_storage_metadata WHERE singleton=1"
+                ).fetchall()
+                tables = {
+                    str(row["name"])
+                    for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+                }
+            if len(rows) != 1 or rows[0]["storage_format"] != 1:
+                raise RuntimeError("project runtime storage identity is invalid")
+            project_id = canonical_project_id(str(rows[0]["project_id"]))
+            if path.name != "project.sqlite" or path.parent.name != project_id:
+                raise RuntimeError("project runtime storage path does not match its canonical project ID")
+            if not {"documents", "tasks", "audit_log", "memory_items", "memory_candidates", "memory_conflicts"} <= tables:
+                raise RuntimeError("project runtime storage schema is incomplete")
+            return project_id
+        except InvalidProjectIdError as error:
+            raise RuntimeError("project runtime storage identity is invalid") from error
+        except (OSError, sqlite3.Error) as error:
+            raise RuntimeError("project runtime storage is not a valid SQLite database") from error
+
+    @property
+    def metrichit(self) -> Path | None:
+        return self.project_paths.get(DEFAULT_PROJECT_ID)
+
+    @property
+    def project_paths(self) -> dict[str, Path]:
+        return dict(self.projects)
 
     @property
     def read_paths(self) -> tuple[Path, ...]:
-        return (self.metrichit, self.central) if self.metrichit is not None else (self.central,)
+        return tuple(path for _, path in self.projects) + (self.central,)
 
     def path_for_scope(self, project_id: str | None) -> Path:
-        if project_id == DEFAULT_PROJECT_ID:
-            if self.metrichit is None:
-                return self.central
-            return self.metrichit
-        return self.central
+        if project_id is None:
+            return self.central
+        if not self.projects:
+            return self.central
+        try:
+            canonical_project_id(project_id)
+        except InvalidProjectIdError as error:
+            raise KnowledgeError("project scope must be a canonical UUID") from error
+        path = self.project_paths.get(project_id)
+        if path is not None:
+            return path
+        with read_only_database(self.central) as connection:
+            row = connection.execute(
+                "SELECT status,json_extract(data_json,'$.scope_type') AS scope_type "
+                "FROM documents WHERE id=? AND type='project'",
+                (project_id,),
+            ).fetchone()
+        if row is not None and row["status"] == "active" and row["scope_type"] == "control_plane":
+            return self.central
+        if row is not None and row["status"] == "active" and row["scope_type"] == "managed_project":
+            raise KnowledgeError("managed project storage is not available")
+        raise KnowledgeError("project scope is not an active top-level project")
 
     def path_for_record(self, table: str, record_id: str) -> Path | None:
         if table not in {"documents", "tasks"}:
@@ -212,10 +289,11 @@ class RoutedMemoryReviewStore:
         raise MemoryReviewError(f"{label} not found")
 
     def _project_ids(self, table: str) -> set[str]:
-        if self.databases.metrichit is None:
-            return set()
-        with read_only_database(self.databases.metrichit) as connection:
-            return {str(row["id"]) for row in connection.execute(f'SELECT id FROM "{table}"')}
+        identities: set[str] = set()
+        for _, path in self.databases.projects:
+            with read_only_database(path) as connection:
+                identities.update(str(row["id"]) for row in connection.execute(f'SELECT id FROM "{table}"'))
+        return identities
 
     @staticmethod
     def _dedupe(items: list[dict[str, Any]]) -> list[dict[str, Any]]:

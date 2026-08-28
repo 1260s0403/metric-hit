@@ -311,8 +311,8 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         return 0
     if arguments.command.startswith("knowledge-"):
         databases = RuntimeDatabases.resolve(database_path)
-        store = RoutedKnowledgeStore(databases) if databases.metrichit else KnowledgeStore(databases.central)
-        projects = ProjectStore(databases.central, databases.metrichit)
+        store = RoutedKnowledgeStore(databases) if databases.projects else KnowledgeStore(databases.central)
+        projects = ProjectStore(databases.central, tuple(path for _, path in databases.projects))
         if arguments.command == "knowledge-add":
             projects.validate_assignment(arguments.project_id, arguments.subproject_id, required=True)
             print_json(store.add(

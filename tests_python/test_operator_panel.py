@@ -32,14 +32,24 @@ def panel(tmp_path):
 
 def routed_panel(tmp_path, monkeypatch):
     central_root = tmp_path / "central"
-    project_root = tmp_path / "project"
+    project_root = tmp_path / DEFAULT_PROJECT_ID
     central_root.mkdir()
     project_root.mkdir()
     central = temporary_database(central_root)
-    project = temporary_database(project_root)
+    project = project_root / "project.sqlite"
+    subprocess.run(["node", "scripts/init-memory.mjs", str(project)], check=True, capture_output=True, text=True)
     with sqlite3.connect(project) as database:
         database.execute(
             "DELETE FROM documents WHERE id=?", (YADRO_CONTROL_PLANE_PROJECT_ID,)
+        )
+        database.execute(
+            "CREATE TABLE project_storage_metadata ("
+            "singleton INTEGER PRIMARY KEY CHECK(singleton=1),"
+            "project_id TEXT NOT NULL UNIQUE,storage_format INTEGER NOT NULL)"
+        )
+        database.execute(
+            "INSERT INTO project_storage_metadata VALUES(1,?,1)",
+            (DEFAULT_PROJECT_ID,),
         )
     monkeypatch.setattr(
         "metrichit_os.runtime.verify_metrichit_runtime_storage",
