@@ -56,6 +56,7 @@ temp/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-export-import-*/
 .pytest-intake-*-tmp/
 .pytest-overview-*/
 .pytest-projects-ui-*/
@@ -69,6 +70,9 @@ work/activity-filter-fixes-*.png
 work/ui-review/
 .ruff_cache/
 .mypy_cache/
+.edge-prod-profile-2/
+.edge-prod-profile/
+.edge-shot-profile/
 .coverage
 htmlcov/
 *.egg-info/

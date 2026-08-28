@@ -40,6 +40,7 @@ from .project_migration import (
     migration_plan_summary,
 )
 from .project_store import ProjectStore
+from .project_storage import ProjectStorage
 from .runtime import RoutedKnowledgeStore, RuntimeDatabases
 from .services import current_context, editorial_status, memory_summary
 from .text_providers import ProviderError
@@ -123,6 +124,13 @@ def workflow_parser() -> argparse.ArgumentParser:
     migration_apply.add_argument("--rollback-manifest", required=True)
     migration_apply.add_argument("--replace-existing", action="store_true")
     migration_apply.add_argument("--activate-runtime", action="store_true")
+    project_export = subparsers.add_parser("project-export")
+    project_export.add_argument("--project-id", required=True)
+    project_export.add_argument("--output", required=True)
+    project_export.add_argument("--storage-root")
+    project_import = subparsers.add_parser("project-import")
+    project_import.add_argument("--package", required=True)
+    project_import.add_argument("--storage-root")
     handoff_create = subparsers.add_parser("handoff-create")
     handoff_create.add_argument("--db", required=True)
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
@@ -193,6 +201,22 @@ def workflow_parser() -> argparse.ArgumentParser:
 def run_workflow_command(arguments_list: list[str]) -> int:
     parser = workflow_parser()
     arguments = parser.parse_args(arguments_list)
+    if arguments.command == "project-export":
+        storage = (
+            ProjectStorage(Path(arguments.storage_root))
+            if arguments.storage_root
+            else ProjectStorage()
+        )
+        print_json(storage.export_package(arguments.project_id, Path(arguments.output)))
+        return 0
+    if arguments.command == "project-import":
+        storage = (
+            ProjectStorage(Path(arguments.storage_root))
+            if arguments.storage_root
+            else ProjectStorage()
+        )
+        print_json(storage.import_package(Path(arguments.package)))
+        return 0
     database_path = Path(arguments.db)
     if arguments.command == "init-editorial-db":
         print_json(initialize_workflow_database(database_path))
