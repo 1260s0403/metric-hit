@@ -110,3 +110,5 @@ work/search-v5-*.png
 .pytest-final-ownership-full/
 .pytest-owner-batch/
 .pytest-backup-closeout-tmp/
+.pytest-search-state/
+.pytest-search-state-full/

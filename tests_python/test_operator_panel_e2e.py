@@ -272,6 +272,38 @@ def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
             expect(page.get_by_test_id("memory-screen")).to_be_visible()
 
 
+def test_search_query_and_filters_survive_menu_navigation(page: Page, panel: str, tmp_path: Path) -> None:
+    page.goto(panel)
+    project = _panel_post(page, "/api/projects", {"name": "Поиск E2E", "description": "Проект для сохранения фильтров"})
+    _panel_post(page, "/api/tasks", {
+        "title": "Сохранить поисковый контекст",
+        "description": "Проверка возврата к поиску",
+        "priority": "normal",
+        "project_id": project["id"],
+    })
+
+    page.get_by_test_id("tab-search").click()
+    page.get_by_test_id("global-search-query").fill("поисковый контекст")
+    page.get_by_test_id("global-search-submit").click()
+    expect(page.get_by_test_id("global-search-results")).to_contain_text("Сохранить поисковый контекст")
+    page.get_by_test_id("global-search-type").select_option("task")
+    page.get_by_test_id("global-search-project").select_option(project["id"])
+    page.get_by_test_id("global-search-status").select_option("open")
+    expect(page).to_have_url(re.compile(r"q=%D0%BF%D0%BE%D0%B8%D1%81%D0%BA%D0%BE%D0%B2%D1%8B%D0%B9\+%D0%BA%D0%BE%D0%BD%D1%82%D0%B5%D0%BA%D1%81"))
+
+    page.get_by_test_id("tab-tasks").click()
+    page.get_by_test_id("tab-search").click()
+    expect(page.get_by_test_id("global-search-query")).to_have_value("поисковый контекст")
+    expect(page.get_by_test_id("global-search-type")).to_have_value("task")
+    expect(page.get_by_test_id("global-search-project")).to_have_value(project["id"])
+    expect(page.get_by_test_id("global-search-status")).to_have_value("open")
+    expect(page.get_by_test_id("global-search-results")).to_contain_text("Сохранить поисковый контекст")
+    expect(page).to_have_url(re.compile(r"view=search"))
+    expect(page).to_have_url(re.compile(r"q=.*type=task"))
+    expect(page).to_have_url(re.compile(r"project=.*status=open"))
+    page.screenshot(path=str(tmp_path / "search-state-restored.png"), full_page=True)
+
+
 def test_navigation_hides_overview_content_after_every_view_transition(page: Page, panel: str) -> None:
     page.goto(panel)
 
