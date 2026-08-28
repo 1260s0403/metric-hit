@@ -406,6 +406,21 @@ def test_focused_task_is_visible_from_top_middle_and_bottom_of_long_list(page: P
         expect(card).to_contain_text("Открытая задача")
 
 
+def test_tasks_feed_rows_stay_compact_when_details_open(page: Page, panel: str) -> None:
+    page.goto(panel)
+    task_id = _create_task(page, "Компактная строка", "Проверка компактного раскрытия действий.")
+    page.goto(f"{panel}/?view=tasks")
+    card = page.get_by_test_id(f"task-card-{task_id}")
+    expect(card).to_be_visible()
+    before = card.evaluate("node => node.getBoundingClientRect().height")
+
+    page.get_by_test_id(f"task-details-toggle-{task_id}").click()
+    expect(page.get_by_test_id(f"task-details-{task_id}").locator(".row-detail")).to_be_visible()
+    after = card.evaluate("node => node.getBoundingClientRect().height")
+    assert after == before
+    assert after <= 86
+
+
 def test_task_creation_is_idempotent_and_focuses_visible_card(page: Page, panel: str) -> None:
     page.goto(panel)
     task_id = _create_task(page, "Проверка", "Полное описание задачи для браузерного сценария.")
