@@ -197,10 +197,10 @@ def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_acti
     page.get_by_test_id(f"create-task-{entries[1]['id']}").click()
     expect(page.get_by_test_id("task-modal")).to_be_visible()
     page.get_by_test_id("task-save").click()
-    expect(page).to_have_url(re.compile(r"view=tasks.*focus_task="))
-    page.goto(f"{panel}/?view=idea")
+    expect(page).to_have_url(re.compile(r"view=idea"))
     expect(page.get_by_test_id(f"idea-feed-{entries[1]['id']}").locator('button')).to_have_text("Открыть задачу")
     expect(page.get_by_test_id("ideas-summary-tasks")).to_contain_text("2")
+    page.screenshot(path=str(tmp_path / "ideas-after-task.png"), full_page=True)
 
     page.get_by_test_id("idea-topic").fill("Идея из панели")
     page.get_by_test_id("idea-description").fill("Проверка основной формы создания идеи")
@@ -210,6 +210,19 @@ def test_ideas_dashboard_has_real_summary_navigation_complete_feed_and_task_acti
     expect(page).to_have_url(re.compile(r"idea_filter=unassigned"))
     expect(page.get_by_test_id("ideas-feed")).to_be_visible()
     assert not console_errors
+
+
+def test_task_creation_refreshes_current_tasks_view_without_navigation(page: Page, panel: str, tmp_path: Path) -> None:
+    page.goto(f"{panel}/?view=tasks")
+    page.get_by_test_id("new-task").click()
+    expect(page.get_by_test_id("task-modal")).to_be_visible()
+    page.get_by_test_id("task-title").fill("Задача без перехода")
+    page.get_by_test_id("task-description").fill("Список должен обновиться на текущем экране.")
+    page.get_by_test_id("task-save").click()
+    expect(page).to_have_url(re.compile(r"view=tasks"))
+    expect(page.get_by_test_id("task-modal")).to_be_hidden()
+    expect(page.locator('[data-testid^="task-card-"]').filter(has_text="Задача без перехода")).to_be_visible()
+    page.screenshot(path=str(tmp_path / "tasks-after-create.png"), full_page=True)
 
 
 def _panel_post(page: Page, path: str, payload: dict[str, object]) -> dict[str, object]:
