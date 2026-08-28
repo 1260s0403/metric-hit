@@ -114,3 +114,4 @@ work/search-v5-*.png
 .pytest-search-state-full/
 .pytest-search-query-fix/
 .pytest-search-query-full/
+.pytest-projects-e2e/
