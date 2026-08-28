@@ -112,3 +112,5 @@ work/search-v5-*.png
 .pytest-backup-closeout-tmp/
 .pytest-search-state/
 .pytest-search-state-full/
+.pytest-search-query-fix/
+.pytest-search-query-full/

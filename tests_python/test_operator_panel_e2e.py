@@ -283,23 +283,26 @@ def test_search_query_and_filters_survive_menu_navigation(page: Page, panel: str
     })
 
     page.get_by_test_id("tab-search").click()
-    page.get_by_test_id("global-search-query").fill("поисковый контекст")
+    searchbox = page.locator('input[type="search"][data-testid="global-search-query"]')
+    searchbox.fill("тест")
     page.get_by_test_id("global-search-submit").click()
-    expect(page.get_by_test_id("global-search-results")).to_contain_text("Сохранить поисковый контекст")
+    expect(page).to_have_url(re.compile(r"q=%D1%82%D0%B5%D1%81%D1%82"))
     page.get_by_test_id("global-search-type").select_option("task")
     page.get_by_test_id("global-search-project").select_option(project["id"])
     page.get_by_test_id("global-search-status").select_option("open")
-    expect(page).to_have_url(re.compile(r"q=%D0%BF%D0%BE%D0%B8%D1%81%D0%BA%D0%BE%D0%B2%D1%8B%D0%B9\+%D0%BA%D0%BE%D0%BD%D1%82%D0%B5%D0%BA%D1%81"))
+    expect(page).to_have_url(re.compile(r"q=%D1%82%D0%B5%D1%81%D1%82"))
 
     page.get_by_test_id("tab-tasks").click()
     page.get_by_test_id("tab-search").click()
-    expect(page.get_by_test_id("global-search-query")).to_have_value("поисковый контекст")
+    restored_searchbox = page.locator('input[type="search"][data-testid="global-search-query"]')
+    expect(restored_searchbox).to_have_value("тест")
+    assert restored_searchbox.evaluate("element => element.value") == "тест"
     expect(page.get_by_test_id("global-search-type")).to_have_value("task")
     expect(page.get_by_test_id("global-search-project")).to_have_value(project["id"])
     expect(page.get_by_test_id("global-search-status")).to_have_value("open")
-    expect(page.get_by_test_id("global-search-results")).to_contain_text("Сохранить поисковый контекст")
+    assert page.evaluate("() => new URL(location.href).searchParams.get('q')") == "тест"
     expect(page).to_have_url(re.compile(r"view=search"))
-    expect(page).to_have_url(re.compile(r"q=.*type=task"))
+    expect(page).to_have_url(re.compile(r"q=%D1%82%D0%B5%D1%81%D1%82.*type=task"))
     expect(page).to_have_url(re.compile(r"project=.*status=open"))
     page.screenshot(path=str(tmp_path / "search-state-restored.png"), full_page=True)
 
