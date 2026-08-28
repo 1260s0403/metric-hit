@@ -219,6 +219,12 @@
     @media(min-width:721px) and (max-width:1000px){.about-orbit,.about-orbit-run{left:326px;top:264px}.about-orbit.one{width:280px;height:280px}.about-orbit.two{width:376px;height:376px}.about-orbit.three{width:472px;height:472px}.about-orbit.four{width:532px;height:532px}.about-orbit-run.one{--radius:140px}.about-orbit-run.two{--radius:188px}.about-orbit-run.three{--radius:236px}.about-orbit-run.four{--radius:266px}}
     @media(max-width:720px){.service-visual{min-height:430px;overflow:visible}.service-reference-art{height:430px;overflow:hidden}.service-reference-art img{width:720px;left:-263px;top:0}.service-reference-art::after{background:radial-gradient(circle at 186px 14px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 258px 48px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 313px 74px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 261px 310px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 220px 323px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 149px 339px,#02070d 0 5px,transparent 6px),radial-gradient(circle at 105px 307px,#02070d 0 5px,transparent 6px)}.about-orbit,.about-orbit-run{left:187px;top:157px}.about-orbit.one{width:164px;height:164px}.about-orbit.two{width:220px;height:220px}.about-orbit.three{width:277px;height:277px}.about-orbit.four{width:312px;height:312px}.about-orbit-run.one{--radius:82px}.about-orbit-run.two{--radius:110px}.about-orbit-run.three{--radius:138.5px}.about-orbit-run.four{--radius:156px}}
     @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.reveal{opacity:1;transform:none;transition:none}*{transition-duration:.01ms!important}.orbit{animation:none!important}}
+    /* The service block is the supplied approved reference itself. The 44px page header
+       visible in the source screenshot is cropped because the site already owns that UI. */
+    .service-section{padding:0;background:#000;overflow:hidden}
+    .service-reference-exact{position:relative;width:100%;aspect-ratio:1439/1015;overflow:hidden;background:#000}
+    .service-reference-exact>img{display:block;width:100%;height:auto;max-width:none;transform:translateY(-4.155%);transform-origin:top center}
+    .service-semantic{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
   </style>
   <script type="application/ld+json">
   {
@@ -278,29 +284,19 @@
       </div>
     </section>
 
-    <section class="section service-section" id="service" aria-labelledby="service-title">
-      <div class="container">
-        <div class="service-showcase reveal">
-          <div class="service-copy">
-            <span class="eyebrow">Возможности сервиса</span>
-            <h2 id="service-title"><span>Продвижение</span><br><span>всех проектов —</span><br><span class="cyan-text">в одном кабинете</span></h2>
-            <p>Настраивайте запросы и регионы, управляйте бюджетом и отслеживайте динамику каждого сайта.</p>
-            <div class="service-benefits">
-              <article class="service-benefit"><span class="service-benefit-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><circle cx="24" cy="24" r="8"/><circle cx="24" cy="24" r="16"/><path d="M24 3v10m0 22v10M3 24h10m22 0h10M9 9l7 7m16 16 7 7M39 9l-7 7M16 32l-7 7"/><circle cx="24" cy="24" r="3" fill="#ff9a16" stroke="#ff9a16"/></svg></span><span><strong>Целевые запросы</strong><p>Собирайте, группируйте и отслеживайте только важные запросы.</p></span></article>
-              <article class="service-benefit"><span class="service-benefit-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><path d="M7 37V28m9 9V21m9 16V26m9 11V12"/><path d="m7 21 10-8 8 5 15-12"/><path d="M35 6h5v5"/></svg></span><span><strong>Контроль позиций</strong><p>Ежедневно отслеживайте позиции и динамику по каждому проекту.</p></span></article>
-              <article class="service-benefit"><span class="service-benefit-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><path d="M24 5a19 19 0 1 0 19 19H24Z"/><path class="orange-accent" d="M27 5v16h16A16 16 0 0 0 27 5Z"/></svg></span><span><strong>Понятная статистика</strong><p>Наглядные отчёты и тренды для быстрых решений и роста трафика.</p></span></article>
-            </div>
-          </div>
-          <div class="service-visual" aria-hidden="true">
-            <div class="service-reference-art"><img src="assets/service-reference.png" alt="" aria-hidden="true"></div>
-            <span class="about-orbit one"></span><span class="about-orbit two"></span><span class="about-orbit three"></span><span class="about-orbit four"></span>
-            <span class="about-orbit-run one"><i></i></span><span class="about-orbit-run two"><i></i></span><span class="about-orbit-run three"><i></i></span><span class="about-orbit-run four"><i></i></span>
-          </div>
-          <div class="service-summary">
-            <article class="summary-item"><span class="summary-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><circle cx="14" cy="16" r="5"/><circle cx="34" cy="16" r="5"/><circle cx="24" cy="34" r="5"/><circle cx="12" cy="34" r="5"/><path d="m18 18 12 0M17 20l4 10m8-10-3 10m-9 5h3m9 0h-1"/></svg></span><span><strong>Любое число проектов</strong><p>• Добавляйте и управляйте любым количеством сайтов.</p></span></article>
-            <article class="summary-item"><span class="summary-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><path d="M7 16h29v24H7z"/><path d="M7 16 17 7l19 9M17 25h20m-22 7h13"/><rect class="orange-accent" x="29" y="27" width="13" height="11" rx="2"/></svg></span><span><strong>Единый баланс</strong><p>• Пополняйте баланс один раз и распределяйте бюджет.</p></span></article>
-            <article class="summary-item"><span class="summary-icon" aria-hidden="true"><svg fill="none" viewBox="0 0 48 48"><ellipse cx="24" cy="10" rx="15" ry="6"/><path d="M9 10v11c0 3.3 6.7 6 15 6s15-2.7 15-6V10M9 21v11c0 3.3 6.7 6 15 6s15-2.7 15-6V21M9 31v7c0 3.3 6.7 6 15 6s15-2.7 15-6v-7"/><path class="orange-accent" d="M39 30v8"/></svg></span><span><strong>Все данные в одном месте</strong><p>• Запросы, позиции, отчёты и бюджет — в едином кабинете.</p></span></article>
-          </div>
+    <section class="service-section" id="service" aria-labelledby="service-title">
+      <div class="service-reference-exact">
+        <img src="assets/service-reference-exact.png" alt="" aria-hidden="true" width="1439" height="1059">
+        <div class="service-semantic">
+          <p>Возможности сервиса</p>
+          <h2 id="service-title">Продвижение всех проектов — в одном кабинете</h2>
+          <p>Настраивайте запросы и регионы, управляйте бюджетом и отслеживайте динамику каждого сайта.</p>
+          <h3>Целевые запросы</h3><p>Собирайте, группируйте и отслеживайте только важные запросы.</p>
+          <h3>Контроль позиций</h3><p>Ежедневно отслеживайте позиции и динамику по каждому проекту.</p>
+          <h3>Понятная статистика</h3><p>Наглядные отчёты и тренды для быстрых решений и роста трафика.</p>
+          <h3>Любое число проектов</h3><p>Добавляйте и управляйте любым количеством сайтов.</p>
+          <h3>Единый баланс</h3><p>Пополняйте баланс один раз и распределяйте бюджет.</p>
+          <h3>Все данные в одном месте</h3><p>Запросы, позиции, отчёты и бюджет — в едином кабинете.</p>
         </div>
       </div>
     </section>
