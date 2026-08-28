@@ -106,8 +106,6 @@ def page(browser: Browser, panel: str, tmp_path: Path) -> Page:
 
 def _add_entry(page: Page, topic: str, text: str) -> str:
     if not page.get_by_test_id("knowledge-screen").is_visible():
-        if page.locator(".nav-more").get_attribute("open") is None:
-            page.locator(".nav-more > summary").click()
         page.get_by_test_id("tab-artem").click()
     page.get_by_test_id("add-topic").fill(topic)
     page.get_by_test_id("add-text").fill(text)
@@ -233,9 +231,10 @@ def _panel_post(page: Page, path: str, payload: dict[str, object]) -> dict[str, 
 
 def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
     page.goto(panel)
+    assert page.locator(".global-nav > button span").all_text_contents() == [
+        "Обзор", "Поиск", "Проекты", "Задачи", "Решения", "Память", "Активность", "Рекомендации", "Мои идеи",
+    ]
     for view in ("overview", "search", "artem", "idea", "tasks", "memory"):
-        if view in {"search", "artem", "idea"} and page.locator(".nav-more").get_attribute("open") is None:
-            page.locator(".nav-more > summary").click()
         page.get_by_test_id(f"tab-{view}").click()
         expect(page.get_by_test_id(f"tab-{view}")).to_have_class("active")
         expect(page.get_by_test_id(f"tab-{view}")).to_have_attribute("aria-current", "page")
@@ -278,6 +277,7 @@ def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page,
 
     page.get_by_test_id("tab-tasks").click()
     expect(page.get_by_test_id("page-title")).to_have_text("Задачи")
+    page.screenshot(path=str(tmp_path / "monochrome-tasks.png"), full_page=True)
     assert page.evaluate("""() => [...document.querySelectorAll('*')].every(node => {
         const values = [getComputedStyle(node).color, getComputedStyle(node).backgroundColor, getComputedStyle(node).borderColor];
         return values.every(value => { const rgb = value.match(/\\d+/g)?.map(Number); return !rgb || !(rgb[2] > rgb[0] + 8 && rgb[2] > rgb[1] + 8); });
@@ -557,8 +557,6 @@ def test_task_focus_is_only_kept_for_explicit_open_action(page: Page, panel: str
 
 def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(page: Page, panel: str) -> None:
     page.goto(panel)
-    if page.locator(".nav-more").get_attribute("open") is None:
-        page.locator(".nav-more > summary").click()
     page.get_by_test_id("tab-artem").click()
 
     page.get_by_test_id("intake-text").click()
@@ -587,8 +585,6 @@ def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(pag
     page.get_by_test_id("tab-tasks").click()
     expect(page.locator('[data-testid^="task-card-"]').first).to_contain_text("Проверить источник перед использованием")
 
-    if page.locator(".nav-more").get_attribute("open") is None:
-        page.locator(".nav-more > summary").click()
     page.get_by_test_id("tab-artem").click()
     page.get_by_test_id("intake-file").click()
     expect(page.get_by_test_id("add-text")).to_be_hidden()
