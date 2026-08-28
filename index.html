@@ -115,6 +115,30 @@
     @media(prefers-reduced-motion:reduce){.about-orbit-run{animation:none!important}}
     @keyframes about-orbit-spin{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
     #calcNote strong{color:var(--green)}
+    /* Desktop geometry for the approved service reference.  The illustration itself is intentionally untouched. */
+    @media(min-width:1001px){
+      .service-section{padding:84px 0 46px}
+      .service-section>.container{width:min(1416px,calc(100% - 120px))}
+      .service-showcase{grid-template-columns:456px minmax(0,1fr);column-gap:35px;row-gap:19px;align-items:start}
+      .service-copy{align-self:start;padding:2px 0 0 8px}
+      .service-copy .eyebrow{font-size:14px;letter-spacing:.23em;margin-bottom:20px}
+      .service-copy h2{max-width:520px;margin-bottom:24px;font-size:62px;line-height:1.12;letter-spacing:-.045em}
+      .service-copy>p{max-width:414px;margin-bottom:27px;font-size:19px;line-height:1.52}
+      .service-benefits{max-width:435px}
+      .service-benefit{grid-template-columns:96px 1fr;gap:18px;padding:10px 0}
+      .service-benefit-icon{width:94px;height:94px}
+      .service-benefit-icon svg{width:54px;height:54px}
+      .service-benefit strong{font-size:20px;margin-bottom:5px}
+      .service-benefit p{font-size:14px;line-height:1.48}
+      .service-visual{min-height:737px}
+      .service-summary{min-height:138px;margin-top:0;border-radius:18px;background:rgba(3,10,16,.87);box-shadow:0 0 24px rgba(0,231,242,.19),0 0 24px rgba(255,154,22,.16),inset 0 0 22px rgba(0,231,242,.035)}
+      .service-summary::before{background:linear-gradient(100deg,var(--cyan) 0%,#44eefa 48%,var(--orange) 100%)}
+      .summary-item{grid-template-columns:108px 1fr;gap:18px;padding:17px 20px}
+      .summary-icon{width:86px;height:86px}
+      .summary-icon svg{width:51px;height:51px}
+      .summary-item strong{font-size:21px;line-height:1.14;margin-bottom:7px}
+      .summary-item p{font-size:14px;line-height:1.48}
+    }
     .bento{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}
     .card{position:relative;border:1px solid var(--line);background:linear-gradient(145deg,rgba(17,25,37,.82),rgba(10,15,22,.88));border-radius:var(--radius);padding:30px;overflow:hidden}
     .card::after{content:"";position:absolute;width:180px;height:180px;border-radius:50%;right:-80px;top:-100px;background:rgba(0,231,242,.035);filter:blur(2px)}
