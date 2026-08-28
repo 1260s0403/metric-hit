@@ -554,6 +554,29 @@ def test_subproject_workspace_keeps_global_menu_and_switches_real_scoped_tabs(pa
     expect(page.locator(".subproject-entry-list")).to_be_visible()
 
 
+def test_projects_show_current_counts_last_recorded_change_and_one_workspace_entry(page: Page, panel: str) -> None:
+    page.goto(panel)
+    project = _panel_post(page, "/api/projects", {"name": "Сводка E2E", "description": "Проверка компактной строки проекта"})
+    _panel_post(page, "/api/tasks", {
+        "title": "Задача в сводке",
+        "description": "Нужна для актуального счётчика.",
+        "priority": "normal",
+        "project_id": project["id"],
+    })
+
+    page.goto(f"{panel}/?view=projects")
+    card = page.get_by_test_id(f"project-card-{project['id']}")
+    expect(card).to_be_visible()
+    expect(card.get_by_test_id(f"project-open-tasks-{project['id']}")) .to_contain_text("1")
+    expect(card.get_by_test_id(f"project-ideas-{project['id']}")) .to_contain_text("0")
+    expect(card.get_by_test_id(f"project-latest-change-{project['id']}")) .to_contain_text("Создано")
+    entry = card.get_by_test_id(f"project-open-{project['id']}")
+    expect(entry).to_have_count(1)
+    entry.click()
+    expect(page).to_have_url(re.compile(rf"view=projects&project_id={project['id']}"))
+    expect(page.get_by_test_id(f"project-workspace-{project['id']}")) .to_be_visible()
+
+
 def test_details_are_single_and_actions_share_row(page: Page, panel: str) -> None:
     page.goto(panel)
     text = "Полное описание должно быть видно только после открытия подробностей, поэтому этот длинный контекст не должен целиком повторяться в заголовке задачи."
