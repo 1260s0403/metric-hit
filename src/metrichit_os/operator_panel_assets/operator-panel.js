@@ -386,3 +386,11 @@ window.addEventListener('popstate',()=>{if(q().get('view')==='search')setTimeout
 
 /* Overview is the federated control-plane screen; local activity stays project-scoped. */
 (()=>{const scopedApi=api;api=(path,options={})=>scopedApi(view==='overview'&&path.startsWith('/api/activity?')&&!path.includes('scope=')?`${path}&scope=global`:path,options)})();
+
+/* A navigation click owns exactly one primary screen.  Renderers can populate
+   that screen afterwards, but no previous view may remain visible. */
+(()=>{const screens={overview:document.querySelector('#overview'),search:document.querySelector('#search'),projects:document.querySelector('#projects'),activity:document.querySelector('#activity')};document.addEventListener('click',event=>{const tab=event.target.closest('[data-view]');if(!tab)return;const nextView=tab.dataset.view;for(const [screenView,screen] of Object.entries(screens))screen.classList.toggle('hidden',screenView!==nextView);knowledge.classList.toggle('hidden',!['artem','idea'].includes(nextView));memory.classList.toggle('hidden',nextView!=='memory');entries.classList.toggle('hidden',!['artem','idea','tasks'].includes(nextView))},true)})();
+
+/* Some view renderers are asynchronous.  Keep a late response from reviving a
+   screen after the owner has already chosen another menu item. */
+(()=>{const screens={overview:document.querySelector('#overview'),search:document.querySelector('#search'),projects:document.querySelector('#projects'),activity:document.querySelector('#activity')};let syncing=false;const sync=()=>{if(syncing)return;syncing=true;for(const [screenView,screen] of Object.entries(screens))screen.classList.toggle('hidden',screenView!==view);syncing=false};new MutationObserver(sync).observe(document.querySelector('.workspace'),{attributes:true,attributeFilter:['class'],subtree:true});document.addEventListener('click',event=>{if(event.target.closest('[data-view]'))setTimeout(sync,0)});sync()})();

@@ -258,6 +258,25 @@ def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
             expect(page.get_by_test_id("memory-screen")).to_be_visible()
 
 
+def test_navigation_hides_overview_content_after_every_view_transition(page: Page, panel: str) -> None:
+    page.goto(panel)
+
+    screens = {
+        "overview": "overview-screen",
+        "search": "search-screen",
+        "projects": "projects-screen",
+        "activity": "activity-screen",
+    }
+    for view in ("search", "projects", "activity", "tasks", "overview", "search"):
+        page.get_by_test_id(f"tab-{view}").click()
+        for screen_view, test_id in screens.items():
+            assertion = expect(page.get_by_test_id(test_id))
+            if screen_view == view:
+                assertion.to_be_visible()
+            else:
+                assertion.to_be_hidden()
+
+
 def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page, panel: str, tmp_path: Path) -> None:
     page.goto(panel)
 
