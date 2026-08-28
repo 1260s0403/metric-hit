@@ -554,7 +554,7 @@ def test_subproject_workspace_keeps_global_menu_and_switches_real_scoped_tabs(pa
     expect(page.locator(".subproject-entry-list")).to_be_visible()
 
 
-def test_projects_show_current_counts_last_recorded_change_and_one_workspace_entry(page: Page, panel: str) -> None:
+def test_projects_show_current_counts_last_recorded_change_and_one_workspace_entry(page: Page, panel: str, tmp_path: Path) -> None:
     page.goto(panel)
     project = _panel_post(page, "/api/projects", {"name": "Сводка E2E", "description": "Проверка компактной строки проекта"})
     _panel_post(page, "/api/tasks", {
@@ -570,8 +570,11 @@ def test_projects_show_current_counts_last_recorded_change_and_one_workspace_ent
     expect(card.get_by_test_id(f"project-open-tasks-{project['id']}")) .to_contain_text("1")
     expect(card.get_by_test_id(f"project-ideas-{project['id']}")) .to_contain_text("0")
     expect(card.get_by_test_id(f"project-latest-change-{project['id']}")) .to_contain_text("Создано")
+    assert card.evaluate("node => node.getBoundingClientRect().height") <= 200
+    page.screenshot(path=str(tmp_path / "projects-compact-restored.png"), full_page=True)
     entry = card.get_by_test_id(f"project-open-{project['id']}")
     expect(entry).to_have_count(1)
+    card.locator(".project-menu > summary").click()
     entry.click()
     expect(page).to_have_url(re.compile(rf"view=projects&project_id={project['id']}"))
     expect(page.get_by_test_id(f"project-workspace-{project['id']}")) .to_be_visible()
