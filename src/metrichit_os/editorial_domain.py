@@ -22,6 +22,40 @@ EDITORIAL_TABLES = {
     "editorial_status_audit",
 }
 
+EDITORIAL_SCHEMA_OBJECTS = frozenset({
+    "editorial_material_direction_validate_insert",
+    "editorial_material_direction_validate_update",
+    "editorial_material_parent_protect_update",
+    "editorial_material_parent_validate_insert",
+    "editorial_material_parent_validate_update",
+    "editorial_material_workflow_audit_insert",
+    "editorial_material_workflow_audit_update",
+    "editorial_material_workflow_validate_update",
+    "editorial_materials",
+    "editorial_materials_direction_idx",
+    "editorial_materials_parent_idx",
+    "editorial_materials_topic_idx",
+    "editorial_materials_touch_updated_at",
+    "editorial_memory",
+    "editorial_memory_active_idx",
+    "editorial_memory_direction_idx",
+    "editorial_memory_touch_updated_at",
+    "editorial_publications",
+    "editorial_publications_material_idx",
+    "editorial_publications_touch_updated_at",
+    "editorial_results",
+    "editorial_results_publication_idx",
+    "editorial_schema_migrations",
+    "editorial_status_audit",
+    "editorial_status_audit_material_idx",
+    "editorial_status_audit_prevent_delete",
+    "editorial_status_audit_prevent_update",
+    "editorial_topics",
+    "editorial_topics_direction_idx",
+    "editorial_topics_status_priority_idx",
+    "editorial_topics_touch_updated_at",
+})
+
 
 class EditorialDomainError(ValueError):
     """Raised when editorial data cannot be routed or changed safely."""
@@ -134,6 +168,17 @@ def check_editorial_domain(
             str(row["name"])
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
+        editorial_objects = {
+            str(row["name"])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE name GLOB 'editorial_*' AND sql IS NOT NULL"
+            )
+        }
+        if (
+            migrations_path.resolve() == PROJECT_EDITORIAL_MIGRATIONS.resolve()
+            and editorial_objects != EDITORIAL_SCHEMA_OBJECTS
+        ):
+            raise EditorialDomainError("editorial project schema inventory is invalid")
         required_tables = EDITORIAL_TABLES if len(migrations) >= 5 else EDITORIAL_TABLES - {"editorial_status_audit"}
         if not required_tables <= tables:
             raise EditorialDomainError("editorial project schema is incomplete")

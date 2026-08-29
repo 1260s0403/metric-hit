@@ -108,6 +108,7 @@ work/search-v5-*.png
 .pytest-runtime-cutover-preflight/
 /.pytest-runtime-cutover/
 /.pytest-runtime-cutover-closeout/
+.pytest-runtime-fix*/
 .pytest-final-ownership-full/
 .pytest-owner-batch/
 .pytest-backup-closeout-tmp/

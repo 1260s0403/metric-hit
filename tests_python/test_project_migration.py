@@ -9,6 +9,7 @@ import pytest
 
 from metrichit_os import project_migration
 from metrichit_os.database import sha256_file
+from metrichit_os.editorial_domain import initialize_editorial_domain
 from metrichit_os.project_migration import (
     MATERIALIZATION_KEY,
     OWNERSHIP_BATCH_KEY,
@@ -716,7 +717,10 @@ def _materialization_database(path: Path) -> tuple[str, str, str, str]:
         );
         CREATE TABLE memory_candidates(
           id TEXT PRIMARY KEY,type TEXT NOT NULL,title TEXT NOT NULL,data_json TEXT,
-          source_id TEXT NOT NULL REFERENCES sources(id),author TEXT NOT NULL DEFAULT 'owner',version INTEGER NOT NULL DEFAULT 1
+          source_id TEXT NOT NULL REFERENCES sources(id),author TEXT NOT NULL DEFAULT 'owner',version INTEGER NOT NULL DEFAULT 1,
+          semantic_key TEXT,content TEXT,status TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL DEFAULT '2026-08-26T00:00:00Z',
+          updated_at TEXT NOT NULL DEFAULT '2026-08-26T00:00:00Z'
         );
         CREATE TABLE audit_log(
           id TEXT PRIMARY KEY,type TEXT NOT NULL,title TEXT NOT NULL,data_json TEXT,
@@ -1063,3 +1067,67 @@ def test_guarded_replacement_activates_mutable_runtime_storage(tmp_path: Path) -
         )
     manifest = project_migration.verify_metrichit_runtime_storage(source, target)
     assert manifest["cutover"] is True
+    with sqlite3.connect(source) as database:
+        database.execute(
+            "INSERT INTO sources(id,type,title,data_json) VALUES(?,?,?,?)",
+            (
+                "81000000-0000-4000-a000-000000000101",
+                "owner_decision",
+                "Later unscoped control-plane source",
+                "{}",
+            ),
+        )
+    assert project_migration.verify_metrichit_runtime_storage(source, target)["cutover"] is True
+    with sqlite3.connect(source) as database:
+        database.execute(
+            "UPDATE sources SET title='Changed baseline' WHERE id='81000000-0000-4000-a000-000000000099'"
+        )
+    assert project_migration.verify_metrichit_runtime_storage(source, target)["cutover"] is True
+    with sqlite3.connect(source) as database:
+        database.execute("CREATE TABLE unexpected_source_schema(id TEXT PRIMARY KEY)")
+    with pytest.raises(RuntimeError, match="legacy source schema differs"):
+        project_migration.verify_metrichit_runtime_storage(source, target)
+
+
+def test_runtime_storage_accepts_only_the_canonical_editorial_schema(tmp_path: Path) -> None:
+    source = tmp_path / "legacy.sqlite"
+    _materialization_database(source)
+    plan = build_migration_plan(source)
+    storage_root = tmp_path / "projects"
+    first_backup = _verified_materialization_backup(tmp_path, plan["sourceSha256"])
+    materialize_metrichit_project(
+        source,
+        expected_source_sha256=plan["sourceSha256"],
+        expected_manifest_sha256=plan["manifestSha256"],
+        verified_backup_set=first_backup,
+        migration_manifest_path=tmp_path / "first-migration.json",
+        rollback_manifest_path=tmp_path / "first-rollback.json",
+        project_storage_root=storage_root,
+    )
+    target = storage_root / DEFAULT_PROJECT_ID / "project.sqlite"
+    replacement_backup = _verified_materialization_backup(
+        tmp_path,
+        plan["sourceSha256"],
+        target_path=target,
+        timestamp="20260826T130000Z",
+    )
+    materialize_metrichit_project(
+        source,
+        expected_source_sha256=plan["sourceSha256"],
+        expected_manifest_sha256=plan["manifestSha256"],
+        verified_backup_set=replacement_backup,
+        migration_manifest_path=tmp_path / "replacement-migration.json",
+        rollback_manifest_path=tmp_path / "replacement-rollback.json",
+        project_storage_root=storage_root,
+        replace_existing=True,
+        activate_runtime=True,
+    )
+    initialize_editorial_domain(target)
+
+    manifest = project_migration.verify_metrichit_runtime_storage(source, target)
+    assert manifest["cutover"] is True
+
+    with sqlite3.connect(target) as database:
+        database.execute("CREATE TABLE editorial_unexpected(id TEXT PRIMARY KEY)")
+    with pytest.raises(RuntimeError, match="schema inventory mismatch"):
+        project_migration.verify_metrichit_runtime_storage(source, target)

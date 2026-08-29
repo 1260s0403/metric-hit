@@ -13,6 +13,11 @@ from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from .database import read_only_database, sha256_file
+from .editorial_domain import (
+    EDITORIAL_SCHEMA_OBJECTS,
+    EditorialDomainError,
+    check_editorial_domain,
+)
 from .project_scope import DEFAULT_PROJECT_ID, YADRO_CONTROL_PLANE_PROJECT_ID
 from .project_storage import ProjectStorage, STORAGE_FORMAT_VERSION
 
@@ -2026,8 +2031,8 @@ def verify_metrichit_runtime_storage(
 
     The embedded materialization manifest remains the immutable cutover baseline.
     Runtime rows may evolve after cutover, so startup validates identity, schema,
-    integrity and the unchanged legacy baseline without requiring the target to
-    keep the baseline's exact row inventory.
+    integrity and the legacy source schema without requiring either database to
+    keep the cutover baseline's exact row inventory.
     """
     with read_only_database(target_path.resolve()) as connection:
         integrity = [tuple(row) for row in connection.execute("PRAGMA integrity_check")]
@@ -2060,13 +2065,33 @@ def verify_metrichit_runtime_storage(
             raise RuntimeError("MetricHit runtime storage is not activated for cutover")
         source_names = set(manifest["sourceSchema"]["objectNames"])
         objects = _schema_objects(connection)
-        if {item["name"] for item in objects} != source_names | TARGET_METADATA_TABLES:
+        object_names = {item["name"] for item in objects}
+        baseline_names = source_names | TARGET_METADATA_TABLES
+        editorial_names = EDITORIAL_SCHEMA_OBJECTS
+        if object_names == baseline_names:
+            pass
+        elif object_names == baseline_names | editorial_names:
+            try:
+                check_editorial_domain(target_path)
+            except EditorialDomainError as error:
+                raise RuntimeError("MetricHit runtime editorial schema is invalid") from error
+        else:
             raise RuntimeError("MetricHit runtime storage schema inventory mismatch")
         source_objects = [item for item in objects if item["name"] in source_names]
         if _json_sha256(source_objects) != manifest["sourceSchema"]["sha256"]:
             raise RuntimeError("MetricHit runtime storage schema hash mismatch")
-    _reconcile_source_project_rows(source_path.resolve(), manifest)
+    _verify_legacy_source_schema(source_path.resolve(), manifest)
     return manifest
+
+
+def _verify_legacy_source_schema(source_path: Path, manifest: dict[str, Any]) -> None:
+    with read_only_database(source_path) as source:
+        source_objects = _schema_objects(source)
+        if (
+            _json_sha256(source_objects) != manifest["sourceSchema"]["sha256"]
+            or [item["name"] for item in source_objects] != manifest["sourceSchema"]["objectNames"]
+        ):
+            raise RuntimeError("current legacy source schema differs from the materialized manifest")
 
 
 def _reconcile_source_project_rows(source_path: Path, manifest: dict[str, Any]) -> None:
