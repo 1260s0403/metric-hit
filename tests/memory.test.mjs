@@ -14,6 +14,7 @@ import { applyServerPrimaryWorkspace } from '../scripts/apply-server-primary-wor
 import { applyProductPositioningAndEditorialDirectness } from '../scripts/apply-product-positioning-and-editorial-directness.mjs';
 import { applyMetricHitPricing } from '../scripts/apply-metrichit-pricing.mjs';
 import { applyPublicPfPositiveFraming } from '../scripts/apply-public-pf-positive-framing.mjs';
+import { applyEditorialPublicationPolicyAndTimewebDraft } from '../scripts/apply-editorial-publication-policy-and-timeweb-draft.mjs';
 import { applySostavNakrutkaPfPublication } from '../scripts/apply-sostav-nakrutka-pf-publication.mjs';
 import { applyPublicationLinksSostavOborot } from '../scripts/apply-publication-links-sostav-oborot-2026-08-29.mjs';
 import { readMemory } from '../scripts/memory-cli.mjs';
@@ -993,6 +994,41 @@ test('public PF positive framing rule is repeatable and preserves internal produ
   assert.deepEqual(JSON.parse(rule.data_json).required_positive_focus, ['query_selection', 'landing_page_preparation', 'region', 'daily_limits', 'budget', 'completed_volume_control', 'dynamics_evaluation', 'campaign_scaling']);
   assert.match(positioning.content, /не является гарантией роста позиций/);
   assert.match(readMemory('rules', '', databasePath), /Позитивная подача ПФ/);
+});
+
+test('editorial article policy and Timeweb draft are repeatable approved records', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  initializeDatabase(databasePath);
+
+  const first = applyEditorialPublicationPolicyAndTimewebDraft(databasePath);
+  const second = applyEditorialPublicationPolicyAndTimewebDraft(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 3 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const policy = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='content.editorial_article_preparation_policy'").get();
+  const draft = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='publication.timeweb_cloud_draft_2026_08_29'").get();
+  const registry = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='editorial.registry_current_state'").get();
+  database.close();
+  assert.equal(policy.status, 'approved');
+  assert.match(policy.content, /не менее 9 000 знаков/);
+  assert.deepEqual(JSON.parse(policy.data_json).landing_link_distribution, ['beginning', 'body_1', 'body_2', 'final_cta']);
+  assert.equal(draft.status, 'approved');
+  assert.match(draft.content, /draft\/unpublished/);
+  assert.deepEqual(JSON.parse(draft.data_json), {
+    channel: 'articles', platform: 'Timeweb Cloud', publication_status: 'draft', public_url: null,
+    final_article_path: 'work/articles/drafts/2026-08-29-timeweb-cloud-pf-service-selection.md',
+    evidence: { path: 'knowledge/decisions/editorial-publication-policy-and-timeweb-draft-2026-08-29.md' },
+  });
+  assert.equal(registry.status, 'approved');
+  assert.match(registry.content, /зарегистрирован один article-материал/);
+  assert.deepEqual(JSON.parse(registry.data_json), { articles_materials: 1, articles_drafts: 1, articles_publications: 0, articles_results: 0, evidence: { path: 'knowledge/decisions/editorial-publication-policy-and-timeweb-draft-2026-08-29.md' } });
+  const exported = exportCurrentContext(databasePath, outputPath, '2026-08-29T16:00:00.000Z').content;
+  assert.match(exported, /Правила подготовки статей MetricHit/);
+  assert.match(exported, /Черновик Timeweb Cloud/);
+  assert.match(exported, /публичный URL отсутствует/);
 });
 
 test('Sostav Nakrutka PF publication confirmation is repeatable and preserves owner-confirmed URL state', (t) => {
