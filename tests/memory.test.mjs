@@ -901,7 +901,7 @@ test('product positioning and editorial directness decision is repeatable and su
 
   const first = applyProductPositioningAndEditorialDirectness(databasePath);
   const second = applyProductPositioningAndEditorialDirectness(databasePath);
-  assert.deepEqual(first.created, { sources: 2, documents: 1, versions: 1, decisions: 1, candidates: 3, conflictsResolved: 0 });
+  assert.deepEqual(first.created, { sources: 3, documents: 2, versions: 2, decisions: 2, candidates: 4, conflictsResolved: 0 });
   assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, decisions: 0, candidates: 0, conflictsResolved: 0 });
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
@@ -913,6 +913,10 @@ test('product positioning and editorial directness decision is repeatable and su
     SELECT status, reviewed_by, reviewed_at, data_json
     FROM memory_candidates WHERE semantic_key = 'content.editorial_directness_policy'
   `).get();
+  const editorialScope = database.prepare(`
+    SELECT status, reviewed_by, reviewed_at, content
+    FROM memory_candidates WHERE semantic_key = 'content.editorial_search_result_scope'
+  `).get();
   database.close();
   assert.equal(positioning.status, 'approved');
   assert.equal(positioning.reviewed_by, 'owner');
@@ -922,6 +926,10 @@ test('product positioning and editorial directness decision is repeatable and su
   assert.deepEqual(JSON.parse(policy.data_json).supersedes_editorial_rules, [
     'editorial.no_guarantees', 'editorial.no_fabricated_metrics', 'editorial.no_antifraud_details',
   ]);
+  assert.equal(editorialScope.status, 'approved');
+  assert.equal(editorialScope.reviewed_by, 'owner');
+  assert.equal(editorialScope.reviewed_at, '2026-08-29T00:00:00.000Z');
+  assert.match(editorialScope.content, /фокусируются на поисковой выдаче/);
   assert.doesNotMatch(readMemory('rules', '', databasePath), /Не давать недоказуемых гарантий/);
   assert.match(readMemory('decisions', '', databasePath), /Прямая редакционная политика MetricHit/);
 });
@@ -950,7 +958,7 @@ test('memory CLI reads approved memory without modifying the database', (t) => {
   const after = afterDatabase.prepare('SELECT count(*) AS count FROM memory_candidates').get().count;
   afterDatabase.close();
 
-  assert.match(summary, /Approved candidates: 28/);
+  assert.match(summary, /Approved candidates: 29/);
   assert.match(avito, /Пять активных объявлений Avito/);
   assert.match(tasks, /registration_click/);
   assert.match(facts, /Действующая тарифная сетка/);
@@ -958,6 +966,7 @@ test('memory CLI reads approved memory without modifying the database', (t) => {
   assert.doesNotMatch(rules, /Не давать недоказуемых гарантий/);
   assert.match(facts, /Назначение MetricHit/);
   assert.match(decisions, /Прямая редакционная политика MetricHit/);
+  assert.match(decisions, /Фокус публичных материалов MetricHit на поисковой выдаче/);
   assert.match(sources, /Решение владельца по первоначальным кандидатам памяти/);
   assert.match(pending, /Нет записей/);
   assert.match(conflicts, /Нет записей/);

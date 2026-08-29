@@ -7,11 +7,13 @@ import { DatabaseSync } from 'node:sqlite';
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/product-positioning-and-editorial-directness-2026-08-14.md';
+const editorialScopeDecisionPath = 'knowledge/decisions/editorial-search-result-scope-2026-08-29.md';
 const owner = 'owner';
 const reviewedAt = '2026-08-14T00:00:00.000Z';
 const mechanicsReviewedAt = '2026-08-26T00:00:00.000Z';
 const metricHitProjectId = '00000000-0000-4000-a000-000000000102';
 const mechanicsSemanticKey = 'product.search_result_click_mechanics';
+const editorialScopeSemanticKey = 'content.editorial_search_result_scope';
 const supersededRules = [
   'editorial.no_guarantees',
   'editorial.no_fabricated_metrics',
@@ -47,6 +49,9 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
   const bytes = readFileSync(join(repositoryRoot, decisionPath));
   const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   if (content.includes('\uFFFD')) throw new Error('Decision file contains U+FFFD');
+  const editorialScopeBytes = readFileSync(join(repositoryRoot, editorialScopeDecisionPath));
+  const editorialScopeDocumentContent = new TextDecoder('utf-8', { fatal: true }).decode(editorialScopeBytes);
+  if (editorialScopeDocumentContent.includes('\uFFFD')) throw new Error('Editorial scope decision file contains U+FFFD');
   const metadata = JSON.stringify({
     path: decisionPath,
     bytes: bytes.length,
@@ -56,13 +61,26 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
     decision_date: '2026-08-14',
   });
   const sourceId = stableUuid(`source:${decisionPath}`);
+  const editorialScopeSourceId = stableUuid(`source:${editorialScopeDecisionPath}`);
   const documentId = stableUuid(`document:${decisionPath}`);
+  const editorialScopeDocumentId = stableUuid(`document:${editorialScopeDecisionPath}`);
   const versionId = stableUuid(`document-version:${decisionPath}:1`);
+  const editorialScopeVersionId = stableUuid(`document-version:${editorialScopeDecisionPath}:1`);
   const decisionId = stableUuid('decision:content.editorial_directness_policy');
+  const editorialScopeDecisionId = stableUuid(`decision:${editorialScopeSemanticKey}`);
   const positioningId = stableUuid('candidate:product.positioning');
   const policyId = stableUuid('candidate:content.editorial_directness_policy');
+  const editorialScopeCandidateId = stableUuid(`candidate:${editorialScopeSemanticKey}`);
   const mechanicsSourceId = stableUuid('source:owner-chat:2026-08-26:search-result-click-mechanics');
   const mechanicsCandidateId = stableUuid(`candidate:${mechanicsSemanticKey}`);
+  const editorialScopeMetadata = JSON.stringify({
+    path: editorialScopeDecisionPath,
+    bytes: editorialScopeBytes.length,
+    sha256: createHash('sha256').update(editorialScopeBytes).digest('hex'),
+    encoding: 'utf-8',
+    authority: 'direct_owner_confirmation',
+    decision_date: '2026-08-29',
+  });
   const positioningTitle = 'Назначение MetricHit';
   const positioningContent = 'MetricHit — сервис накрутки и улучшения поведенческих факторов (ПФ) для продвижения сайтов в поисковой выдаче Яндекса. Пользователь настраивает сайт, регион, поисковые запросы, дневные лимиты и расписание, а затем контролирует выполненные клики, расходы и изменение позиций в личном кабинете. MetricHit используется как инструмент усиления подготовленного сайта и не является гарантией роста позиций или заменой технического SEO, релевантности страниц и коммерческой проработки.';
   const positioningData = JSON.stringify({
@@ -97,6 +115,14 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
     internal_behavioral_factors_counted_by_yandex: false,
     evidence: { authority: 'direct_owner_confirmation', date: '2026-08-26' },
   });
+  const editorialScopeTitle = 'Фокус публичных материалов MetricHit на поисковой выдаче';
+  const editorialScopeContent = 'В публичных статьях MetricHit не упоминать действия пользователей или ботов внутри сайта, внутренние поведенческие факторы, глубину просмотра, время, скроллы или клики и не вступать в спор об их влиянии. Материалы о сервисе фокусируются на поисковой выдаче, запросах, позициях, регионах, дневных лимитах, стоимости клика, бюджете и контроле результата.';
+  const editorialScopeData = JSON.stringify({
+    applies_to: ['public_articles'],
+    excluded_topics: ['actions_inside_site', 'internal_behavioral_factors', 'depth_of_viewing', 'time_on_site', 'scrolls', 'clicks_inside_site', 'debate_about_their_ranking_impact'],
+    editorial_focus: ['search_results', 'queries', 'positions', 'regions', 'daily_limits', 'cost_per_click', 'budget', 'result_control'],
+    evidence: { path: editorialScopeDecisionPath },
+  });
 
   const database = new DatabaseSync(databasePath);
   database.exec('PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;');
@@ -106,11 +132,20 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
     if (mechanicsDuplicate) throw new Error(`Semantic duplicate or evolution blocks ${mechanicsSemanticKey}`);
     const mechanicsConflict = database.prepare("SELECT id FROM memory_conflicts WHERE status = 'open' AND (candidate_id = ? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key = ?))").get(mechanicsCandidateId, mechanicsSemanticKey);
     if (mechanicsConflict) throw new Error(`Open memory conflict blocks ${mechanicsSemanticKey}`);
+    const editorialScopeDuplicate = database.prepare("SELECT id FROM memory_candidates WHERE semantic_key = ? AND status IN ('pending', 'approved') AND id <> ?").get(editorialScopeSemanticKey, editorialScopeCandidateId);
+    if (editorialScopeDuplicate) throw new Error(`Semantic duplicate or evolution blocks ${editorialScopeSemanticKey}`);
+    const editorialScopeConflict = database.prepare("SELECT id FROM memory_conflicts WHERE status = 'open' AND (candidate_id = ? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key = ?))").get(editorialScopeCandidateId, editorialScopeSemanticKey);
+    if (editorialScopeConflict) throw new Error(`Open memory conflict blocks ${editorialScopeSemanticKey}`);
     created.sources += Number(database.prepare(`
       INSERT OR IGNORE INTO sources
         (id, type, title, content, data_json, status, author, valid_at, access_level)
       VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-14', 'internal')
     `).run(sourceId, policyTitle, `Repository file: ${decisionPath}`, metadata, owner).changes);
+    created.sources += Number(database.prepare(`
+      INSERT OR IGNORE INTO sources
+        (id, type, title, content, data_json, status, author, valid_at, access_level)
+      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-29', 'internal')
+    `).run(editorialScopeSourceId, editorialScopeTitle, `Repository file: ${editorialScopeDecisionPath}`, editorialScopeMetadata, owner).changes);
     created.sources += Number(database.prepare(`
       INSERT OR IGNORE INTO sources
         (id, type, title, content, data_json, status, author, valid_at, access_level)
@@ -127,16 +162,31 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
         (id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
       VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-14', 'internal', 1)
     `).run(documentId, policyTitle, content, metadata, sourceId, owner).changes);
+    created.documents += Number(database.prepare(`
+      INSERT OR IGNORE INTO documents
+        (id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
+      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-29', 'internal', 1)
+    `).run(editorialScopeDocumentId, editorialScopeTitle, editorialScopeDocumentContent, editorialScopeMetadata, editorialScopeSourceId, owner).changes);
     created.versions += Number(database.prepare(`
       INSERT OR IGNORE INTO document_versions
         (id, document_id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
       VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-14', 'internal', 1)
     `).run(versionId, documentId, policyTitle, content, metadata, sourceId, owner).changes);
+    created.versions += Number(database.prepare(`
+      INSERT OR IGNORE INTO document_versions
+        (id, document_id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
+      VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-29', 'internal', 1)
+    `).run(editorialScopeVersionId, editorialScopeDocumentId, editorialScopeTitle, editorialScopeDocumentContent, editorialScopeMetadata, editorialScopeSourceId, owner).changes);
     created.decisions += Number(database.prepare(`
       INSERT OR IGNORE INTO decisions
         (id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
       VALUES (?, 'editorial_policy', ?, ?, ?, 'active', ?, ?, '2026-08-14', 'internal', 1)
     `).run(decisionId, policyTitle, policyContent, policyData, sourceId, owner).changes);
+    created.decisions += Number(database.prepare(`
+      INSERT OR IGNORE INTO decisions
+        (id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
+      VALUES (?, 'editorial_policy', ?, ?, ?, 'active', ?, ?, '2026-08-29', 'internal', 1)
+    `).run(editorialScopeDecisionId, editorialScopeTitle, editorialScopeContent, editorialScopeData, editorialScopeSourceId, owner).changes);
     created.candidates += Number(database.prepare(`
       INSERT OR IGNORE INTO memory_candidates
         (id, type, semantic_key, title, content, data_json, status, source_id, author, valid_at, access_level, version)
@@ -150,12 +200,26 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
     created.candidates += Number(database.prepare(`
       INSERT OR IGNORE INTO memory_candidates
         (id, type, semantic_key, title, content, data_json, status, source_id, author, valid_at, access_level, version)
+      VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-29', 'internal', 1)
+    `).run(editorialScopeCandidateId, editorialScopeSemanticKey, editorialScopeTitle, editorialScopeContent, editorialScopeData, editorialScopeSourceId, owner).changes);
+    created.candidates += Number(database.prepare(`
+      INSERT OR IGNORE INTO memory_candidates
+        (id, type, semantic_key, title, content, data_json, status, source_id, author, valid_at, access_level, version)
       VALUES (?, 'product_fact', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)
     `).run(mechanicsCandidateId, mechanicsSemanticKey, mechanicsTitle, mechanicsContent, mechanicsData, mechanicsSourceId, owner).changes);
 
     const reviewNote = 'Одобрено на основании прямого решения владельца MetricHit от 14.08.2026.';
     approveCandidate(database, positioningId, reviewNote);
     approveCandidate(database, policyId, reviewNote);
+    const editorialScopeCandidate = database.prepare('SELECT status FROM memory_candidates WHERE id = ?').get(editorialScopeCandidateId);
+    if (editorialScopeCandidate?.status === 'pending') {
+      database.prepare(`
+        UPDATE memory_candidates
+        SET status = 'approved', reviewed_by = ?, reviewed_at = ?, review_note = ?,
+            updated_at = ?, version = version + 1
+        WHERE id = ?
+      `).run(owner, '2026-08-29T00:00:00.000Z', 'Одобрено прямым решением владельца MetricHit от 29.08.2026.', '2026-08-29T00:00:00.000Z', editorialScopeCandidateId);
+    }
     const mechanicsCandidate = database.prepare('SELECT status FROM memory_candidates WHERE id = ?').get(mechanicsCandidateId);
     if (mechanicsCandidate?.status === 'pending') {
       database.prepare(`
@@ -175,6 +239,11 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
       content: policyContent, data_json: policyData, source_id: sourceId,
       status: 'approved', reviewed_by: owner, reviewed_at: reviewedAt,
     }, 'editorial policy candidate');
+    assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(editorialScopeCandidateId), {
+      type: 'decision', semantic_key: editorialScopeSemanticKey, title: editorialScopeTitle,
+      content: editorialScopeContent, data_json: editorialScopeData, source_id: editorialScopeSourceId,
+      status: 'approved', reviewed_by: owner, reviewed_at: '2026-08-29T00:00:00.000Z',
+    }, 'editorial search-result scope candidate');
     assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(mechanicsCandidateId), {
       type: 'product_fact', semantic_key: mechanicsSemanticKey, title: mechanicsTitle,
       content: mechanicsContent, data_json: mechanicsData, source_id: mechanicsSourceId,
@@ -183,9 +252,15 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
     assertFields(database.prepare('SELECT * FROM documents WHERE id = ?').get(documentId), {
       content, data_json: metadata, source_id: sourceId, version: 1,
     }, 'editorial policy document');
+    assertFields(database.prepare('SELECT * FROM documents WHERE id = ?').get(editorialScopeDocumentId), {
+      content: editorialScopeDocumentContent, data_json: editorialScopeMetadata, source_id: editorialScopeSourceId, version: 1,
+    }, 'editorial scope document');
     assertFields(database.prepare('SELECT * FROM decisions WHERE id = ?').get(decisionId), {
       content: policyContent, data_json: policyData, source_id: sourceId, status: 'active', version: 1,
     }, 'editorial policy decision');
+    assertFields(database.prepare('SELECT * FROM decisions WHERE id = ?').get(editorialScopeDecisionId), {
+      content: editorialScopeContent, data_json: editorialScopeData, source_id: editorialScopeSourceId, status: 'active', version: 1,
+    }, 'editorial scope decision');
 
     const conflicts = database.prepare(`
       SELECT id FROM memory_conflicts
@@ -201,7 +276,7 @@ export function applyProductPositioningAndEditorialDirectness(databasePath = def
       `).run('Разрешено прямым решением владельца от 14.08.2026: действует content.editorial_directness_policy.', reviewedAt, id).changes);
     }
     database.exec('COMMIT');
-    return { databasePath, created, sourceId, documentId, versionId, decisionId, positioningId, policyId, mechanicsSemanticKey, mechanicsSourceId, mechanicsCandidateId };
+    return { databasePath, created, sourceId, documentId, versionId, decisionId, positioningId, policyId, mechanicsSemanticKey, mechanicsSourceId, mechanicsCandidateId, editorialScopeSemanticKey, editorialScopeSourceId, editorialScopeCandidateId };
   } catch (error) {
     database.exec('ROLLBACK');
     throw error;
