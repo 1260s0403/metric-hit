@@ -327,7 +327,7 @@ def test_navigation_hides_overview_content_after_every_view_transition(page: Pag
                 assertion.to_be_hidden()
 
 
-def test_overview_and_recommendations_do_not_expose_stale_frame(page: Page, panel: str) -> None:
+def test_overview_never_exposes_legacy_inner_render_across_transitions(page: Page, panel: str) -> None:
     page.goto(panel)
     expect(page.get_by_test_id("overview-screen")).to_contain_text("Фокус на сегодня")
 
@@ -341,14 +341,46 @@ def test_overview_and_recommendations_do_not_expose_stale_frame(page: Page, pane
     expect(page.get_by_test_id("knowledge-screen")).to_be_visible()
     expect(page.get_by_test_id("add-entry")).to_be_visible()
 
-    page.get_by_test_id("tab-overview").click()
-    assert page.evaluate(
-        """() => ({
-            overviewEmpty: document.querySelector('#overview').childElementCount === 0,
-            knowledgeVisible: getComputedStyle(document.querySelector('#knowledge')).display !== 'none'
-        })"""
-    ) == {"overviewEmpty": True, "knowledgeVisible": False}
-    expect(page.get_by_test_id("overview-screen")).to_be_visible()
+    for source in ("activity", "tasks", "idea"):
+        page.get_by_test_id(f"tab-{source}").click()
+        samples = page.evaluate(
+            """async () => {
+                const overview = document.querySelector('#overview');
+                const samples = [];
+                const capture = label => samples.push({
+                    label,
+                    empty: overview.childElementCount === 0,
+                    canonical: Boolean(
+                        overview.querySelector('.overview-summary[data-testid="overview-high-priority"]') &&
+                        overview.querySelector('.overview-panel[data-testid="overview-focus-today"]')
+                    ),
+                    legacy: Boolean(overview.querySelector(
+                        '[data-testid="overview-task-list"], [data-testid="overview-artem-list"], '
+                        + '[data-testid="overview-idea-list"], .overview-priority'
+                    )),
+                });
+                const observer = new MutationObserver(() => capture('mutation'));
+                observer.observe(overview, {childList: true, subtree: true});
+                document.querySelector('[data-testid="tab-overview"]').click();
+                capture('sync');
+                await Promise.resolve();
+                capture('microtask');
+                await new Promise(resolve => requestAnimationFrame(() => { capture('rAF1'); resolve(); }));
+                await new Promise(resolve => requestAnimationFrame(() => { capture('rAF2'); resolve(); }));
+                await new Promise(resolve => setTimeout(resolve, 50));
+                capture('50ms');
+                await new Promise(resolve => setTimeout(resolve, 50));
+                capture('100ms');
+                observer.disconnect();
+                return samples;
+            }"""
+        )
+        assert samples
+        assert all(not sample["legacy"] for sample in samples), (source, samples)
+        assert all(sample["empty"] or sample["canonical"] for sample in samples), (source, samples)
+        expect(page.get_by_test_id("overview-screen")).to_be_visible()
+        expect(page.get_by_test_id("overview-high-priority")).to_be_visible()
+        expect(page.get_by_test_id("overview-focus-today")).to_be_visible()
 
 
 def test_primary_views_never_expose_a_stale_frame_across_owner_navigation(page: Page, panel: str, tmp_path: Path) -> None:
