@@ -24,6 +24,7 @@ from .editorial_models import (
     RecordApprovalDecisionInput,
     RequestApprovalInput,
 )
+from .editorial_domain import EditorialDomainError, EditorialStore, initialize_editorial_domain
 from .editorial_store import WorkflowError, initialize_workflow_database
 from .editorial_mvp import run_editorial_mvp
 from .editorial_workflow import EditorialWorkflowService
@@ -131,6 +132,16 @@ def workflow_parser() -> argparse.ArgumentParser:
     project_import = subparsers.add_parser("project-import")
     project_import.add_argument("--package", required=True)
     project_import.add_argument("--storage-root")
+    editorial_init = subparsers.add_parser("project-editorial-init")
+    editorial_init.add_argument("--db", required=True)
+    editorial_init.add_argument("--project-id", default=DEFAULT_PROJECT_ID)
+    editorial_context = subparsers.add_parser("project-editorial-context")
+    editorial_context.add_argument("--db", required=True)
+    editorial_context.add_argument("--project-id", default=DEFAULT_PROJECT_ID)
+    editorial_context.add_argument("--query", default="")
+    editorial_context.add_argument("--topic-id")
+    editorial_context.add_argument("--material-id")
+    editorial_context.add_argument("--limit", type=int, default=8)
     handoff_create = subparsers.add_parser("handoff-create")
     handoff_create.add_argument("--db", required=True)
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
@@ -218,6 +229,17 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         print_json(storage.import_package(Path(arguments.package)))
         return 0
     database_path = Path(arguments.db)
+    if arguments.command == "project-editorial-init":
+        print_json(initialize_editorial_domain(database_path, project_id=arguments.project_id))
+        return 0
+    if arguments.command == "project-editorial-context":
+        print_json(EditorialStore(database_path, project_id=arguments.project_id).context(
+            query=arguments.query,
+            topic_id=arguments.topic_id,
+            material_id=arguments.material_id,
+            limit=arguments.limit,
+        ))
+        return 0
     if arguments.command == "init-editorial-db":
         print_json(initialize_workflow_database(database_path))
         return 0
@@ -364,7 +386,7 @@ def main() -> int:
         return 0
     try:
         return run_workflow_command(sys.argv[1:])
-    except (HandoffError, KnowledgeError, WorkflowError, ProviderError, ValidationError, ValueError, sqlite3.Error) as error:
+    except (EditorialDomainError, HandoffError, KnowledgeError, WorkflowError, ProviderError, ValidationError, ValueError, sqlite3.Error) as error:
         print_json({"error": type(error).__name__, "message": str(error)})
         return 2
 

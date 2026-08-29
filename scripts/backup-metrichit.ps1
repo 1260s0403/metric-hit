@@ -63,7 +63,7 @@ try {
 
     function Get-RequiredSourceInventory {
         $inventory = @()
-        foreach ($directory in @('knowledge', 'documents', 'scripts', 'tests', 'data\database\migrations', 'work')) {
+        foreach ($directory in @('knowledge', 'documents', 'scripts', 'tests', 'data\database\migrations', 'data\project-migrations', 'work')) {
             $sourcePath = Join-Path $repoRoot $directory
             if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) { throw "Required source directory is missing: $directory" }
             $inventory += Get-BackupFileInventory -Root $sourcePath -PathPrefix $directory.Replace('\', '/')
@@ -104,7 +104,7 @@ try {
         if ($LASTEXITCODE -ne 0 -or -not $projectInventoryJson) { throw 'Project storage online backup failed.' }
         $projectStorageInventory = @(ConvertFrom-BackupJsonArray -Json $projectInventoryJson)
 
-        $requiredDirectories = @('knowledge', 'documents', 'scripts', 'tests', 'data\database\migrations')
+        $requiredDirectories = @('knowledge', 'documents', 'scripts', 'tests', 'data\database\migrations', 'data\project-migrations')
         foreach ($directory in $requiredDirectories) {
             $sourcePath = Join-Path $repoRoot $directory
             if (-not (Test-Path -LiteralPath $sourcePath -PathType Container)) { throw "Required source directory is missing: $directory" }

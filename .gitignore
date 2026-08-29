@@ -66,6 +66,7 @@ __pycache__/
 .pytest-ideas-*/
 .pytest-task-dashboard-*/
 .pytest-compact-final/
+.pytest-editorial-*/
 work/subproject-menu-verified.png
 work/subproject-*.png
 work/activity-v4-*.png

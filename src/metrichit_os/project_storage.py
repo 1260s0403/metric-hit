@@ -105,6 +105,16 @@ def _database_metadata(database: Path, expected_project_id: str) -> dict[str, An
                 if has_migrations
                 else 0
             )
+            has_editorial_migrations = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='editorial_schema_migrations'"
+            ).fetchone()
+            editorial_schema_version = (
+                connection.execute(
+                    "SELECT coalesce(max(version),0) FROM editorial_schema_migrations"
+                ).fetchone()[0]
+                if has_editorial_migrations
+                else 0
+            )
             has_documents = connection.execute(
                 "SELECT 1 FROM sqlite_master WHERE type='table' AND name='documents'"
             ).fetchone()
@@ -121,6 +131,7 @@ def _database_metadata(database: Path, expected_project_id: str) -> dict[str, An
                 "projectId": expected_project_id,
                 "storageFormatVersion": STORAGE_FORMAT_VERSION,
                 "schemaVersion": int(schema_version),
+                "editorialSchemaVersion": int(editorial_schema_version),
                 "schemaSha256": _schema_hash(connection),
                 "project": project,
             }
@@ -225,6 +236,7 @@ class ProjectStorage:
                 "projectId": location.project_id,
                 "storageFormatVersion": STORAGE_FORMAT_VERSION,
                 "schemaVersion": metadata["schemaVersion"],
+                "editorialSchemaVersion": metadata["editorialSchemaVersion"],
                 "schemaSha256": metadata["schemaSha256"],
                 "components": {
                     DATABASE_FILENAME: {
@@ -290,6 +302,9 @@ class ProjectStorage:
 
         if not isinstance(manifest, dict) or not isinstance(metadata, dict):
             raise ProjectPackageError("project package metadata is invalid")
+        # Packages created before the embedded editorial domain did not expose
+        # a separate editorial schema version. Their database has version 0.
+        metadata.setdefault("editorialSchemaVersion", 0)
         project_id = manifest.get("projectId")
         try:
             canonical_project_id(project_id)
@@ -351,6 +366,7 @@ class ProjectStorage:
                 raise ProjectPackageError("project metadata does not match the project database")
             if (
                 manifest.get("schemaVersion") != actual_metadata["schemaVersion"]
+                or manifest.get("editorialSchemaVersion", 0) != actual_metadata["editorialSchemaVersion"]
                 or manifest.get("schemaSha256") != actual_metadata["schemaSha256"]
             ):
                 raise ProjectPackageError("project schema does not match the manifest")

@@ -78,7 +78,7 @@ try {
         Assert-BackupTreeHasNoSecretContent -Root $snapshotRoot
 
         foreach ($requiredPath in @(
-            'knowledge', 'documents', 'scripts', 'tests', 'data\database\migrations', 'work',
+            'knowledge', 'documents', 'scripts', 'tests', 'data\database\migrations', 'data\project-migrations', 'work',
             'AGENTS.md', 'README.md', '.gitignore', '.gitattributes'
         )) {
             if (-not (Test-Path -LiteralPath (Join-Path $snapshotRoot $requiredPath))) {

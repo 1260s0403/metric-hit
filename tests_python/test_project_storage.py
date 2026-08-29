@@ -239,6 +239,33 @@ def test_import_rejects_invalid_uuid_and_existing_content_conflict(tmp_path: Pat
         target_storage.import_package(package)
 
 
+def test_import_accepts_pre_editorial_package_metadata(tmp_path: Path) -> None:
+    source_storage = ProjectStorage(tmp_path / "source")
+    source_storage.initialize(PROJECT_A)
+    package = tmp_path / "legacy-project.mhproject"
+    source_storage.export_package(PROJECT_A, package)
+    with zipfile.ZipFile(package) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        metadata = json.loads(archive.read("project.json"))
+    manifest.pop("editorialSchemaVersion")
+    metadata.pop("editorialSchemaVersion")
+    metadata_bytes = (json.dumps(metadata, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode()
+    manifest["components"]["project.json"].update(
+        size=len(metadata_bytes), sha256=hashlib.sha256(metadata_bytes).hexdigest()
+    )
+    _rewrite_package(
+        package,
+        {
+            "manifest.json": (json.dumps(manifest, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode(),
+            "project.json": metadata_bytes,
+        },
+    )
+
+    imported = ProjectStorage(tmp_path / "target").import_package(package)
+
+    assert imported["imported"] is True
+
+
 def test_project_transfer_cli_round_trip(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
