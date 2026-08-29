@@ -12,6 +12,10 @@ import { applyInitialMemoryDecision } from '../scripts/apply-initial-memory-deci
 import { applyModelRoutingPolicy } from '../scripts/apply-model-routing-policy.mjs';
 import { applyServerPrimaryWorkspace } from '../scripts/apply-server-primary-workspace.mjs';
 import { applyProductPositioningAndEditorialDirectness } from '../scripts/apply-product-positioning-and-editorial-directness.mjs';
+import { applyMetricHitPricing } from '../scripts/apply-metrichit-pricing.mjs';
+import { applyPublicPfPositiveFraming } from '../scripts/apply-public-pf-positive-framing.mjs';
+import { applySostavNakrutkaPfPublication } from '../scripts/apply-sostav-nakrutka-pf-publication.mjs';
+import { applyPublicationLinksSostavOborot } from '../scripts/apply-publication-links-sostav-oborot-2026-08-29.mjs';
 import { readMemory } from '../scripts/memory-cli.mjs';
 import { exportCurrentContext } from '../scripts/export-current-context.mjs';
 
@@ -893,6 +897,38 @@ test('server primary workspace decision is repeatable and records approved conte
   assert.equal(JSON.parse(migration.data_json).migration_completed, false);
 });
 
+test('MetricHit pricing evolution is repeatable and supersedes the exported tariff grid', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  importChatSummaries(databasePath);
+  applyInitialMemoryDecision(databasePath);
+
+  const first = applyMetricHitPricing(databasePath);
+  const second = applyMetricHitPricing(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const revisions = database.prepare(`
+    SELECT content, data_json, status FROM memory_candidates
+    WHERE semantic_key = 'pricing.current_tiers'
+    ORDER BY coalesce(json_extract(data_json, '$.revision'), 0)
+  `).all();
+  database.close();
+  assert.equal(revisions.length, 2);
+  assert.equal(revisions[1].status, 'approved');
+  assert.deepEqual(JSON.parse(revisions[1].data_json).tiers, [
+    [1000, 0.5], [10000, 0.4], [50000, 0.3],
+    [100000, 0.25], [150000, 0.2], [200000, 0.15],
+  ]);
+
+  const exported = exportCurrentContext(databasePath, outputPath, '2026-08-29T09:00:00.000Z').content;
+  assert.match(exported, /от 1 000 ₽ — 0,50 ₽/);
+  assert.match(exported, /от 200 000 ₽ — 0,15 ₽/);
+  assert.doesNotMatch(exported, /от 1 000 ₽ — 1,50 ₽/);
+});
+
 test('product positioning and editorial directness decision is repeatable and supersedes conflicting rules', (t) => {
   const { databasePath, remove } = temporaryDatabase(t);
   t.after(remove);
@@ -932,6 +968,79 @@ test('product positioning and editorial directness decision is repeatable and su
   assert.match(editorialScope.content, /фокусируются на поисковой выдаче/);
   assert.doesNotMatch(readMemory('rules', '', databasePath), /Не давать недоказуемых гарантий/);
   assert.match(readMemory('decisions', '', databasePath), /Прямая редакционная политика MetricHit/);
+});
+
+test('public PF positive framing rule is repeatable and preserves internal product facts', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  t.after(remove);
+  importChatSummaries(databasePath);
+  applyInitialMemoryDecision(databasePath);
+  applyProductPositioningAndEditorialDirectness(databasePath);
+
+  const first = applyPublicPfPositiveFraming(databasePath);
+  const second = applyPublicPfPositiveFraming(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const rule = database.prepare(`SELECT status, reviewed_by, reviewed_at, content, data_json FROM memory_candidates WHERE semantic_key='content.public_pf_positive_framing'`).get();
+  const positioning = database.prepare(`SELECT content FROM memory_candidates WHERE semantic_key='product.positioning'`).get();
+  database.close();
+  assert.equal(rule.status, 'approved');
+  assert.equal(rule.reviewed_by, 'owner');
+  assert.equal(rule.reviewed_at, '2026-08-29T00:00:00.000Z');
+  assert.match(rule.content, /не поднимать темы рисков/);
+  assert.deepEqual(JSON.parse(rule.data_json).required_positive_focus, ['query_selection', 'landing_page_preparation', 'region', 'daily_limits', 'budget', 'completed_volume_control', 'dynamics_evaluation', 'campaign_scaling']);
+  assert.match(positioning.content, /не является гарантией роста позиций/);
+  assert.match(readMemory('rules', '', databasePath), /Позитивная подача ПФ/);
+});
+
+test('Sostav Nakrutka PF publication confirmation is repeatable and preserves owner-confirmed URL state', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  initializeDatabase(databasePath);
+
+  const first = applySostavNakrutkaPfPublication(databasePath);
+  const second = applySostavNakrutkaPfPublication(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const publication = database.prepare(`SELECT status, reviewed_by, reviewed_at, content, data_json FROM memory_candidates WHERE semantic_key = 'publication.sostav_nakrutka_pf_2026_08_29'`).get();
+  database.close();
+  assert.equal(publication.status, 'approved');
+  assert.equal(publication.reviewed_by, 'owner');
+  assert.equal(publication.reviewed_at, '2026-08-29T00:00:00.000Z');
+  assert.match(publication.content, /Sostav \/ SBlogs/);
+  assert.deepEqual(JSON.parse(publication.data_json), {
+    platform: 'Sostav / SBlogs', publication_date: '2026-08-29', publication_status: 'confirmed', confirmation_basis: 'owner_confirmation', public_url: 'unknown/not_provided', final_article_path: 'work/articles/published/2026-08-29-sostav-nakrutka-pf.md', evidence: { path: 'knowledge/decisions/sostav-nakrutka-pf-publication-2026-08-29.md' },
+  });
+  const exported = exportCurrentContext(databasePath, outputPath, '2026-08-29T00:00:00.000Z').content;
+  assert.match(exported, /Публикация «Накрутка ПФ» на Sostav \/ SBlogs/);
+  assert.match(exported, /unknown \/ not_provided/);
+});
+
+test('publication link confirmations evolve Sostav URL and add Oborot publication repeatably', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  initializeDatabase(databasePath);
+  applySostavNakrutkaPfPublication(databasePath);
+
+  const first = applyPublicationLinksSostavOborot(databasePath);
+  const second = applyPublicationLinksSostavOborot(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 2 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const facts = readMemory('facts', '', databasePath);
+  assert.match(facts, /https:\/\/www\.sostav\.ru\/blogs\/293151\/104675/);
+  assert.match(facts, /https:\/\/oborot\.ru\/blogs\/nakrutka-pf-i277755\.html/);
+  assert.doesNotMatch(facts, /unknown \/ not_provided/);
+  const exported = exportCurrentContext(databasePath, outputPath, '2026-08-29T15:00:00.000Z').content;
+  assert.match(exported, /https:\/\/www\.sostav\.ru\/blogs\/293151\/104675/);
+  assert.match(exported, /https:\/\/oborot\.ru\/blogs\/nakrutka-pf-i277755\.html/);
+  assert.doesNotMatch(exported, /unknown \/ not_provided/);
 });
 
 test('memory CLI reads approved memory without modifying the database', (t) => {

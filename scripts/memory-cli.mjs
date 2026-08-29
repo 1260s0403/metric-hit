@@ -33,10 +33,17 @@ export function readMemory(command, query = '', databasePath = defaultDatabasePa
         )`
         : '';
       return database.prepare(`
-      SELECT type, semantic_key, title, content
-      FROM memory_candidates
-      WHERE ${approvedWhere} AND type IN (${types.map(() => '?').join(', ')})
-      ${excludedEditorialRules}
+      SELECT type, semantic_key, title, content FROM (
+        SELECT type, semantic_key, title, content,
+               ROW_NUMBER() OVER (
+                 PARTITION BY semantic_key
+                 ORDER BY coalesce(json_extract(data_json, '$.revision'), 0) DESC,
+                          reviewed_at DESC, updated_at DESC, id DESC
+               ) AS revision_rank
+        FROM memory_candidates
+        WHERE ${approvedWhere} AND type IN (${types.map(() => '?').join(', ')})
+        ${excludedEditorialRules}
+      ) WHERE revision_rank = 1
       ORDER BY semantic_key
       `).all(...types);
     };
