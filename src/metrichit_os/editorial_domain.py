@@ -171,6 +171,16 @@ def _text(value: object, field: str, *, optional: bool = False) -> str | None:
     return value.strip()
 
 
+def _direction(value: object, *, allow_common: bool = False) -> str:
+    direction = _text(value, "direction")
+    allowed = {"articles", "social"} | ({"common"} if allow_common else set())
+    if direction not in allowed:
+        raise EditorialDomainError(
+            "direction must be " + ", ".join(sorted(allowed))
+        )
+    return direction
+
+
 class EditorialStore:
     """Small project-local editorial registry with bounded context retrieval."""
 
@@ -206,12 +216,14 @@ class EditorialStore:
 
     def remember(
         self, *, semantic_key: str, category: str, title: str, content: str,
-        source_type: str = "owner", source_ref: str | None = None,
+        direction: str = "common", source_type: str = "owner",
+        source_ref: str | None = None,
     ) -> dict[str, Any]:
         values = (
             _text(semantic_key, "semantic_key"), _text(category, "category"),
             _text(title, "title"), _text(content, "content"),
             _text(source_type, "source_type"), _text(source_ref, "source_ref", optional=True),
+            _direction(direction, allow_common=True),
         )
         with self._connect() as connection:
             row = connection.execute(
@@ -220,13 +232,13 @@ class EditorialStore:
             if row is None:
                 identity = str(uuid4())
                 connection.execute(
-                    "INSERT INTO editorial_memory(id,semantic_key,category,title,content,source_type,source_ref) "
-                    "VALUES(?,?,?,?,?,?,?)", (identity, *values),
+                    "INSERT INTO editorial_memory(id,semantic_key,category,title,content,source_type,source_ref,direction) "
+                    "VALUES(?,?,?,?,?,?,?,?)", (identity, *values),
                 )
             else:
                 identity = str(row["id"])
                 connection.execute(
-                    "UPDATE editorial_memory SET category=?,title=?,content=?,source_type=?,source_ref=?,status='active' WHERE id=?",
+                    "UPDATE editorial_memory SET category=?,title=?,content=?,source_type=?,source_ref=?,direction=?,status='active' WHERE id=?",
                     (*values[1:], identity),
                 )
             return self._row(connection.execute(
@@ -236,7 +248,7 @@ class EditorialStore:
     def create_topic(
         self, *, idempotency_key: str, title: str, primary_intent: str,
         primary_query: str | None = None, cluster_name: str | None = None,
-        priority: int = 50, notes: str | None = None,
+        priority: int = 50, notes: str | None = None, direction: str = "articles",
     ) -> dict[str, Any]:
         key = _text(idempotency_key, "idempotency_key")
         if not isinstance(priority, int) or not 0 <= priority <= 100:
@@ -248,6 +260,7 @@ class EditorialStore:
             "cluster_name": _text(cluster_name, "cluster_name", optional=True),
             "priority": priority,
             "notes": _text(notes, "notes", optional=True),
+            "direction": _direction(direction),
         }
         with self._connect() as connection:
             replay = self._replay(connection, "editorial_topics", key, expected)
@@ -255,8 +268,8 @@ class EditorialStore:
                 return replay
             identity = str(uuid4())
             connection.execute(
-                "INSERT INTO editorial_topics(id,idempotency_key,title,primary_intent,primary_query,cluster_name,priority,notes) "
-                "VALUES(?,?,?,?,?,?,?,?)",
+                "INSERT INTO editorial_topics(id,idempotency_key,title,primary_intent,primary_query,cluster_name,priority,notes,direction) "
+                "VALUES(?,?,?,?,?,?,?,?,?)",
                 (identity, key, *expected.values()),
             )
             return self._row(connection.execute(
@@ -266,14 +279,19 @@ class EditorialStore:
     def create_material(
         self, *, idempotency_key: str, topic_id: str, material_type: str,
         title: str, parent_material_id: str | None = None, content_ref: str | None = None,
+        direction: str | None = None,
     ) -> dict[str, Any]:
         key = _text(idempotency_key, "idempotency_key")
+        normalized_type = _text(material_type, "material_type")
+        inferred_direction = "social" if normalized_type in {"telegram_post", "vk_post"} else "articles"
+        normalized_direction = _direction(direction or inferred_direction)
         expected = {
             "topic_id": _text(topic_id, "topic_id"),
             "parent_material_id": _text(parent_material_id, "parent_material_id", optional=True),
-            "material_type": _text(material_type, "material_type"),
+            "material_type": normalized_type,
             "title": _text(title, "title"),
             "content_ref": _text(content_ref, "content_ref", optional=True),
+            "direction": normalized_direction,
         }
         with self._connect() as connection:
             replay = self._replay(connection, "editorial_materials", key, expected)
@@ -281,8 +299,8 @@ class EditorialStore:
                 return replay
             identity = str(uuid4())
             connection.execute(
-                "INSERT INTO editorial_materials(id,idempotency_key,topic_id,parent_material_id,material_type,title,content_ref) "
-                "VALUES(?,?,?,?,?,?,?)", (identity, key, *expected.values()),
+                "INSERT INTO editorial_materials(id,idempotency_key,topic_id,parent_material_id,material_type,title,content_ref,direction) "
+                "VALUES(?,?,?,?,?,?,?,?)", (identity, key, *expected.values()),
             )
             return self._row(connection.execute(
                 "SELECT * FROM editorial_materials WHERE id=?", (identity,)
@@ -357,19 +375,22 @@ class EditorialStore:
             ).fetchone())
 
     def context(
-        self, *, query: str = "", topic_id: str | None = None,
+        self, *, direction: str, query: str = "", topic_id: str | None = None,
         material_id: str | None = None, limit: int = 8,
     ) -> dict[str, object]:
         if not isinstance(limit, int) or not 1 <= limit <= 25:
             raise EditorialDomainError("limit must be between 1 and 25")
         search = " ".join(query.split())[:200]
+        selected_direction = _direction(direction)
         pattern = f"%{search}%"
         with read_only_database(self.path) as connection:
             where = "(?='' OR title LIKE ? COLLATE NOCASE OR primary_intent LIKE ? COLLATE NOCASE OR coalesce(primary_query,'') LIKE ? COLLATE NOCASE OR coalesce(cluster_name,'') LIKE ? COLLATE NOCASE)"
             topics = [dict(row) for row in connection.execute(
-                "SELECT * FROM editorial_topics WHERE (id=? OR " + where + ") "
+                "SELECT * FROM editorial_topics WHERE (id=? OR ((direction=? OR EXISTS ("
+                "SELECT 1 FROM editorial_materials linked WHERE linked.topic_id=editorial_topics.id AND linked.direction=?"
+                ")) AND " + where + ")) "
                 "AND status<>'archived' ORDER BY (id=?) DESC,priority DESC,updated_at DESC LIMIT ?",
-                (topic_id or "", search, pattern, pattern, pattern, pattern, topic_id or "", limit),
+                (topic_id or "", selected_direction, selected_direction, search, pattern, pattern, pattern, pattern, topic_id or "", limit),
             )]
             topic_ids = [str(row["id"]) for row in topics]
             clauses = ["m.id=?"]
@@ -382,9 +403,20 @@ class EditorialStore:
                 arguments.extend((pattern, pattern))
             materials = [dict(row) for row in connection.execute(
                 "SELECT m.* FROM editorial_materials m WHERE (" + " OR ".join(clauses) + ") "
-                "AND m.status<>'archived' ORDER BY (m.id=?) DESC,m.updated_at DESC LIMIT ?",
-                (*arguments, material_id or "", limit),
+                "AND m.direction=? AND m.status<>'archived' ORDER BY (m.id=?) DESC,m.updated_at DESC LIMIT ?",
+                (*arguments, selected_direction, material_id or "", limit),
             )]
+            if selected_direction == "social" and materials:
+                parent_ids = [str(row["parent_material_id"]) for row in materials if row["parent_material_id"]]
+                if parent_ids:
+                    parent_placeholders = ",".join("?" for _ in parent_ids)
+                    remaining = max(0, limit - len(materials))
+                    if remaining:
+                        materials.extend(dict(row) for row in connection.execute(
+                            f"SELECT * FROM editorial_materials WHERE id IN ({parent_placeholders}) "
+                            "AND direction='articles' AND status<>'archived' ORDER BY updated_at DESC LIMIT ?",
+                            (*parent_ids, remaining),
+                        ))
             material_ids = [str(row["id"]) for row in materials]
             publications: list[dict[str, Any]] = []
             results: list[dict[str, Any]] = []
@@ -403,20 +435,37 @@ class EditorialStore:
                         "ORDER BY observed_at DESC LIMIT ?", (*publication_ids, limit),
                     )]
             memory = [dict(row) for row in connection.execute(
-                "SELECT * FROM editorial_memory WHERE status='active' AND "
+                "SELECT * FROM editorial_memory WHERE status='active' AND direction IN ('common',?) AND "
                 "(?='' OR category='rule' OR title LIKE ? COLLATE NOCASE OR content LIKE ? COLLATE NOCASE OR semantic_key LIKE ? COLLATE NOCASE) "
                 "ORDER BY (category='rule') DESC,updated_at DESC,semantic_key LIMIT ?",
-                (search, pattern, pattern, pattern, limit),
+                (selected_direction, search, pattern, pattern, pattern, limit),
             )]
             totals = {
-                name: connection.execute(
-                    f'SELECT count(*) FROM "editorial_{name}"'
-                    + (" WHERE status='active'" if name == "memory" else "")
-                ).fetchone()[0]
-                for name in ("memory", "topics", "materials", "publications", "results")
+                "memory": connection.execute(
+                    "SELECT count(*) FROM editorial_memory WHERE status='active' AND direction IN ('common',?)",
+                    (selected_direction,),
+                ).fetchone()[0],
+                "topics": connection.execute(
+                    "SELECT count(*) FROM editorial_topics WHERE status<>'archived' AND (direction=? OR EXISTS ("
+                    "SELECT 1 FROM editorial_materials linked WHERE linked.topic_id=editorial_topics.id AND linked.direction=?))",
+                    (selected_direction, selected_direction),
+                ).fetchone()[0],
+                "materials": connection.execute(
+                    "SELECT count(*) FROM editorial_materials WHERE direction=?", (selected_direction,)
+                ).fetchone()[0],
+                "publications": connection.execute(
+                    "SELECT count(*) FROM editorial_publications p JOIN editorial_materials m ON m.id=p.material_id WHERE m.direction=?",
+                    (selected_direction,),
+                ).fetchone()[0],
+                "results": connection.execute(
+                    "SELECT count(*) FROM editorial_results r JOIN editorial_publications p ON p.id=r.publication_id "
+                    "JOIN editorial_materials m ON m.id=p.material_id WHERE m.direction=?",
+                    (selected_direction,),
+                ).fetchone()[0],
             }
         return {
             "scope": "editorial",
+            "direction": selected_direction,
             "project_id": self.project_id,
             "query": search,
             "limit_per_section": limit,

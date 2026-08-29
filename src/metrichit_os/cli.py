@@ -138,6 +138,7 @@ def workflow_parser() -> argparse.ArgumentParser:
     editorial_context = subparsers.add_parser("project-editorial-context")
     editorial_context.add_argument("--db", required=True)
     editorial_context.add_argument("--project-id", default=DEFAULT_PROJECT_ID)
+    editorial_context.add_argument("--direction", choices=("articles", "social"), required=True)
     editorial_context.add_argument("--query", default="")
     editorial_context.add_argument("--topic-id")
     editorial_context.add_argument("--material-id")
@@ -234,6 +235,7 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         return 0
     if arguments.command == "project-editorial-context":
         print_json(EditorialStore(database_path, project_id=arguments.project_id).context(
+            direction=arguments.direction,
             query=arguments.query,
             topic_id=arguments.topic_id,
             material_id=arguments.material_id,

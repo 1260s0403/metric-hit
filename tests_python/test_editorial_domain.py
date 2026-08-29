@@ -65,7 +65,7 @@ def test_migration_is_project_local_seeded_and_idempotent(tmp_path: Path) -> Non
     before = initialize_editorial_domain(database)
     second = initialize_editorial_domain(database)
 
-    assert before["applied_now"] == [1, 2]
+    assert before["applied_now"] == [1, 2, 3, 4]
     assert second["applied_now"] == []
     assert second["counts"]["memory"] == expected_seed_count
     assert check_editorial_domain(database)["integrity"] == "ok"
@@ -73,7 +73,7 @@ def test_migration_is_project_local_seeded_and_idempotent(tmp_path: Path) -> Non
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute(
             "SELECT count(*) FROM editorial_schema_migrations"
-        ).fetchone()[0] == 2
+        ).fetchone()[0] == 4
         assert connection.execute(
             "SELECT count(*) FROM editorial_memory WHERE status='archived'"
         ).fetchone()[0] == expected_archived_count
@@ -93,6 +93,47 @@ def test_wrong_project_identity_and_modified_migration_fail_closed(tmp_path: Pat
     target.write_text(target.read_text(encoding="utf-8") + "\n-- changed\n", encoding="utf-8")
     with pytest.raises(EditorialDomainError, match="modified"):
         initialize_editorial_domain(database, migrations_path=migrations)
+
+
+def test_v2_upgrade_classifies_existing_materials_without_data_loss(tmp_path: Path) -> None:
+    database = project_database(tmp_path)
+    migrations = tmp_path / "migrations"
+    migrations.mkdir()
+    canonical = Path("data/project-migrations/editorial")
+    for name in ("001_editorial_domain.sql", "002_archive_superseded_rules.sql"):
+        (migrations / name).write_bytes((canonical / name).read_bytes())
+    initialize_editorial_domain(database, migrations_path=migrations)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO editorial_topics(id,idempotency_key,title,primary_intent) VALUES(?,?,?,?)",
+            ("10000000-0000-4000-a000-000000000001", "legacy-topic", "Legacy", "education"),
+        )
+        connection.execute(
+            "INSERT INTO editorial_materials(id,idempotency_key,topic_id,material_type,title) VALUES(?,?,?,?,?)",
+            ("10000000-0000-4000-a000-000000000002", "legacy-article",
+             "10000000-0000-4000-a000-000000000001", "article", "Legacy article"),
+        )
+        connection.execute(
+            "INSERT INTO editorial_materials(id,idempotency_key,topic_id,parent_material_id,material_type,title) "
+            "VALUES(?,?,?,?,?,?)",
+            ("10000000-0000-4000-a000-000000000003", "legacy-post",
+             "10000000-0000-4000-a000-000000000001",
+             "10000000-0000-4000-a000-000000000002", "telegram_post", "Legacy post"),
+        )
+    for name in ("003_editorial_directions.sql", "004_editorial_direction_integrity.sql"):
+        (migrations / name).write_bytes((canonical / name).read_bytes())
+
+    upgraded = initialize_editorial_domain(database, migrations_path=migrations)
+    replay = initialize_editorial_domain(database, migrations_path=migrations)
+
+    assert upgraded["applied_now"] == [3, 4]
+    assert replay["applied_now"] == []
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT material_type,direction FROM editorial_materials ORDER BY material_type"
+        ).fetchall() == [("article", "articles"), ("telegram_post", "social")]
+        assert connection.execute("PRAGMA integrity_check").fetchone() == ("ok",)
+        assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
 
 
 def test_registry_links_article_derivatives_publication_and_results(tmp_path: Path) -> None:
@@ -121,6 +162,7 @@ def test_registry_links_article_derivatives_publication_and_results(tmp_path: Pa
         material_type="article",
         title="Накрутка ПФ: практический гайд",
         content_ref="work/articles/drafts/pf-guide.md",
+        direction="articles",
     )
     telegram = store.create_material(
         idempotency_key="telegram-pf-guide",
@@ -128,8 +170,15 @@ def test_registry_links_article_derivatives_publication_and_results(tmp_path: Pa
         parent_material_id=article["id"],
         material_type="telegram_post",
         title="Короткий гайд по ПФ",
+        direction="social",
     )
-    with pytest.raises(sqlite3.IntegrityError, match="article parent"):
+    with sqlite3.connect(database) as connection:
+        with pytest.raises(sqlite3.IntegrityError, match="cannot invalidate"):
+            connection.execute(
+                "UPDATE editorial_materials SET material_type='brief' WHERE id=?",
+                (article["id"],),
+            )
+    with pytest.raises(sqlite3.IntegrityError, match="articles parent"):
         store.create_material(
             idempotency_key="bad-derived",
             topic_id=topic["id"],
@@ -165,14 +214,21 @@ def test_registry_links_article_derivatives_publication_and_results(tmp_path: Pa
 
     assert publication["confirmation_kind"] == "verified_url"
     assert result["metric_value"] == 125.0
-    context = store.context(query="ПФ", topic_id=topic["id"], limit=5)
+    context = store.context(direction="social", query="ПФ", topic_id=topic["id"], limit=5)
     assert context["scope"] == "editorial"
+    assert context["direction"] == "social"
     assert {item["id"] for item in context["materials"]} == {
         article["id"], telegram["id"],
     }
     assert context["publications"][0]["id"] == publication["id"]
     assert context["results"][0]["id"] == result["id"]
     assert len(context["memory"]) <= 5
+    assert telegram["direction"] == "social"
+    assert article["direction"] == "articles"
+
+    articles = store.context(direction="articles", query="ПФ", topic_id=topic["id"], limit=5)
+    assert {item["id"] for item in articles["materials"]} == {article["id"]}
+    assert articles["publications"] == []
 
 
 def test_export_import_preserves_editorial_schema_and_content(tmp_path: Path) -> None:
@@ -214,7 +270,7 @@ def test_context_is_bounded_instead_of_loading_the_archive(tmp_path: Path) -> No
             primary_intent="education",
             priority=index,
         )
-    context = store.context(query="Topic", limit=4)
+    context = store.context(direction="articles", query="Topic", limit=4)
     assert context["totals"]["topics"] == 30
     assert len(context["topics"]) == 4
     assert context["limit_per_section"] == 4
@@ -233,8 +289,74 @@ def test_cli_initializes_and_reads_bounded_context(tmp_path: Path, capsys) -> No
     initialized = json.loads(capsys.readouterr().out)
     assert initialized["project_id"] == DEFAULT_PROJECT_ID
     assert cli.run_workflow_command([
-        "project-editorial-context", "--db", str(database), "--query", "ПФ", "--limit", "3",
+        "project-editorial-context", "--db", str(database), "--direction", "articles",
+        "--query", "ПФ", "--limit", "3",
     ]) == 0
     context = json.loads(capsys.readouterr().out)
     assert context["scope"] == "editorial"
+    assert context["direction"] == "articles"
     assert len(context["memory"]) <= 3
+
+
+def test_direction_scopes_memory_and_rejects_type_mismatches(tmp_path: Path) -> None:
+    database = project_database(tmp_path)
+    initialize_editorial_domain(database)
+    store = EditorialStore(database)
+    store.remember(
+        semantic_key="editorial.shared",
+        category="rule",
+        title="Shared",
+        content="Shared rule",
+        direction="common",
+    )
+    store.remember(
+        semantic_key="editorial.social-only",
+        category="platform",
+        title="Social only",
+        content="Social rule",
+        direction="social",
+    )
+    topic = store.create_topic(
+        idempotency_key="social-topic",
+        title="Standalone social topic",
+        primary_intent="engagement",
+        direction="social",
+    )
+    social = store.create_material(
+        idempotency_key="standalone-social",
+        topic_id=topic["id"],
+        material_type="telegram_post",
+        title="Standalone post",
+        direction="social",
+    )
+
+    with pytest.raises(sqlite3.IntegrityError, match="topic workflow"):
+        store.create_material(
+            idempotency_key="wrong-topic-direction",
+            topic_id=topic["id"],
+            material_type="brief",
+            title="Wrongly routed brief",
+            direction="articles",
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="requires articles direction"):
+        store.create_material(
+            idempotency_key="bad-article-direction",
+            topic_id=topic["id"],
+            material_type="article",
+            title="Bad article",
+            direction="social",
+        )
+    with pytest.raises(EditorialDomainError, match="direction must be"):
+        store.context(direction="video")
+
+    social_context = store.context(direction="social", limit=10)
+    articles_context = store.context(direction="articles", limit=10)
+    assert {item["semantic_key"] for item in social_context["memory"]} >= {
+        "editorial.shared", "editorial.social-only",
+    }
+    assert "editorial.social-only" not in {
+        item["semantic_key"] for item in articles_context["memory"]
+    }
+    assert {item["id"] for item in social_context["materials"]} == {social["id"]}
+    assert articles_context["materials"] == []
