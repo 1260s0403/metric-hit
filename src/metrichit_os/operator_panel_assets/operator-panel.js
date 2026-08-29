@@ -389,13 +389,7 @@ window.addEventListener('popstate',()=>{if(q().get('view')==='search')setTimeout
 /* Overview is the federated control-plane screen; local activity stays project-scoped. */
 (()=>{const scopedApi=api;api=(path,options={})=>scopedApi(view==='overview'&&path.startsWith('/api/activity?')&&!path.includes('scope=')?`${path}&scope=global`:path,options)})();
 
-/* A navigation click owns exactly one primary screen.  Renderers can populate
-   that screen afterwards, but no previous view may remain visible. */
-(()=>{const screens={overview:document.querySelector('#overview'),search:document.querySelector('#search'),projects:document.querySelector('#projects'),activity:document.querySelector('#activity')};document.addEventListener('click',event=>{const tab=event.target.closest('[data-view]');if(!tab)return;const nextView=tab.dataset.view;for(const [screenView,screen] of Object.entries(screens))screen.classList.toggle('hidden',screenView!==nextView);knowledge.classList.toggle('hidden',!['artem','idea'].includes(nextView));memory.classList.toggle('hidden',nextView!=='memory');entries.classList.toggle('hidden',!['artem','idea','tasks'].includes(nextView))},true)})();
-
-/* Some view renderers are asynchronous.  Keep a late response from reviving a
-   screen after the owner has already chosen another menu item. */
-(()=>{const screens={overview:document.querySelector('#overview'),search:document.querySelector('#search'),projects:document.querySelector('#projects'),activity:document.querySelector('#activity')};let syncing=false;const sync=()=>{if(syncing)return;syncing=true;for(const [screenView,screen] of Object.entries(screens))screen.classList.toggle('hidden',screenView!==view);syncing=false};new MutationObserver(sync).observe(document.querySelector('.workspace'),{attributes:true,attributeFilter:['class'],subtree:true});document.addEventListener('click',event=>{if(event.target.closest('[data-view]'))setTimeout(sync,0)});sync()})();
+/* Primary-screen visibility is owned by the canonical dispatcher below. */
 
 /* Tasks use the same compact owner workspace as My ideas.  It deliberately
    reuses the existing task endpoints and modal actions; only the presentation
@@ -426,7 +420,50 @@ window.addEventListener('popstate',()=>{if(q().get('view')==='search')setTimeout
 /* Preserve the search workspace while navigating between existing screens. */
 (()=>{const keys=['q','type','status','project'],storageKey='metricHitSearchState';const params=()=>new URLSearchParams(location.search);const save=()=>{const p=params(),state={};for(const key of keys){const value=p.get(key);if(value)state[key]=value}try{const saved=JSON.parse(sessionStorage.getItem(storageKey)||'{}');sessionStorage.setItem(storageKey,JSON.stringify({...saved,...state}))}catch(error){}};const restore=()=>{const p=params();p.set('view','search');let state={};try{state=JSON.parse(sessionStorage.getItem(storageKey)||'{}')}catch(error){}for(const key of keys){const value=state[key];if(typeof value!=='string'||!value)continue;if(key==='q'?!p.get(key):!p.has(key))p.set(key,value)}history.replaceState(null,'',`/?${p}`)};document.addEventListener('click',event=>{const button=event.target.closest('[data-view]');if(!button)return;const next=button.dataset.view;if(view==='search'&&next!=='search')save();if(next==='search')setTimeout(()=>{restore();const input=document.querySelector('[data-testid="global-search-query"]');if(input)input.value=params().get('q')||''},0)},true)})();
 
-/* A view must never show the previous view's DOM while its own renderer starts.
-   Clear only the two asynchronously rebuilt containers before the normal click
-   handlers make their target visible. */
-(()=>{const overview=document.querySelector('#overview'),knowledge=document.querySelector('#knowledge'),entries=document.querySelector('#entries');document.addEventListener('click',event=>{const tab=event.target.closest('[data-view]');if(!tab)return;if(tab.dataset.view==='overview')overview.replaceChildren();if(tab.dataset.view==='artem'){knowledge.replaceChildren();entries.replaceChildren()}},true)})();
+/* One synchronous dispatcher owns which primary screen is visible.  Legacy
+   renderers may still populate their own container, but a late response cannot
+   reveal it after another navigation choice. */
+(()=>{
+  const primary={
+    overview:document.querySelector('#overview'),
+    search:document.querySelector('section#search'),
+    projects:document.querySelector('#projects'),
+    activity:document.querySelector('#activity'),
+    knowledge:document.querySelector('#knowledge'),
+    memory:document.querySelector('#memory'),
+    entries:document.querySelector('#entries'),
+  };
+  const visibleFor=name=>name==='overview'?['overview']:name==='search'?['search']:name==='projects'?['projects']:name==='activity'?['activity']:name==='memory'?['memory']:name==='tasks'?['entries']:name==='artem'?['knowledge','entries']:name==='idea'?['knowledge']:[];
+  let navigationVersion=0,enforcing=false;
+  function enforce(name,version=navigationVersion){
+    if(version!==navigationVersion||enforcing)return;
+    enforcing=true;
+    const visible=new Set(visibleFor(name));
+    for(const [key,screen] of Object.entries(primary)){
+      const hidden=!visible.has(key);
+      if(screen.classList.contains('hidden')!==hidden)screen.classList.toggle('hidden',hidden);
+    }
+    enforcing=false;
+  }
+  function select(name,tab){
+    const version=++navigationVersion;
+    view=name;
+    primary.search.value='';
+    output.classList.add('hidden');
+    for(const candidate of document.querySelectorAll('[data-view]')){
+      const active=candidate===tab;
+      candidate.classList.toggle('active',active);
+      active?candidate.setAttribute('aria-current','page'):candidate.removeAttribute('aria-current');
+    }
+    enforce(name,version);
+    queueMicrotask(()=>enforce(name,version));
+    requestAnimationFrame(()=>enforce(name,version));
+    Promise.resolve(load()).catch(error=>show(error.message,true)).finally(()=>enforce(name,version));
+  }
+  for(const tab of document.querySelectorAll('[data-view]'))tab.onclick=()=>select(tab.dataset.view,tab);
+  const observer=new MutationObserver(()=>enforce(view));
+  observer.observe(document.querySelector('.workspace'),{attributes:true,attributeFilter:['class'],childList:true,subtree:true});
+  if(typeof primary.search.value!=='string')primary.search.value='';
+  enforce(view);
+  Promise.resolve(load()).catch(error=>show(error.message,true)).finally(()=>enforce(view));
+})();

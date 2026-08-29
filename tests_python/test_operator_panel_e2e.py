@@ -351,6 +351,67 @@ def test_overview_and_recommendations_do_not_expose_stale_frame(page: Page, pane
     expect(page.get_by_test_id("overview-screen")).to_be_visible()
 
 
+def test_primary_views_never_expose_a_stale_frame_across_owner_navigation(page: Page, panel: str, tmp_path: Path) -> None:
+    page.goto(panel)
+    _panel_post(page, "/api/tasks", {
+        "title": "Событие для проверки активности",
+        "description": "Реальная audit-запись для перехода между экранами",
+        "priority": "normal",
+    })
+
+    transitions = [
+        ("activity", ["activity"]),
+        ("overview", ["overview"]),
+        ("idea", ["knowledge"]),
+        ("tasks", ["entries"]),
+        ("activity", ["activity"]),
+    ]
+    captured: set[str] = set()
+    for target, expected_visible in transitions:
+        samples = page.evaluate(
+            """async ({target}) => {
+                const samples = [];
+                const primary = {
+                    overview: document.querySelector('#overview'),
+                    search: document.querySelector('section#search'),
+                    projects: document.querySelector('#projects'),
+                    activity: document.querySelector('#activity'),
+                    knowledge: document.querySelector('#knowledge'),
+                    memory: document.querySelector('#memory'),
+                    entries: document.querySelector('#entries'),
+                };
+                const capture = () => samples.push(Object.entries(primary)
+                    .filter(([, screen]) => getComputedStyle(screen).display !== 'none')
+                    .map(([name]) => name));
+                const workspace = document.querySelector('.workspace');
+                const observer = new MutationObserver(capture);
+                observer.observe(workspace, {attributes: true, attributeFilter: ['class'], childList: true, subtree: true});
+                document.querySelector(`[data-testid="tab-${target}"]`).click();
+                capture();
+                await Promise.resolve();
+                capture();
+                await new Promise(resolve => requestAnimationFrame(() => { capture(); resolve(); }));
+                await new Promise(resolve => requestAnimationFrame(() => { capture(); resolve(); }));
+                await new Promise(resolve => setTimeout(resolve, 80));
+                capture();
+                observer.disconnect();
+                return samples;
+            }""",
+            {"target": target},
+        )
+        assert samples
+        assert all(sample == expected_visible for sample in samples), (target, samples)
+        if target not in captured:
+            page.screenshot(path=str(tmp_path / f"stable-{target}.png"), full_page=True)
+            captured.add(target)
+
+    expect(page.get_by_test_id("activity-screen")).to_be_visible()
+    expect(page.get_by_test_id("activity-list")).to_be_visible()
+    expect(page.locator('[data-testid^="activity-event-"]')).not_to_have_count(0)
+    expect(page.get_by_test_id("activity-period")).to_be_visible()
+    expect(page.get_by_test_id("activity-project")).to_be_visible()
+
+
 def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page, panel: str, tmp_path: Path) -> None:
     page.goto(panel)
 
