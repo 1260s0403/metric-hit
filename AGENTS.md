@@ -6,6 +6,11 @@
 - Fast-path executor читает `AGENTS.md`, Git, только относящиеся файлы/контракты и релевантную память. Полный контекст повторно не загружает, если нет противоречия.
 - Перед изменением operator panel читается `documents/operator-panel-ux-contract.md`.
 
+### Команда «Ядро старт»
+
+- Точная фраза владельца «Ядро старт» в новом Strategy-чате запускает обязательный read-only startup protocol: прочитать `knowledge/approved/current-context.md`, `documents/operating-context.md` и `documents/roadmap.md`; проверить branch, HEAD, `git status --short`, `work/inbox/` и только релевантную approved memory штатным read-only способом. Если current context указывает рабочий local URL, проверить его GET-запросом без рестарта runtime.
+- В рамках этой команды запрещены изменения файлов, БД, памяти, конфигурации и Git; запуск executor-а, рестарт runtime и создание user/sidebar-задач. После проверки кратко сообщить фактическое состояние, актуальный приоритет, ближайший следующий шаг и противоречия, незавершённые обязательства или blocker; затем оставаться read-only до явного in-scope запроса владельца.
+
 ## Роли и поставка
 
 - Strategy — единственный постоянный видимый чат, read-only human-facing router и координатор продукта. Он анализирует, но никогда не изменяет repository-файлы.
