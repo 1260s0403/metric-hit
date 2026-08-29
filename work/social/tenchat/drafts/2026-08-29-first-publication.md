@@ -4,7 +4,7 @@
 
 Профиль TenChat заполнен. Обложку профиля владелец сохранил самостоятельно.
 
-Выбранный визуал к публикации: `C:\Users\Administrator\.codex\visualizations\2026\08\29\01a04e59-c76e-7612-9710-9257f911eef6\metrichit-tenchat-post-01-1080x1350.png`.
+Выбранный визуал к публикации: `work/social/tenchat/assets/2026-08-29-metrichit-tenchat-pf-yandex-1080x1350.png`.
 
 ## Заголовок
 
