@@ -33,6 +33,7 @@
 - runtime cutover MetricHit: на поставке `0150db784e6795f9d08e36e0f70f786594247cee` после успешных backup и restore-test guarded replacement применила существующий target (`applied=1`, `replacedExisting=1`, `cutover=true`). В project SQLite находятся 328 primary, 4 dependency и 10 schema_migrations, всего 342 записи; central/project integrity и foreign keys подтверждены. Project-first reads и MetricHit-scoped writes идут в project SQLite, а центральная база остаётся control plane. Legacy-копии сохранены.
 - изоляция и readiness независимого контура MetricHit: на `a2d03b455ad8ca981c97415eaec71fe628639c4d` operator panel разделяет локальные MetricHit tasks/ideas/memory/activity и federated global overview/search, все записи route в проект; на `51e9279b9e55b80dd182b3599e973460a774d943` append-only correction восстановила readiness без изменения исходного содержимого. План: core=493, managed=332, unresolved=0, ready=true; cutover/integrity/FK valid. Backup `MetricHit-backup-20260827T071442Z` и restore-test прошли; панель на 8778 отвечает HTTP 200, live screenshot — `work/ui-review/migration-readiness-overview.png`. UI-поставка подтверждена backend 27/27 и E2E 16/16; отдельная readiness E2E-сессия не имеет финальной сводки после 9 успешных сценариев.
 - export/import независимого проекта: на `bd203a1999b06921fc640fd9ff6c247155e2e38f` добавлены CLI `project-export` и `project-import` и переносимый ZIP с manifest, `project.sqlite` и `project.json`. Проверяются version/schema, SHA-256, integrity, foreign keys, UUID и конфликты; import атомарный и идемпотентный. Подтверждены Python 195 passed, 1 skipped; Node 62/62; focused 15/15; live round-trip, повторный import и readiness valid.
+- редакционный контур внутри собственного `MetricHit project.sqlite`: foundation — `39079d11d7e30451fa789e5214e4a43acb66ef62`; два направления `articles` и `social` с общей editorial-памятью и изолированной выборкой — `edac95db67d2ef7f43325926a504f04adfb07177`; workflow `idea → plan → draft → review → published → result` с возвратом `review → draft` — `1336b46131b12ef6d8fe6bbbce4a025e3d7b2d7a`. Текущая editorial schema — v6, реестры реального контента пусты. Производный social-материал связан с исходной статьёй без дублирования. `published` требует подтверждения владельца или проверяемого URL, а `result` — подтверждённой публикации. Полный central backup не выполнен из-за runtime-lock central SQLite; несвязанные UI E2E failures не относятся к этим поставкам.
 
 ## Следующие этапы
 
@@ -40,7 +41,9 @@
 
 Техническое разделение независимых проектов завершено на `acff1db909c9cf9b7b85f0c2a18b035f3d3fa2c0`. Любой зарегистрированный managed project маршрутизируется по canonical `project_id` в собственный `project.sqlite`; central остаётся control plane. Invalid/unknown/unregistered/missing storage отклоняются fail-closed; N-project federated/project store и memory routing работают, совместимость MetricHit сохранена. Изоляция и export/import доказаны на двух временных проектах; реальный второй проект не создавался. Следующий продуктовый шаг появляется только вместе с реальным вторым проектом либо после отдельного решения владельца о UI. Cleanup legacy-копий также требует отдельного решения. Термин «MetricHit OS» не используется для целевой модели.
 
-После подготовки проектных контуров можно вернуться к оценке и затем, только после отдельного подтверждения владельца, установить сфокусированный набор маркетинговых навыков: `copywriting` для холодных сообщений, офферов и ответов потенциальным клиентам; `content-strategy` для статей, тем и контент-плана; `content-repurposing` для переработки статей в публикации Telegram и VK. `copy-editing` — необязательный кандидат на будущую финальную редакторскую проверку. Навыки пока не установлены; задача не запускает установку автоматически и не меняет настройки, внешние сервисы, продуктовый код или интерфейс. Обсуждение возможного смыслового пересечения «Моих идей» и «Рекомендаций» остаётся неутверждённым и требует отдельного решения владельца. Разработка автономных отделов в текущий roadmap не входит.
+Следующий editorial-этап — ещё не реализованный on-demand research-MVP: реестр надёжных источников, датированные research-находки, дедупликация и оценка релевантности к семантическому ядру и editorial-реестру, а также краткий research-brief по запросу. В этот этап не входят scheduled monitoring и автопубликация. UI редакции — отдельное будущее решение.
+
+Маркетинговые skills остаются отдельным будущим решением: `metrichit-content-strategy` для тем, интентов и плана и `metrichit-copy-editor` для написания, адаптации и финальной проверки. Ничего не установлено и не создано; это не меняет настройки, внешние сервисы, продуктовый код или интерфейс. Обсуждение возможного смыслового пересечения «Моих идей» и «Рекомендаций» остаётся неутверждённым и требует отдельного решения владельца.
 
 Направления дальнейшего развития: цели и измеримые результаты, реестр решений, гипотезы и эксперименты, центр решений владельца, простая экономика проектов и отделов, ежедневные и недельные сводки, объяснимое состояние проектов и отделов и повторно используемые шаблоны запуска. Это направления, а не реализованные функции.
 
@@ -48,7 +51,8 @@
 
 - editorial OpenAI API;
 - автоматические публикации;
-- production-развитие редакции.
-- любая разработка автономных отделов, их БД, workflow, агентов и контрактов — до отдельной команды владельца.
+- scheduled monitoring редакции;
+- UI редакции;
+- установка или создание маркетинговых skills.
 
 Сложный Гант, корпоративный чат, видеосвязь, тяжёлый календарь и замена CRM не входят в текущий приоритет.
