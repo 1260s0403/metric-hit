@@ -525,8 +525,8 @@
             <div class="calc-top"><div><h3>Калькулятор бюджета</h3><span>Выберите сумму пополнения</span></div><span>от 1 000 ₽</span></div>
             <div class="presets"><button class="preset active" type="button" data-value="1000">1 000 ₽</button><button class="preset" type="button" data-value="10000">10 000 ₽</button><button class="preset" type="button" data-value="50000">50 000 ₽</button><button class="preset" type="button" data-value="100000">100 000 ₽</button><button class="preset" type="button" data-value="150000">150 000 ₽</button><button class="preset" type="button" data-value="200000">200 000 ₽</button><button class="preset" type="button" data-value="250000">250 000 ₽</button></div>
             <div class="range-row"><input id="amountRange" type="range" min="1000" max="250000" step="1000" value="1000" aria-label="Сумма пополнения"><div class="amount" id="amountDisplay">1 000 ₽</div></div>
-            <div class="calc-results"><div class="result"><small>Пополнение</small><strong id="resultAmount">1 000 ₽</strong></div><div class="result"><small>Цена клика</small><strong id="resultCpc">0,50 ₽</strong><span id="resultSaving">базовый тариф</span></div><div class="result emphasis"><small>Переходов на сайт</small><strong id="resultClicks">≈ 2 000</strong><span id="resultExtra">тестовый запуск проекта</span></div></div>
-            <div class="calc-note" id="calcNote">Этого хватит на тестовый запуск одного проекта. Дальше объём можно наращивать по результатам.</div>
+            <div class="calc-results"><div class="result"><small>Пополнение</small><strong id="resultAmount">1 000 ₽</strong></div><div class="result"><small>Цена клика</small><strong id="resultCpc">0,50 ₽</strong><span id="resultSaving">базовый тариф</span></div><div class="result emphasis"><small>Переходов на сайт</small><strong id="resultClicks">≈ 2 000</strong><span id="resultExtra">запуск проекта</span></div></div>
+            <div class="calc-note" id="calcNote">Этого хватит на запуск одного проекта. Дальше объём можно наращивать по результатам.</div>
             <div class="payment-flow"><div class="pay-step"><b>01</b><span><strong>Пополняете баланс</strong>Минимальная сумма — 1000 ₽</span></div><div class="pay-step"><b>02</b><span><strong>Получаете клики</strong>По цене выбранного тарифа</span></div><div class="pay-step"><b>03</b><span><strong>Используете постепенно</strong>Остаток не сгорает</span></div></div>
           </div>
         </div>
@@ -657,8 +657,8 @@
         document.getElementById('calcNote').innerHTML='По базовой цене сумма дала бы '+formatNumber(baseClicks)+' переходов. Ваш тариф даёт <strong>на '+formatNumber(extra)+' переходов больше</strong>.';
       }else{
         document.getElementById('resultSaving').textContent='базовый тариф';
-        document.getElementById('resultExtra').textContent='тестовый запуск проекта';
-        document.getElementById('calcNote').textContent='Этого хватит на тестовый запуск одного проекта. Дальше объём можно наращивать по результатам.';
+        document.getElementById('resultExtra').textContent='запуск проекта';
+        document.getElementById('calcNote').textContent='Этого хватит на запуск одного проекта. Дальше объём можно наращивать по результатам.';
       }
     }
     presets.forEach(p=>p.addEventListener('click',()=>setAmount(p.dataset.value)));
