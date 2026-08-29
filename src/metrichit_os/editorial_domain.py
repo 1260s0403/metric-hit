@@ -19,6 +19,7 @@ EDITORIAL_TABLES = {
     "editorial_materials",
     "editorial_publications",
     "editorial_results",
+    "editorial_status_audit",
 }
 
 
@@ -133,7 +134,8 @@ def check_editorial_domain(
             str(row["name"])
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
         }
-        if not EDITORIAL_TABLES <= tables:
+        required_tables = EDITORIAL_TABLES if len(migrations) >= 5 else EDITORIAL_TABLES - {"editorial_status_audit"}
+        if not required_tables <= tables:
             raise EditorialDomainError("editorial project schema is incomplete")
         applied = [
             tuple(row)
@@ -152,7 +154,7 @@ def check_editorial_domain(
                 f'SELECT count(*) FROM "{name}"'
                 + (" WHERE status='active'" if name == "editorial_memory" else "")
             ).fetchone()[0]
-            for name in sorted(EDITORIAL_TABLES - {"editorial_schema_migrations"})
+            for name in sorted(required_tables - {"editorial_schema_migrations"})
         }
     return {
         "project_id": canonical_project_id(project_id),
@@ -279,7 +281,7 @@ class EditorialStore:
     def create_material(
         self, *, idempotency_key: str, topic_id: str, material_type: str,
         title: str, parent_material_id: str | None = None, content_ref: str | None = None,
-        direction: str | None = None,
+        direction: str | None = None, created_by: str = "owner",
     ) -> dict[str, Any]:
         key = _text(idempotency_key, "idempotency_key")
         normalized_type = _text(material_type, "material_type")
@@ -299,12 +301,67 @@ class EditorialStore:
                 return replay
             identity = str(uuid4())
             connection.execute(
-                "INSERT INTO editorial_materials(id,idempotency_key,topic_id,parent_material_id,material_type,title,content_ref,direction) "
-                "VALUES(?,?,?,?,?,?,?,?)", (identity, key, *expected.values()),
+                "INSERT INTO editorial_materials(id,idempotency_key,topic_id,parent_material_id,material_type,title,content_ref,direction,workflow_actor,workflow_updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,strftime('%Y-%m-%dT%H:%M:%fZ','now'))",
+                (identity, key, *expected.values(), _text(created_by, "created_by")),
             )
             return self._row(connection.execute(
                 "SELECT * FROM editorial_materials WHERE id=?", (identity,)
             ).fetchone())
+
+    def transition_material(
+        self, *, material_id: str, to_stage: str, actor: str,
+        plan_ref: str | None = None, content_ref: str | None = None,
+        review_requested_by: str | None = None, note: str | None = None,
+    ) -> dict[str, Any]:
+        identity = _text(material_id, "material_id")
+        target = _text(to_stage, "to_stage")
+        if target not in {"plan", "draft", "review"}:
+            raise EditorialDomainError(
+                "manual transition target must be plan, draft, or review; publication and result use their record commands"
+            )
+        values = (
+            _text(plan_ref, "plan_ref", optional=True),
+            _text(content_ref, "content_ref", optional=True),
+            _text(review_requested_by, "review_requested_by", optional=True),
+            _text(actor, "actor"),
+            _text(note, "note", optional=True),
+        )
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM editorial_materials WHERE id=?", (identity,)
+            ).fetchone()
+            if row is None:
+                raise EditorialDomainError("editorial material does not exist")
+            if row["workflow_stage"] == target:
+                return self._row(row) | {"idempotent_replay": True}
+            try:
+                connection.execute(
+                    "UPDATE editorial_materials SET workflow_stage=?,"
+                    "plan_ref=coalesce(?,plan_ref),content_ref=coalesce(?,content_ref),"
+                    "review_requested_by=coalesce(?,review_requested_by),workflow_actor=?,workflow_note=?,"
+                    "workflow_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now'),"
+                    "status=CASE ? WHEN 'draft' THEN 'draft' WHEN 'review' THEN 'review' ELSE 'planned' END "
+                    "WHERE id=?",
+                    (target, *values, target, identity),
+                )
+            except sqlite3.IntegrityError as error:
+                raise EditorialDomainError(str(error)) from error
+            return self._row(connection.execute(
+                "SELECT * FROM editorial_materials WHERE id=?", (identity,)
+            ).fetchone())
+
+    def status_audit(self, material_id: str) -> list[dict[str, Any]]:
+        identity = _text(material_id, "material_id")
+        with read_only_database(self.path) as connection:
+            if connection.execute(
+                "SELECT 1 FROM editorial_materials WHERE id=?", (identity,)
+            ).fetchone() is None:
+                raise EditorialDomainError("editorial material does not exist")
+            return [dict(row) for row in connection.execute(
+                "SELECT * FROM editorial_status_audit WHERE material_id=? ORDER BY sequence",
+                (identity,),
+            )]
 
     def record_publication(
         self, *, idempotency_key: str, material_id: str, platform: str,
@@ -328,6 +385,14 @@ class EditorialStore:
             replay = self._replay(connection, "editorial_publications", key, expected)
             if replay is not None:
                 return replay
+            material = connection.execute(
+                "SELECT workflow_stage FROM editorial_materials WHERE id=?",
+                (expected["material_id"],),
+            ).fetchone()
+            if material is None:
+                raise EditorialDomainError("editorial material does not exist")
+            if material["workflow_stage"] != "review":
+                raise EditorialDomainError("publication requires material in review stage")
             identity = str(uuid4())
             connection.execute(
                 "INSERT INTO editorial_publications(id,idempotency_key,material_id,platform,account_ref,status,url,external_id,published_at,confirmation_kind,confirmation_ref,confirmed_at) "
@@ -335,7 +400,10 @@ class EditorialStore:
                 (identity, key, *expected.values()),
             )
             connection.execute(
-                "UPDATE editorial_materials SET status='published' WHERE id=?", (expected["material_id"],)
+                "UPDATE editorial_materials SET status='published',workflow_stage='published',"
+                "workflow_actor=?,workflow_note='Confirmed publication recorded',"
+                "workflow_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
+                (confirmation_ref, expected["material_id"]),
             )
             return self._row(connection.execute(
                 "SELECT * FROM editorial_publications WHERE id=?", (identity,)
@@ -362,6 +430,16 @@ class EditorialStore:
             "notes": _text(notes, "notes", optional=True),
         }
         with self._connect() as connection:
+            publication = connection.execute(
+                "SELECT p.material_id,m.workflow_stage FROM editorial_publications p "
+                "JOIN editorial_materials m ON m.id=p.material_id "
+                "WHERE p.id=? AND p.status='published'",
+                (expected["publication_id"],),
+            ).fetchone()
+            if publication is None:
+                raise EditorialDomainError("result requires a confirmed published material")
+            if publication["workflow_stage"] not in {"published", "result"}:
+                raise EditorialDomainError("result requires material in published stage")
             replay = self._replay(connection, "editorial_results", key, expected)
             if replay is not None:
                 return replay
@@ -370,6 +448,13 @@ class EditorialStore:
                 "INSERT INTO editorial_results(id,idempotency_key,publication_id,metric_name,metric_value,unit,period_start,period_end,observed_at,source,notes) "
                 "VALUES(?,?,?,?,?,?,?,?,?,?,?)", (identity, key, *expected.values()),
             )
+            if publication["workflow_stage"] == "published":
+                connection.execute(
+                    "UPDATE editorial_materials SET workflow_stage='result',workflow_actor=?,"
+                    "workflow_note='First publication result recorded',"
+                    "workflow_updated_at=strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id=?",
+                    (expected["source"], publication["material_id"]),
+                )
             return self._row(connection.execute(
                 "SELECT * FROM editorial_results WHERE id=?", (identity,)
             ).fetchone())

@@ -143,6 +143,20 @@ def workflow_parser() -> argparse.ArgumentParser:
     editorial_context.add_argument("--topic-id")
     editorial_context.add_argument("--material-id")
     editorial_context.add_argument("--limit", type=int, default=8)
+    editorial_transition = subparsers.add_parser("project-editorial-transition")
+    editorial_transition.add_argument("--db", required=True)
+    editorial_transition.add_argument("--project-id", default=DEFAULT_PROJECT_ID)
+    editorial_transition.add_argument("--material-id", required=True)
+    editorial_transition.add_argument("--to-stage", choices=("plan", "draft", "review"), required=True)
+    editorial_transition.add_argument("--actor", required=True)
+    editorial_transition.add_argument("--plan-ref")
+    editorial_transition.add_argument("--content-ref")
+    editorial_transition.add_argument("--review-requested-by")
+    editorial_transition.add_argument("--note")
+    editorial_audit = subparsers.add_parser("project-editorial-audit")
+    editorial_audit.add_argument("--db", required=True)
+    editorial_audit.add_argument("--project-id", default=DEFAULT_PROJECT_ID)
+    editorial_audit.add_argument("--material-id", required=True)
     handoff_create = subparsers.add_parser("handoff-create")
     handoff_create.add_argument("--db", required=True)
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
@@ -241,6 +255,22 @@ def run_workflow_command(arguments_list: list[str]) -> int:
             material_id=arguments.material_id,
             limit=arguments.limit,
         ))
+        return 0
+    if arguments.command == "project-editorial-transition":
+        print_json(EditorialStore(database_path, project_id=arguments.project_id).transition_material(
+            material_id=arguments.material_id,
+            to_stage=arguments.to_stage,
+            actor=arguments.actor,
+            plan_ref=arguments.plan_ref,
+            content_ref=arguments.content_ref,
+            review_requested_by=arguments.review_requested_by,
+            note=arguments.note,
+        ))
+        return 0
+    if arguments.command == "project-editorial-audit":
+        print_json({"events": EditorialStore(
+            database_path, project_id=arguments.project_id
+        ).status_audit(arguments.material_id)})
         return 0
     if arguments.command == "init-editorial-db":
         print_json(initialize_workflow_database(database_path))

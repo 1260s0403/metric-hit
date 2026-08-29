@@ -65,7 +65,7 @@ def test_migration_is_project_local_seeded_and_idempotent(tmp_path: Path) -> Non
     before = initialize_editorial_domain(database)
     second = initialize_editorial_domain(database)
 
-    assert before["applied_now"] == [1, 2, 3, 4]
+    assert before["applied_now"] == [1, 2, 3, 4, 5, 6]
     assert second["applied_now"] == []
     assert second["counts"]["memory"] == expected_seed_count
     assert check_editorial_domain(database)["integrity"] == "ok"
@@ -73,7 +73,7 @@ def test_migration_is_project_local_seeded_and_idempotent(tmp_path: Path) -> Non
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute(
             "SELECT count(*) FROM editorial_schema_migrations"
-        ).fetchone()[0] == 4
+        ).fetchone()[0] == 6
         assert connection.execute(
             "SELECT count(*) FROM editorial_memory WHERE status='archived'"
         ).fetchone()[0] == expected_archived_count
@@ -120,13 +120,16 @@ def test_v2_upgrade_classifies_existing_materials_without_data_loss(tmp_path: Pa
              "10000000-0000-4000-a000-000000000001",
              "10000000-0000-4000-a000-000000000002", "telegram_post", "Legacy post"),
         )
-    for name in ("003_editorial_directions.sql", "004_editorial_direction_integrity.sql"):
+    for name in (
+        "003_editorial_directions.sql", "004_editorial_direction_integrity.sql",
+        "005_editorial_material_workflow.sql", "006_editorial_legacy_workflow_compatibility.sql",
+    ):
         (migrations / name).write_bytes((canonical / name).read_bytes())
 
     upgraded = initialize_editorial_domain(database, migrations_path=migrations)
     replay = initialize_editorial_domain(database, migrations_path=migrations)
 
-    assert upgraded["applied_now"] == [3, 4]
+    assert upgraded["applied_now"] == [3, 4, 5, 6]
     assert replay["applied_now"] == []
     with sqlite3.connect(database) as connection:
         assert connection.execute(
@@ -194,6 +197,18 @@ def test_registry_links_article_derivatives_publication_and_results(tmp_path: Pa
             platform="telegram",
             published_at="2026-08-28T12:00:00Z",
         )
+    store.transition_material(
+        material_id=telegram["id"], to_stage="plan", actor="editor",
+        plan_ref="work/social/plans/pf-guide.md",
+    )
+    store.transition_material(
+        material_id=telegram["id"], to_stage="draft", actor="writer",
+        content_ref="work/social/drafts/pf-guide.md",
+    )
+    store.transition_material(
+        material_id=telegram["id"], to_stage="review", actor="writer",
+        review_requested_by="owner",
+    )
     publication = store.record_publication(
         idempotency_key="telegram-publication",
         material_id=telegram["id"],
@@ -214,6 +229,7 @@ def test_registry_links_article_derivatives_publication_and_results(tmp_path: Pa
 
     assert publication["confirmation_kind"] == "verified_url"
     assert result["metric_value"] == 125.0
+    assert store.status_audit(telegram["id"])[-1]["to_stage"] == "result"
     context = store.context(direction="social", query="ПФ", topic_id=topic["id"], limit=5)
     assert context["scope"] == "editorial"
     assert context["direction"] == "social"
@@ -297,6 +313,29 @@ def test_cli_initializes_and_reads_bounded_context(tmp_path: Path, capsys) -> No
     assert context["direction"] == "articles"
     assert len(context["memory"]) <= 3
 
+    store = EditorialStore(database)
+    topic = store.create_topic(
+        idempotency_key="cli-workflow-topic", title="CLI workflow",
+        primary_intent="education",
+    )
+    material = store.create_material(
+        idempotency_key="cli-workflow-material", topic_id=topic["id"],
+        material_type="article", title="CLI workflow article",
+    )
+    assert cli.run_workflow_command([
+        "project-editorial-transition", "--db", str(database),
+        "--material-id", material["id"], "--to-stage", "plan",
+        "--actor", "strategist", "--plan-ref", "work/plan.md",
+    ]) == 0
+    transitioned = json.loads(capsys.readouterr().out)
+    assert transitioned["workflow_stage"] == "plan"
+    assert cli.run_workflow_command([
+        "project-editorial-audit", "--db", str(database),
+        "--material-id", material["id"],
+    ]) == 0
+    audit = json.loads(capsys.readouterr().out)
+    assert [event["to_stage"] for event in audit["events"]] == ["idea", "plan"]
+
 
 def test_direction_scopes_memory_and_rejects_type_mismatches(tmp_path: Path) -> None:
     database = project_database(tmp_path)
@@ -360,3 +399,72 @@ def test_direction_scopes_memory_and_rejects_type_mismatches(tmp_path: Path) -> 
     }
     assert {item["id"] for item in social_context["materials"]} == {social["id"]}
     assert articles_context["materials"] == []
+
+
+@pytest.mark.parametrize(
+    ("direction", "material_type"),
+    (("articles", "article"), ("social", "telegram_post")),
+)
+def test_material_workflow_is_strict_audited_and_requires_boundary_fields(
+    tmp_path: Path, direction: str, material_type: str,
+) -> None:
+    database = project_database(tmp_path)
+    initialize_editorial_domain(database)
+    store = EditorialStore(database)
+    topic = store.create_topic(
+        idempotency_key=f"{direction}-workflow-topic",
+        title=f"{direction} workflow",
+        primary_intent="education",
+        direction=direction,
+    )
+    material = store.create_material(
+        idempotency_key=f"{direction}-workflow-material",
+        topic_id=topic["id"],
+        material_type=material_type,
+        title=f"{direction} workflow material",
+        direction=direction,
+    )
+    assert material["workflow_stage"] == "idea"
+    with pytest.raises(EditorialDomainError, match="invalid editorial workflow transition"):
+        store.transition_material(
+            material_id=material["id"], to_stage="draft", actor="writer",
+            content_ref="work/draft.md",
+        )
+    with pytest.raises(EditorialDomainError, match="plan_ref"):
+        store.transition_material(material_id=material["id"], to_stage="plan", actor="strategist")
+    store.transition_material(
+        material_id=material["id"], to_stage="plan", actor="strategist",
+        plan_ref="work/plan.md",
+    )
+    with pytest.raises(EditorialDomainError, match="content_ref"):
+        store.transition_material(material_id=material["id"], to_stage="draft", actor="writer")
+    store.transition_material(
+        material_id=material["id"], to_stage="draft", actor="writer",
+        content_ref="work/draft.md",
+    )
+    with pytest.raises(EditorialDomainError, match="review_requested_by"):
+        store.transition_material(material_id=material["id"], to_stage="review", actor="writer")
+    store.transition_material(
+        material_id=material["id"], to_stage="review", actor="writer",
+        review_requested_by="owner",
+    )
+    publication = store.record_publication(
+        idempotency_key=f"{direction}-workflow-publication",
+        material_id=material["id"], platform=direction,
+        published_at="2026-08-28T12:00:00Z",
+        owner_confirmed_by="owner",
+    )
+    store.record_result(
+        idempotency_key=f"{direction}-workflow-result",
+        publication_id=publication["id"], metric_name="views",
+        metric_value=1, unit="count", observed_at="2026-08-29T12:00:00Z",
+        source="manual",
+    )
+    with sqlite3.connect(database) as connection:
+        with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+            connection.execute(
+                "DELETE FROM editorial_status_audit WHERE material_id=?", (material["id"],)
+            )
+    assert [event["to_stage"] for event in store.status_audit(material["id"])] == [
+        "idea", "plan", "draft", "review", "published", "result",
+    ]
