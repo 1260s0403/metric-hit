@@ -191,7 +191,7 @@
     .service-visual{overflow:visible}
     .about-orbit{z-index:2;border:1px solid rgba(0,231,242,.34)!important;box-shadow:0 0 8px rgba(0,231,242,.18),inset 0 0 8px rgba(0,231,242,.035)}
     .about-orbit.one{border-color:rgba(0,231,242,.38)!important}.about-orbit.two{border-color:rgba(0,231,242,.34)!important}.about-orbit.three{border-color:rgba(0,231,242,.31)!important}.about-orbit.four{border-color:rgba(0,231,242,.29)!important}
-    .about-orbit-run{z-index:3;width:0!important;height:0!important;transform:none!important;animation:none!important;contain:layout style paint;will-change:auto}
+    .about-orbit-run{z-index:1;width:0!important;height:0!important;transform:none!important;animation:none!important;contain:none;overflow:visible;will-change:auto}
     .about-orbit-run i{position:absolute;left:0;top:0;width:10px;height:10px;margin:-5px;border-radius:50%;background:var(--cyan);box-shadow:0 0 7px var(--cyan),0 0 17px rgba(0,231,242,.82);will-change:transform;backface-visibility:hidden;animation:about-dot-orbit var(--orbit-duration) linear infinite;animation-delay:var(--orbit-delay);animation-direction:var(--orbit-direction)}
     .about-orbit-run.one{--radius:175px;--orbit-duration:22s;--orbit-delay:-5s;--orbit-direction:normal}.about-orbit-run.two{--radius:235px;--orbit-duration:31s;--orbit-delay:-13s;--orbit-direction:reverse}.about-orbit-run.three{--radius:295px;--orbit-duration:39s;--orbit-delay:-21s;--orbit-direction:normal}.about-orbit-run.four{--radius:332.5px;--orbit-duration:47s;--orbit-delay:-30s;--orbit-direction:reverse}
     .about-orbit-run.four i{width:8px;height:8px;margin:-4px}
@@ -264,6 +264,10 @@
     @media(max-width:720px){.service-section{padding:66px 0 34px}.service-section>.container{width:min(100% - 28px,var(--max))}.service-visual{min-height:600px}.service-console{left:50%;top:47%}.about-orbit,.about-orbit-run{left:50%;top:47%}.project-three{top:auto;bottom:1%}}
     .service-scene-svg{display:none;position:absolute;z-index:2;left:0;top:-107px;width:100%;height:auto;overflow:visible}
     @media(min-width:1001px){.service-scene-svg{display:block}.service-visual>.project-link,.service-visual>.service-console,.service-visual>.project-card{display:none}}
+    .about-orbit-run i:nth-child(2){background:var(--orange);box-shadow:0 0 7px var(--orange),0 0 17px rgba(255,154,22,.84);animation-duration:calc(var(--orbit-duration)*.82);animation-delay:calc(var(--orbit-delay) - 4s);animation-direction:reverse}
+    .about-orbit-run.one{--orbit-duration:6s;--orbit-delay:-1s}.about-orbit-run.two{--orbit-duration:7.5s;--orbit-delay:-2.5s}.about-orbit-run.three{--orbit-duration:9s;--orbit-delay:-4s}.about-orbit-run.four{--orbit-duration:11s;--orbit-delay:-6s}
+    .about-orbit-run i,.about-orbit-run.four i{width:14px;height:14px;margin:-7px;border:2px solid rgba(230,254,255,.9);box-shadow:0 0 9px var(--cyan),0 0 24px var(--cyan)}
+    .about-orbit-run i:nth-child(2){border-color:rgba(255,241,217,.95);box-shadow:0 0 9px var(--orange),0 0 24px var(--orange)}
   </style>
   <script type="application/ld+json">
   {
@@ -338,7 +342,7 @@
           </div>
           <div class="service-visual" aria-hidden="true">
             <span class="about-orbit one"></span><span class="about-orbit two"></span><span class="about-orbit three"></span><span class="about-orbit four"></span>
-            <span class="about-orbit-run one"><i></i></span><span class="about-orbit-run two"><i></i></span><span class="about-orbit-run three"><i></i></span><span class="about-orbit-run four"><i></i></span>
+            <span class="about-orbit-run one"><i></i><i></i></span><span class="about-orbit-run two"><i></i><i></i></span><span class="about-orbit-run three"><i></i><i></i></span><span class="about-orbit-run four"><i></i><i></i></span>
             <img class="service-scene-svg" src="assets/service-scene.svg" width="902" height="854" alt="">
             <span class="project-link one"></span><span class="project-link two"></span><span class="project-link three"></span>
             <div class="service-console">
