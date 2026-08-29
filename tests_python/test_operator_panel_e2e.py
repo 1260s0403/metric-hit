@@ -327,6 +327,30 @@ def test_navigation_hides_overview_content_after_every_view_transition(page: Pag
                 assertion.to_be_hidden()
 
 
+def test_overview_and_recommendations_do_not_expose_stale_frame(page: Page, panel: str) -> None:
+    page.goto(panel)
+    expect(page.get_by_test_id("overview-screen")).to_contain_text("Фокус на сегодня")
+
+    page.get_by_test_id("tab-artem").click()
+    assert page.evaluate(
+        """() => ({
+            overviewHidden: getComputedStyle(document.querySelector('#overview')).display === 'none',
+            entriesEmpty: document.querySelector('#entries').childElementCount === 0
+        })"""
+    ) == {"overviewHidden": True, "entriesEmpty": True}
+    expect(page.get_by_test_id("knowledge-screen")).to_be_visible()
+    expect(page.get_by_test_id("add-entry")).to_be_visible()
+
+    page.get_by_test_id("tab-overview").click()
+    assert page.evaluate(
+        """() => ({
+            overviewEmpty: document.querySelector('#overview').childElementCount === 0,
+            knowledgeVisible: getComputedStyle(document.querySelector('#knowledge')).display !== 'none'
+        })"""
+    ) == {"overviewEmpty": True, "knowledgeVisible": False}
+    expect(page.get_by_test_id("overview-screen")).to_be_visible()
+
+
 def test_yadro_uses_monochrome_application_shell_and_context_heading(page: Page, panel: str, tmp_path: Path) -> None:
     page.goto(panel)
 
