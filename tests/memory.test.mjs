@@ -17,6 +17,7 @@ import { applyPublicPfPositiveFraming } from '../scripts/apply-public-pf-positiv
 import { applyEditorialPublicationPolicyAndTimewebDraft } from '../scripts/apply-editorial-publication-policy-and-timeweb-draft.mjs';
 import { applySostavNakrutkaPfPublication } from '../scripts/apply-sostav-nakrutka-pf-publication.mjs';
 import { applyPublicationLinksSostavOborot } from '../scripts/apply-publication-links-sostav-oborot-2026-08-29.mjs';
+import { applyTenchatPublicationAndIndexationContinuity } from '../scripts/apply-tenchat-publication-and-indexation-continuity-2026-08-30.mjs';
 import { readMemory } from '../scripts/memory-cli.mjs';
 import { exportCurrentContext } from '../scripts/export-current-context.mjs';
 
@@ -1077,6 +1078,45 @@ test('publication link confirmations evolve Sostav URL and add Oborot publicatio
   assert.match(exported, /https:\/\/www\.sostav\.ru\/blogs\/293151\/104675/);
   assert.match(exported, /https:\/\/oborot\.ru\/blogs\/nakrutka-pf-i277755\.html/);
   assert.doesNotMatch(exported, /unknown \/ not_provided/);
+});
+
+test('TenChat publication continuity and indexation checks evolve memory repeatably', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  initializeDatabase(databasePath);
+  applySostavNakrutkaPfPublication(databasePath);
+  applyPublicationLinksSostavOborot(databasePath);
+
+  const first = applyTenchatPublicationAndIndexationContinuity(databasePath);
+  const second = applyTenchatPublicationAndIndexationContinuity(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 3, tasks: 1 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0, tasks: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const tenchat = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='publication.tenchat_first_post_2026_08_30'").get();
+  const sostav = database.prepare("SELECT content, data_json FROM memory_candidates WHERE semantic_key='publication.sostav_nakrutka_pf_2026_08_29' ORDER BY json_extract(data_json, '$.revision') DESC LIMIT 1").get();
+  const oborot = database.prepare("SELECT content, data_json FROM memory_candidates WHERE semantic_key='publication.oborot_nakrutka_pf_business_2026_08_29' ORDER BY json_extract(data_json, '$.revision') DESC LIMIT 1").get();
+  const task = database.prepare("SELECT status, content, data_json FROM tasks WHERE id=?").get(first.taskId);
+  database.close();
+
+  assert.equal(tenchat.status, 'approved');
+  assert.match(tenchat.content, /Накрутка ПФ в Яндексе/);
+  assert.equal(JSON.parse(tenchat.data_json).asset_format.aspect_ratio, '4:5');
+  assert.equal(JSON.parse(sostav.data_json).yandex_indexation.status, 'confirmed');
+  assert.match(sostav.content, /Индексация Google не подтверждена/);
+  assert.equal(JSON.parse(oborot.data_json).yandex_indexation.status, 'not_confirmed');
+  assert.match(oborot.content, /не подтвердила индексацию Яндексом/);
+  assert.equal(task.status, 'pending');
+  assert.equal(JSON.parse(task.data_json).requires_separate_owner_command, true);
+  assert.match(task.content, /Кампания ещё не запускалась/);
+
+  const exported = exportCurrentContext(databasePath, outputPath, '2026-08-30T09:00:00.000Z').content;
+  assert.match(exported, /Первая публикация MetricHit в TenChat/);
+  assert.match(exported, /6013324-nakrutka-pf-v-yandekse/);
+  assert.match(exported, /точным url:-запросом/);
+  assert.match(exported, /Индексация Google также не подтверждена/);
+  assert.match(exported, /Настроить ПФ-продвижение опубликованной TenChat-страницы/);
 });
 
 test('memory CLI reads approved memory without modifying the database', (t) => {
