@@ -323,10 +323,10 @@ class KnowledgeStore:
             if value:
                 due_date = date.fromisoformat(str(value))
                 return (0 if due_date < today else 1 if due_date == today else 2, value, "")
-            return (3 + rank[item["priority"]], "", "")
+            return (3 + rank.get(str(item["priority"]), len(rank)), "", "")
         if sort == "recommended": tasks.sort(key=recommended)
         elif sort == "due": tasks.sort(key=lambda item: (item["due_date"] is None, item["due_date"] or "9999-12-31"))
-        elif sort == "priority": tasks.sort(key=lambda item: rank[item["priority"]])
+        elif sort == "priority": tasks.sort(key=lambda item: rank.get(str(item["priority"]), len(rank)))
         elif sort == "newest": tasks.sort(key=lambda item: str(item["created_at"]), reverse=True)
         elif sort == "oldest": tasks.sort(key=lambda item: str(item["created_at"]))
         return tasks

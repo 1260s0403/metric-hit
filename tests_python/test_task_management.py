@@ -146,6 +146,18 @@ def test_task_filters_combine_and_recommended_order_is_deterministic(tmp_path: P
     assert {item["id"] for item in store.list_tasks(due="none")} == {high["id"], normal["id"], low["id"], completed["id"]}
 
 
+def test_recommended_order_keeps_imported_unknown_priority_visible(tmp_path: Path) -> None:
+    store = KnowledgeStore(temporary_database(tmp_path))
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            "INSERT INTO tasks (id,type,title,content,data_json,status,author) VALUES (?, 'standalone_task', ?, ?, ?, 'pending', 'owner')",
+                ("00000000-0000-0000-0000-000000000888", "Imported task", "Keeps imported priority", json.dumps({"priority": "operational_next", "project_id": DEFAULT_PROJECT_ID, "standalone": True})),
+        )
+
+    assert [item["id"] for item in store.list_tasks()] == ["00000000-0000-0000-0000-000000000888"]
+    assert [item["id"] for item in store.list_tasks(sort="priority")] == ["00000000-0000-0000-0000-000000000888"]
+
+
 def test_today_tasks_include_overdue_today_and_at_most_five_high_without_due_date(tmp_path: Path) -> None:
     store = KnowledgeStore(temporary_database(tmp_path))
     current = date.today()

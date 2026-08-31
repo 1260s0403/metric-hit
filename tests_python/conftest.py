@@ -10,3 +10,7 @@ from pathlib import Path
 SOURCE_ROOT = str(Path(__file__).resolve().parents[1] / "src")
 existing = os.environ.get("PYTHONPATH")
 os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (SOURCE_ROOT, existing)))
+
+
+def pytest_configure(config) -> None:
+    config.option.basetemp = Path(__file__).resolve().parents[1] / f".pytest-metrichit-{os.getpid()}"

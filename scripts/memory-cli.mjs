@@ -16,8 +16,9 @@ function renderRows(rows) {
   if (!rows.length) return 'Нет записей.';
   return rows.map((row) => {
     const key = row.semantic_key ? ` ${String.fromCharCode(96)}${row.semantic_key}${String.fromCharCode(96)}` : '';
+    const revision = row.revision === undefined ? '' : ` (ревизия ${row.revision})`;
     const detail = row.content ? ` — ${row.content}` : '';
-    return `- **${row.title ?? row.name ?? row.id}**${key}${detail}`;
+    return `- **${row.title ?? row.name ?? row.id}**${key}${revision}${detail}`;
   }).join('\n');
 }
 
@@ -99,12 +100,35 @@ export function readMemory(command, query = '', databasePath = defaultDatabasePa
         if (!query.trim()) throw new Error('search requires text');
         const escaped = `%${query.trim().replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
         const rows = database.prepare(`
-          SELECT type, semantic_key, title, content FROM memory_candidates
-          WHERE ${approvedWhere} AND (
-            title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR semantic_key LIKE ? ESCAPE '\\'
-          ) ORDER BY semantic_key
+          SELECT type, semantic_key, title, content FROM (
+            SELECT type, semantic_key, title, content,
+                   ROW_NUMBER() OVER (
+                     PARTITION BY semantic_key
+                     ORDER BY coalesce(json_extract(data_json, '$.revision'), 0) DESC,
+                              reviewed_at DESC, updated_at DESC, id DESC
+                   ) AS revision_rank
+            FROM memory_candidates
+            WHERE ${approvedWhere} AND (
+              title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR semantic_key LIKE ? ESCAPE '\\'
+            )
+          ) WHERE revision_rank = 1
+          ORDER BY semantic_key
         `).all(escaped, escaped, escaped);
         return `# Search: ${query.trim()}\n\n${renderRows(rows)}`;
+      }
+      case 'search-history': {
+        if (!query.trim()) throw new Error('search-history requires text');
+        const escaped = `%${query.trim().replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_')}%`;
+        const rows = database.prepare(`
+          SELECT type, semantic_key, title, content,
+                 coalesce(json_extract(data_json, '$.revision'), 0) AS revision
+          FROM memory_candidates
+          WHERE ${approvedWhere} AND (
+            title LIKE ? ESCAPE '\\' OR content LIKE ? ESCAPE '\\' OR semantic_key LIKE ? ESCAPE '\\'
+          )
+          ORDER BY semantic_key, revision DESC, reviewed_at DESC, updated_at DESC, id DESC
+        `).all(escaped, escaped, escaped);
+        return `# Search history: ${query.trim()}\n\n${renderRows(rows)}`;
       }
       default: throw new Error(`Unknown command: ${command}`);
     }
@@ -128,7 +152,7 @@ function isMainModule() {
 if (isMainModule()) {
   try {
     const { command, query, databasePath } = parseArguments(process.argv.slice(2));
-    if (!command) throw new Error('Usage: memory-cli.mjs <summary|facts|decisions|rules|tasks|sources|search|pending|conflicts> [text]');
+    if (!command) throw new Error('Usage: memory-cli.mjs <summary|facts|decisions|rules|tasks|sources|search|search-history|pending|conflicts> [text]');
     console.log(readMemory(command, query, databasePath));
   } catch (error) {
     console.error(`memory-cli: ${error.message}`);

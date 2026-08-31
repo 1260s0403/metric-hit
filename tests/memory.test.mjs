@@ -1005,13 +1005,14 @@ test('editorial article policy and Timeweb draft are repeatable approved records
 
   const first = applyEditorialPublicationPolicyAndTimewebDraft(databasePath);
   const second = applyEditorialPublicationPolicyAndTimewebDraft(databasePath);
-  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 3 });
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 4 });
   assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
   const policy = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='content.editorial_article_preparation_policy'").get();
   const draft = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='publication.timeweb_cloud_draft_2026_08_29'").get();
   const registry = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='editorial.registry_current_state'").get();
+  const contour = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='editorial.metrichit_contour_and_research_mvp' ORDER BY coalesce(json_extract(data_json, '$.revision'), 0) DESC").get();
   database.close();
   assert.equal(policy.status, 'approved');
   assert.match(policy.content, /не менее 9 000 знаков/);
@@ -1026,10 +1027,14 @@ test('editorial article policy and Timeweb draft are repeatable approved records
   assert.equal(registry.status, 'approved');
   assert.match(registry.content, /зарегистрирован один article-материал/);
   assert.deepEqual(JSON.parse(registry.data_json), { articles_materials: 1, articles_drafts: 1, articles_publications: 0, articles_results: 0, evidence: { path: 'knowledge/decisions/editorial-publication-policy-and-timeweb-draft-2026-08-29.md' } });
+  assert.equal(contour.status, 'approved');
+  assert.match(contour.content, /один article-материал для Timeweb Cloud со статусом draft/);
+  assert.deepEqual(JSON.parse(contour.data_json).content_registry, { articles_materials: 1, articles_drafts: 1, articles_publications: 0, articles_results: 0 });
   const exported = exportCurrentContext(databasePath, outputPath, '2026-08-29T16:00:00.000Z').content;
   assert.match(exported, /Правила подготовки статей MetricHit/);
   assert.match(exported, /Черновик Timeweb Cloud/);
   assert.match(exported, /публичный URL отсутствует/);
+  assert.match(exported, /один article-материал для Timeweb Cloud со статусом draft/);
 });
 
 test('Sostav Nakrutka PF publication confirmation is repeatable and preserves owner-confirmed URL state', (t) => {
@@ -1156,6 +1161,23 @@ test('memory CLI reads approved memory without modifying the database', (t) => {
   assert.match(pending, /Нет записей/);
   assert.match(conflicts, /Нет записей/);
   assert.equal(after, before);
+});
+
+test('memory search returns only the current semantic revision unless history is requested', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  t.after(remove);
+  initializeDatabase(databasePath);
+  applySostavNakrutkaPfPublication(databasePath);
+  applyPublicationLinksSostavOborot(databasePath);
+
+  const current = readMemory('search', 'Sostav', databasePath);
+  const history = readMemory('search-history', 'Sostav', databasePath);
+
+  assert.equal((current.match(/Публикация «Накрутка ПФ» на Sostav/g) ?? []).length, 1);
+  assert.match(current, /Публичный URL, переданный владельцем/);
+  assert.equal((history.match(/Публикация «Накрутка ПФ» на Sostav/g) ?? []).length, 2);
+  assert.match(history, /ревизия 2/);
+  assert.match(history, /ревизия 0/);
 });
 
 test('current context export separates approved memory from open tasks', (t) => {

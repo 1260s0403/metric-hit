@@ -56,6 +56,7 @@ temp/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.pytest-metrichit*/
 .pytest-export-import-*/
 .pytest-generic-routing-*/
 .pytest-intake-*-tmp/
