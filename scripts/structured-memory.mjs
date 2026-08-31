@@ -7,8 +7,11 @@ import { DatabaseSync } from 'node:sqlite';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
+const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
-export const COMPILER_VERSION = 1;
+export const COMPILER_VERSION = 2;
+export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
+export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
 export const SCOPE_IDS = Object.freeze({
   core: 'scope:core', metrichit: 'scope:project:metrichit',
   editorial: 'scope:subproject:editorial', panel: 'scope:subproject:panel',
@@ -66,6 +69,76 @@ function appliesTo(record, taskType, includeHistory) {
   return taskTypes.includes('all') || taskTypes.includes(taskType);
 }
 
+function referenceMetadata(record) {
+  const metadata = parseJson(record.metadata_json, {});
+  return metadata.reference_type === 'approved_memory_candidate' ? metadata : null;
+}
+
+function compactReference(record) {
+  const metadata = referenceMetadata(record);
+  if (!metadata) return null;
+  return {
+    semantic_key: record.semantic_key,
+    scope_id: record.scope_id,
+    title: record.title,
+    summary: record.content,
+    source: record.source_ref,
+    authority: metadata.authority,
+    project_id: metadata.project_id,
+    candidate_id: metadata.candidate_id,
+    candidate_semantic_key: metadata.candidate_semantic_key,
+    keyword_count: metadata.keyword_count,
+  };
+}
+
+export function loadReferencedMemory(projectDatabasePath = defaultProjectDatabasePath, records, taskType) {
+  if (!['editorial', 'research'].includes(taskType)) {
+    throw new Error('referenced memory may be expanded only for an explicit editorial or research task');
+  }
+  const references = records.map((record) => ({ record, metadata: referenceMetadata(record) }))
+    .filter(({ metadata }) => metadata);
+  if (!references.length) return [];
+  const database = open(resolve(projectDatabasePath), true);
+  try {
+    const metadataTable = database.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type='table' AND name='project_storage_metadata'",
+    ).get();
+    if (!metadataTable) throw new Error('referenced memory source is not a project SQLite');
+    const storage = database.prepare('SELECT project_id,storage_format FROM project_storage_metadata WHERE singleton=1').get();
+    if (!storage || storage.project_id !== METRICHIT_PROJECT_ID) {
+      throw new Error('referenced memory source has an unexpected project identity');
+    }
+    return references.map(({ record, metadata }) => {
+      if (metadata.authority !== 'project_sqlite' || metadata.project_id !== storage.project_id) {
+        throw new Error(`invalid authority metadata for ${record.semantic_key}`);
+      }
+      const candidate = database.prepare(`SELECT id,semantic_key,title,content,data_json,status
+        FROM memory_candidates WHERE id=?`).get(metadata.candidate_id);
+      if (!candidate || candidate.status !== 'approved' || candidate.semantic_key !== metadata.candidate_semantic_key) {
+        throw new Error(`authoritative approved memory candidate was not found for ${record.semantic_key}`);
+      }
+      if (hash(candidate.content ?? '') !== metadata.content_sha256 || hash(candidate.data_json ?? '') !== metadata.data_json_sha256) {
+        throw new Error(`authoritative memory hash mismatch for ${record.semantic_key}`);
+      }
+      const data = parseJson(candidate.data_json, null);
+      const taxonomyCount = data?.taxonomy && typeof data.taxonomy === 'object'
+        ? Object.values(data.taxonomy).reduce((total, values) => total + (Array.isArray(values) ? values.length : 0), 0)
+        : 0;
+      if (data?.keyword_count !== metadata.keyword_count || taxonomyCount !== metadata.keyword_count) {
+        throw new Error(`authoritative keyword count mismatch for ${record.semantic_key}`);
+      }
+      return {
+        ...compactReference(record),
+        title: candidate.title,
+        content: candidate.content,
+        data,
+        source_database: 'project.sqlite',
+        storage_format: storage.storage_format,
+      };
+    });
+  } finally { database.close(); }
+}
+
 export function resolveScopedMemory(database, scopeId, taskType, { includeHistory = false } = {}) {
   const chain = scopeChain(database, scopeId);
   const rank = new Map(chain.map((scope, index) => [scope.id, index]));
@@ -87,6 +160,7 @@ export function resolveScopedMemory(database, scopeId, taskType, { includeHistor
 
 function inferTaskType(text, explicit) {
   if (explicit) return explicit;
+  if (/(research|исследован|семантическ|ключев.{0,20}запрос)/iu.test(text)) return 'research';
   if (/(стать|редак|контент|social|smm|публикац)/iu.test(text)) return 'editorial';
   if (/(интерфейс|\bui\b|css|html|e2e|operator panel)/iu.test(text)) return 'ui';
   if (/(памят|governance|policy|правил)/iu.test(text)) return 'governance';
@@ -102,7 +176,8 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
     return { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope'], fingerprint };
   }
   const signals = [];
-  if (/(стать|редак|контент|social|smm|публикац)/iu.test(normalized)) signals.push('editorial');
+  if (['editorial', 'research'].includes(inferredType)
+    || /(стать|редак|контент|social|smm|публикац|research|исследован|семантическ|ключев.{0,20}запрос)/iu.test(normalized)) signals.push('editorial');
   const panelWord = /(панел)/iu.test(normalized);
   const panelSpecific = /(интерфейс|\bui\b|css|html|e2e|operator panel|backend)/iu.test(normalized);
   if (panelWord) signals.push('panel_word');
@@ -124,7 +199,10 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
   return { outcome: 'routed', scopeId, taskType: inferredType, signals, fingerprint };
 }
 
-export function compileDeterministicContext(database, { scopeId, taskType, includeHistory = false, agentsContent = null, taskBrief = {} }) {
+export function compileDeterministicContext(database, {
+  scopeId, taskType, includeHistory = false, includeReferencedContent = false,
+  projectDatabasePath = defaultProjectDatabasePath, agentsContent = null, taskBrief = {},
+}) {
   const resolved = resolveScopedMemory(database, scopeId, taskType, { includeHistory });
   const records = resolved.records.map((row) => ({
     id: row.id, semantic_key: row.semantic_key, scope_id: row.scope_id, layer: row.layer,
@@ -132,10 +210,14 @@ export function compileDeterministicContext(database, { scopeId, taskType, inclu
     source: row.source_ref, valid_from: row.valid_from, supersedes: row.supersedes_id,
     effect: row.rule_effect,
   }));
+  const referenceRecords = resolved.records.filter((row) => referenceMetadata(row));
+  const references = referenceRecords.map(compactReference);
+  const expandedReferences = includeReferencedContent
+    ? loadReferencedMemory(projectDatabasePath, referenceRecords, taskType) : [];
   const latestDecisions = records.filter((item) => item.type === 'decision')
     .sort((a, b) => b.valid_from.localeCompare(a.valid_from) || a.semantic_key.localeCompare(b.semantic_key)).slice(0, 5);
   const payload = {
-    schema_version: 1,
+    schema_version: 2,
     compiler_version: COMPILER_VERSION,
     task_type: taskType,
     target_scope: scopeId,
@@ -151,6 +233,8 @@ export function compileDeterministicContext(database, { scopeId, taskType, inclu
     rules: records.filter((item) => item.type === 'rule'),
     decisions: latestDecisions,
     commitments: records.filter((item) => item.type === 'commitment'),
+    references,
+    expanded_references: expandedReferences,
     history_included: includeHistory,
   };
   return payload;
@@ -173,10 +257,12 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
     }
     const payload = compileDeterministicContext(database, {
       scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory),
+      includeReferencedContent: Boolean(request.includeReferencedContent),
+      projectDatabasePath: request.projectDatabasePath ?? defaultProjectDatabasePath,
       taskBrief: request.taskBrief ?? {},
     });
     const serialized = canonical(payload);
-    const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), taskBrief: request.taskBrief ?? {} })), compiled_bytes: Buffer.byteLength(serialized) };
+    const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), includeReferencedContent: Boolean(request.includeReferencedContent), taskBrief: request.taskBrief ?? {} })), compiled_bytes: Buffer.byteLength(serialized) };
     database.prepare(`INSERT INTO context_packs
       (id,scope_id,task_type,compiler_version,input_hash,payload_json,compiled_bytes,status,created_at)
       VALUES (?,?,?,?,?,?,?,'open',?)`).run(pack.id, route.scopeId, route.taskType, COMPILER_VERSION,
@@ -269,7 +355,11 @@ if (isMainModule()) {
     const args = argumentsOf(process.argv.slice(2));
     const databasePath = resolve(args.db ?? defaultDatabasePath);
     if (args.command === 'baseline') console.log(JSON.stringify(baselineMetrics(), null, 2));
-    else if (args.command === 'compile') console.log(JSON.stringify(compileContextPack(databasePath, { text: args.text ?? '', explicitScopeId: args.scope ?? null, taskType: args['task-type'] ?? null }), null, 2));
+    else if (args.command === 'compile') console.log(JSON.stringify(compileContextPack(databasePath, {
+      text: args.text ?? '', explicitScopeId: args.scope ?? null, taskType: args['task-type'] ?? null,
+      includeReferencedContent: args['include-references'] === 'true',
+      projectDatabasePath: args['project-db'] ? resolve(args['project-db']) : defaultProjectDatabasePath,
+    }), null, 2));
     else if (args.command === 'close') console.log(JSON.stringify(closeContextPack(databasePath, args.id), null, 2));
     else throw new Error('Usage: structured-memory.mjs <baseline|compile|close> [--db path]');
   } catch (error) { console.error(`structured-memory: ${error.message}`); process.exitCode = 1; }

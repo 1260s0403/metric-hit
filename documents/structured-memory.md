@@ -22,6 +22,12 @@ Task context pack состоит из `AGENTS.md`, паспортов тольк
 - P4: повторяемый compiler из одной родительской цепочки; история и sibling scopes выключены по умолчанию; `metrics.compiled_bytes` сравнивается с baseline.
 - P5: паспорта `Ядро`, `MetricHit`, `Редакция`, `Панель`. Редакционная задача получает первые три, UI-задача — `Ядро + MetricHit + Панель`; команда только со словом «панель» требует уточнения.
 
+## On-demand ссылки на объёмную project memory
+
+Migration v12 добавляет в central control plane компактную scoped-ссылку на утверждённое семантическое ядро MetricHit. Ссылка принадлежит цепочке `MetricHit → Редакция`, применима только к типам задач `editorial` и `research` и не содержит 145 запросов. Обычный MetricHit/UI context pack не получает ни эту ссылку, ни полный список.
+
+Полная taxonomy открывается только явным `includeReferencedContent` для уже маршрутизированной editorial/research-задачи. Compiler читает её исключительно из `data/projects/00000000-0000-4000-a000-000000000102/project.sqlite`, проверяет служебный `project_id`, approved status, semantic key, SHA-256 содержимого и точное количество 145. Central legacy-копия сохраняется как audit/history, но не используется для раскрытия ссылки. Несовпадение project identity, hash или количества блокирует компиляцию fail-closed. Migration применяется и к project SQLite для общей schema history, но не создаёт там вторую scoped-ссылку.
+
 Целевая проверка: `node --test tests/structured-memory.test.mjs`. Затем: `node scripts/check-memory.mjs`; полная Node/Python regression и SQLite integrity обязательны перед поставкой крупного изменения.
 
 Owner-gates не меняются: удаление, force-операции, внешняя публикация, расходы, доступы/права, стратегия, политика памяти, глобальные/системные настройки и существенное расширение scope требуют отдельного решения владельца.

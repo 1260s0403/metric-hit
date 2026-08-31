@@ -122,7 +122,7 @@ def test_migration_keeps_legacy_scope_and_records_only_targeted_role_audit(tmp_p
     with sqlite3.connect(path) as db:
         assert db.execute("SELECT data_json,version FROM tasks WHERE title='Legacy'").fetchone() == before
         assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == audit_before + 3
-        assert db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 11
+        assert db.execute("SELECT max(version) FROM schema_migrations").fetchone()[0] == 12
         corrected = db.execute(
             "SELECT content,data_json FROM tasks WHERE id='a1023db2-32d7-4286-b635-03c27fef6a35'"
         ).fetchone()

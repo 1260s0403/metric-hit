@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -7,8 +8,9 @@ import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
-  SCOPE_IDS, closeContextPack, compileContextPack, compileDeterministicContext, createTaskScope,
-  registerScopedRecord, resolveScopedMemory, routeTask, supersedeScopedRecord,
+  SEMANTIC_CORE_REFERENCE_KEY, SCOPE_IDS, closeContextPack, compileContextPack,
+  compileDeterministicContext, createTaskScope, loadReferencedMemory, registerScopedRecord,
+  resolveScopedMemory, routeTask, supersedeScopedRecord,
 } from '../scripts/structured-memory.mjs';
 
 function fixture() {
@@ -16,6 +18,37 @@ function fixture() {
   const databasePath = join(directory, 'memory.sqlite');
   execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
   return { directory, databasePath };
+}
+
+function referenceFixture() {
+  const result = fixture();
+  const projectDatabasePath = join(result.directory, 'project.sqlite');
+  const project = new DatabaseSync(projectDatabasePath);
+  const keywords = Array.from({ length: 145 }, (_, index) => `keyword-${index + 1}`);
+  const content = 'Fixture semantic core with 145 approved non-navigation queries.';
+  const dataJson = JSON.stringify({ taxonomy: { fixture: keywords }, keyword_count: keywords.length });
+  project.exec(`CREATE TABLE project_storage_metadata (
+    singleton INTEGER PRIMARY KEY, project_id TEXT NOT NULL, storage_format INTEGER NOT NULL
+  ); CREATE TABLE memory_candidates (
+    id TEXT PRIMARY KEY, semantic_key TEXT NOT NULL, title TEXT NOT NULL, content TEXT,
+    data_json TEXT, status TEXT NOT NULL
+  );`);
+  project.prepare('INSERT INTO project_storage_metadata VALUES (1,?,1)').run('00000000-0000-4000-a000-000000000102');
+  project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status)
+    VALUES (?,?,?,?,?,'approved')`).run('fixture-semantic-core', 'content.metrichit_semantic_core',
+      'Fixture semantic core', content, dataJson);
+  project.close();
+
+  const control = new DatabaseSync(result.databasePath);
+  const pointer = control.prepare('SELECT metadata_json FROM scoped_memory_records WHERE semantic_key=?').get(SEMANTIC_CORE_REFERENCE_KEY);
+  const metadata = JSON.parse(pointer.metadata_json);
+  metadata.candidate_id = 'fixture-semantic-core';
+  metadata.content_sha256 = createHash('sha256').update(content).digest('hex');
+  metadata.data_json_sha256 = createHash('sha256').update(dataJson).digest('hex');
+  control.prepare('UPDATE scoped_memory_records SET metadata_json=? WHERE semantic_key=?')
+    .run(JSON.stringify(metadata), SEMANTIC_CORE_REFERENCE_KEY);
+  control.close();
+  return { ...result, projectDatabasePath, keywords };
 }
 
 test('P0/P1: canonical contract, passports and fail-closed ownership are present', () => {
@@ -101,6 +134,10 @@ test('P4/P5: compiler is stable, smaller than baseline and isolates Editorial fr
     assert.deepEqual(panel.passports.map((item) => item.name), ['Ядро', 'MetricHit', 'Панель']);
     assert.equal(editorialA.rules.some((item) => item.semantic_key.startsWith('panel.')), false);
     assert.equal(panel.rules.some((item) => item.semantic_key.startsWith('editorial.')), false);
+    assert.deepEqual(editorialA.references.map((item) => item.semantic_key), [SEMANTIC_CORE_REFERENCE_KEY]);
+    assert.deepEqual(editorialA.expanded_references, []);
+    assert.deepEqual(panel.references, []);
+    assert.deepEqual(panel.expanded_references, []);
     assert.ok(Buffer.byteLength(JSON.stringify(editorialA)) < 147579);
     db.close();
     const compiled = compileContextPack(databasePath, { text: 'Подготовь статью MetricHit', taskBrief: {
@@ -117,6 +154,63 @@ test('P4/P5: compiler is stable, smaller than baseline and isolates Editorial fr
     assert.equal(readOnly.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
     assert.deepEqual(readOnly.prepare('PRAGMA foreign_key_check').all(), []);
     readOnly.close();
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('semantic core pointer is scoped to editorial/research and full content is explicit and project-authoritative', () => {
+  const { directory, databasePath, projectDatabasePath, keywords } = referenceFixture();
+  try {
+    const db = new DatabaseSync(databasePath, { readOnly: true });
+    const general = compileDeterministicContext(db, { scopeId: SCOPE_IDS.metrichit, taskType: 'general', agentsContent: '' });
+    const editorial = compileDeterministicContext(db, { scopeId: SCOPE_IDS.editorial, taskType: 'editorial', agentsContent: '' });
+    const research = compileDeterministicContext(db, {
+      scopeId: SCOPE_IDS.editorial, taskType: 'research', includeReferencedContent: true,
+      projectDatabasePath, agentsContent: '',
+    });
+    assert.deepEqual(general.references, []);
+    assert.deepEqual(general.expanded_references, []);
+    assert.equal(JSON.stringify(general).includes('keyword-1'), false);
+    assert.equal(editorial.references.length, 1);
+    assert.deepEqual(editorial.expanded_references, []);
+    assert.equal(JSON.stringify(editorial).includes('keyword-1'), false);
+    assert.equal(research.references.length, 1);
+    assert.equal(research.expanded_references[0].project_id, '00000000-0000-4000-a000-000000000102');
+    assert.deepEqual(research.expanded_references[0].data.taxonomy.fixture, keywords);
+    assert.equal(research.expanded_references[0].source_database, 'project.sqlite');
+    const explicitEditorial = compileDeterministicContext(db, {
+      scopeId: SCOPE_IDS.editorial, taskType: 'editorial', includeReferencedContent: true,
+      projectDatabasePath, agentsContent: '',
+    });
+    assert.equal(explicitEditorial.expanded_references[0].data.keyword_count, 145);
+    assert.throws(() => compileDeterministicContext(db, {
+      scopeId: SCOPE_IDS.metrichit, taskType: 'general', includeReferencedContent: true,
+      projectDatabasePath, agentsContent: '',
+    }), /only for an explicit editorial or research task/);
+    db.close();
+
+    const routeDatabase = new DatabaseSync(databasePath, { readOnly: true });
+    const route = routeTask(routeDatabase, { text: 'Исследуй семантическое ядро MetricHit' });
+    routeDatabase.close();
+    assert.equal(route.scopeId, SCOPE_IDS.editorial);
+    assert.equal(route.taskType, 'research');
+    const explicitRouteDatabase = new DatabaseSync(databasePath, { readOnly: true });
+    const explicitResearch = routeTask(explicitRouteDatabase, { text: 'MetricHit', taskType: 'research' });
+    explicitRouteDatabase.close();
+    assert.equal(explicitResearch.scopeId, SCOPE_IDS.editorial);
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('authoritative semantic reference fails closed on project content drift', () => {
+  const { directory, databasePath, projectDatabasePath } = referenceFixture();
+  try {
+    const control = new DatabaseSync(databasePath, { readOnly: true });
+    const records = resolveScopedMemory(control, SCOPE_IDS.editorial, 'research').records;
+    control.close();
+    const project = new DatabaseSync(projectDatabasePath);
+    project.prepare('UPDATE memory_candidates SET data_json=? WHERE id=?')
+      .run('{"taxonomy":{"fixture":[]},"keyword_count":0}', 'fixture-semantic-core');
+    project.close();
+    assert.throws(() => loadReferencedMemory(projectDatabasePath, records, 'research'), /hash mismatch/);
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 
