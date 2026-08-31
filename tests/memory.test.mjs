@@ -1095,13 +1095,14 @@ test('TenChat publication continuity and indexation checks evolve memory repeata
 
   const first = applyTenchatPublicationAndIndexationContinuity(databasePath);
   const second = applyTenchatPublicationAndIndexationContinuity(databasePath);
-  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 3, tasks: 1 });
+  assert.deepEqual(first.created, { sources: 2, documents: 2, versions: 2, candidates: 4, tasks: 1 });
   assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0, tasks: 0 });
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
   const tenchat = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='publication.tenchat_first_post_2026_08_30'").get();
   const sostav = database.prepare("SELECT content, data_json FROM memory_candidates WHERE semantic_key='publication.sostav_nakrutka_pf_2026_08_29' ORDER BY json_extract(data_json, '$.revision') DESC LIMIT 1").get();
   const oborot = database.prepare("SELECT content, data_json FROM memory_candidates WHERE semantic_key='publication.oborot_nakrutka_pf_business_2026_08_29' ORDER BY json_extract(data_json, '$.revision') DESC LIMIT 1").get();
+  const tenchatPolicy = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='editorial.tenchat_format_and_search_policy'").get();
   const task = database.prepare("SELECT status, content, data_json FROM tasks WHERE id=?").get(first.taskId);
   database.close();
 
@@ -1112,6 +1113,10 @@ test('TenChat publication continuity and indexation checks evolve memory repeata
   assert.match(sostav.content, /Индексация Google не подтверждена/);
   assert.equal(JSON.parse(oborot.data_json).yandex_indexation.status, 'not_confirmed');
   assert.match(oborot.content, /не подтвердила индексацию Яндексом/);
+  assert.equal(tenchatPolicy.status, 'approved');
+  assert.match(tenchatPolicy.content, /7 000 знаков/);
+  assert.deepEqual(JSON.parse(tenchatPolicy.data_json).target_characters, { minimum: 4000, maximum: 5500 });
+  assert.equal(JSON.parse(tenchatPolicy.data_json).appropriate_links.maximum, 4);
   assert.equal(task.status, 'pending');
   assert.equal(JSON.parse(task.data_json).requires_separate_owner_command, true);
   assert.match(task.content, /Кампания ещё не запускалась/);

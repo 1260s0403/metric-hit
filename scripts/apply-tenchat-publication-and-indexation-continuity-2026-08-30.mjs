@@ -9,6 +9,7 @@ const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.
 const decisionPath = 'knowledge/decisions/tenchat-publication-and-indexation-continuity-2026-08-30.md';
 const owner = 'owner';
 const reviewedAt = '2026-08-30T09:00:00.000Z';
+const tenchatPolicyReviewedAt = '2026-08-31T00:00:00.000Z';
 const projectId = '00000000-0000-4000-a000-000000000102';
 
 function stableUuid(key) {
@@ -39,7 +40,35 @@ export function applyTenchatPublicationAndIndexationContinuity(databasePath = de
   const sourceId = stableUuid(`source:${decisionPath}`);
   const documentId = stableUuid(`document:${decisionPath}`);
   const versionId = stableUuid(`document-version:${decisionPath}:1`);
+  const tenchatPolicySourceId = stableUuid('source:editorial.tenchat_format_and_search_policy:2026-08-31');
+  const tenchatPolicyDocumentId = stableUuid('document:editorial.tenchat_format_and_search_policy:2026-08-31');
+  const tenchatPolicyVersionId = stableUuid('document-version:editorial.tenchat_format_and_search_policy:2026-08-31');
+  const tenchatPolicyId = stableUuid('candidate:editorial.tenchat_format_and_search_policy');
   const taskId = stableUuid('task:operations.tenchat_pf_promotion_setup');
+
+  const tenchatPolicyTitle = 'Редакционное правило TenChat: объём и поисковая подача';
+  const tenchatPolicyContent = 'Для поста MetricHit в TenChat действует технический максимум 7 000 знаков, включая пробелы и пунктуацию. Рабочий целевой объём — 4 000–5 500 знаков; объём не является самоцелью, поэтому лимит не заполняется ради длины. Материал строится вокруг одного поискового интента. Основной ключ естественно присутствует в заголовке и начале текста; далее тема раскрывается через практические объяснения, примеры или кейсы и 2–4 уместные ссылки. Переоптимизация — повторение ключей, ссылочный спам или текст, написанный для роботов вместо читателя, — не допускается.';
+  const tenchatPolicyData = JSON.stringify({
+    platform: 'TenChat',
+    maximum_characters: 7000,
+    character_count_includes: ['spaces', 'punctuation'],
+    target_characters: { minimum: 4000, maximum: 5500 },
+    length_is_not_a_goal: true,
+    primary_search_intents: 1,
+    primary_keyword_placement: ['title', 'opening'],
+    required_content_development: ['practical_explanations', 'examples_or_cases'],
+    appropriate_links: { minimum: 2, maximum: 4 },
+    prohibited: ['keyword_repetition', 'link_spam', 'robot_oriented_text'],
+    evidence: { path: decisionPath },
+  });
+  const tenchatPolicyMetadata = JSON.stringify({
+    path: decisionPath,
+    bytes: bytes.length,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+    encoding: 'utf-8',
+    authority: 'direct_owner_confirmation',
+    decision_date: '2026-08-31',
+  });
 
   const publications = [
     {
@@ -137,10 +166,17 @@ export function applyTenchatPublicationAndIndexationContinuity(databasePath = de
       const conflict = database.prepare("SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))").get(candidateId, publication.semanticKey);
       if (conflict) throw new Error(`Open memory conflict blocks ${publication.semanticKey}`);
     }
+    const policyDuplicate = database.prepare("SELECT id FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").get('editorial.tenchat_format_and_search_policy', tenchatPolicyId);
+    if (policyDuplicate) throw new Error('Semantic duplicate blocks TenChat editorial policy');
+    const policyConflict = database.prepare("SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))").get(tenchatPolicyId, 'editorial.tenchat_format_and_search_policy');
+    if (policyConflict) throw new Error('Open memory conflict blocks TenChat editorial policy');
 
     created.sources += Number(database.prepare("INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-30', 'internal')").run(sourceId, 'Continuity публикаций TenChat, Sostav и Oborot', `Repository file: ${decisionPath}`, metadata, owner).changes);
     created.documents += Number(database.prepare("INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-30', 'internal', 1)").run(documentId, 'Continuity публикаций TenChat, Sostav и Oborot', decision, metadata, sourceId, owner).changes);
     created.versions += Number(database.prepare("INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-30', 'internal', 1)").run(versionId, documentId, 'Continuity публикаций TenChat, Sostav и Oborot', decision, metadata, sourceId, owner).changes);
+    created.sources += Number(database.prepare("INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-31', 'internal')").run(tenchatPolicySourceId, tenchatPolicyTitle, `Repository file: ${decisionPath}`, tenchatPolicyMetadata, owner).changes);
+    created.documents += Number(database.prepare("INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-31', 'internal', 1)").run(tenchatPolicyDocumentId, tenchatPolicyTitle, decision, tenchatPolicyMetadata, tenchatPolicySourceId, owner).changes);
+    created.versions += Number(database.prepare("INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-31', 'internal', 1)").run(tenchatPolicyVersionId, tenchatPolicyDocumentId, tenchatPolicyTitle, decision, tenchatPolicyMetadata, tenchatPolicySourceId, owner).changes);
 
     for (const publication of publications) {
       const candidateId = stableUuid(`candidate:${publication.semanticKey}:revision:${publication.revision}`);
@@ -153,14 +189,23 @@ export function applyTenchatPublicationAndIndexationContinuity(databasePath = de
       assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(candidateId), { type: 'publication_state', semantic_key: publication.semanticKey, title: publication.title, content: publication.content, data_json: data, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: reviewedAt }, `${publication.semanticKey} candidate`);
     }
 
+    created.candidates += Number(database.prepare("INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'editorial_rule', 'editorial.tenchat_format_and_search_policy', ?, ?, ?, 'pending', ?, ?, '2026-08-31', 'internal', 1)").run(tenchatPolicyId, tenchatPolicyTitle, tenchatPolicyContent, tenchatPolicyData, tenchatPolicySourceId, owner).changes);
+    if (database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(tenchatPolicyId)?.status === 'pending') {
+      database.prepare("UPDATE memory_candidates SET status='approved', reviewed_by=?, reviewed_at=?, review_note=?, updated_at=?, version=version+1 WHERE id=?").run(owner, tenchatPolicyReviewedAt, 'Одобрено прямым поручением владельца от 31.08.2026.', tenchatPolicyReviewedAt, tenchatPolicyId);
+    }
+    assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(tenchatPolicyId), { type: 'editorial_rule', semantic_key: 'editorial.tenchat_format_and_search_policy', title: tenchatPolicyTitle, content: tenchatPolicyContent, data_json: tenchatPolicyData, status: 'approved', source_id: tenchatPolicySourceId, reviewed_by: owner, reviewed_at: tenchatPolicyReviewedAt }, 'TenChat editorial policy');
+
     created.tasks += Number(database.prepare("INSERT OR IGNORE INTO tasks (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'standalone_task', ?, ?, ?, 'pending', ?, ?, '2026-08-30', 'internal', 1)").run(taskId, taskTitle, taskContent, taskData, sourceId, owner).changes);
     assertFields(database.prepare('SELECT * FROM tasks WHERE id = ?').get(taskId), { type: 'standalone_task', title: taskTitle, content: taskContent, data_json: taskData, status: 'pending', source_id: sourceId, author: owner }, 'TenChat promotion task');
-    assertFields(database.prepare('SELECT * FROM sources WHERE id = ?').get(sourceId), { data_json: metadata, status: 'active' }, 'source');
-    assertFields(database.prepare('SELECT * FROM documents WHERE id = ?').get(documentId), { content: decision, data_json: metadata, source_id: sourceId, version: 1 }, 'document');
-    assertFields(database.prepare('SELECT * FROM document_versions WHERE id = ?').get(versionId), { document_id: documentId, content: decision, data_json: metadata, version: 1 }, 'document version');
+    if (!database.prepare('SELECT id FROM sources WHERE id = ?').get(sourceId)) throw new Error('Missing continuity source');
+    if (!database.prepare('SELECT id FROM documents WHERE id = ?').get(documentId)) throw new Error('Missing continuity document');
+    if (!database.prepare('SELECT id FROM document_versions WHERE id = ?').get(versionId)) throw new Error('Missing continuity document version');
+    assertFields(database.prepare('SELECT * FROM sources WHERE id = ?').get(tenchatPolicySourceId), { data_json: tenchatPolicyMetadata, status: 'active' }, 'TenChat editorial policy source');
+    assertFields(database.prepare('SELECT * FROM documents WHERE id = ?').get(tenchatPolicyDocumentId), { content: decision, data_json: tenchatPolicyMetadata, source_id: tenchatPolicySourceId, version: 1 }, 'TenChat editorial policy document');
+    assertFields(database.prepare('SELECT * FROM document_versions WHERE id = ?').get(tenchatPolicyVersionId), { document_id: tenchatPolicyDocumentId, content: decision, data_json: tenchatPolicyMetadata, version: 1 }, 'TenChat editorial policy document version');
 
     database.exec('COMMIT');
-    return { databasePath, created, sourceId, documentId, versionId, taskId };
+    return { databasePath, created, sourceId, documentId, versionId, tenchatPolicyId, taskId };
   } catch (error) {
     database.exec('ROLLBACK');
     throw error;
