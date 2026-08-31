@@ -17,7 +17,91 @@ function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-structured-memory-'));
   const databasePath = join(directory, 'memory.sqlite');
   execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+  const database = new DatabaseSync(databasePath);
+  const fixtureSourceId = '10000000-0000-4000-a000-000000000001';
+  const fixtureArticlePolicyId = '10000000-0000-4000-a000-000000000002';
+  const fixtureTenChatPolicyId = '10000000-0000-4000-a000-000000000003';
+  const fixtureTelegramPolicyId = '10000000-0000-4000-a000-000000000004';
+  const fixturePfPolicyId = '10000000-0000-4000-a000-000000000005';
+  database.prepare(`INSERT INTO sources(id,type,title,content,status,author,created_at,updated_at,version)
+    VALUES (?,'test','Fixture editorial source','Fixture source','active','owner',?,?,1)`)
+    .run(fixtureSourceId, '2026-08-31T00:00:00.000Z', '2026-08-31T00:00:00.000Z');
+  database.prepare(`INSERT INTO memory_candidates
+    (id,type,semantic_key,title,content,data_json,status,source_id,author,created_at,updated_at,version)
+    VALUES (?,?,?,?,?,?,'pending',?,'owner',?,?,1)`).run(
+    fixtureArticlePolicyId, 'editorial_rule', 'content.editorial_article_preparation_policy',
+    'Правила подготовки статей MetricHit',
+    'В статье четыре естественные ссылки на https://go.mtrhit.ru/: в начале, две внутри и в финале/CTA. Статья оригинальна.',
+    JSON.stringify({ applies_to: ['articles'], landing: 'https://go.mtrhit.ru/',
+      landing_link_distribution: ['beginning', 'body_1', 'body_2', 'final_cta'] }),
+    fixtureSourceId, '2026-08-31T00:00:00.000Z', '2026-08-31T00:00:00.000Z');
+  database.prepare(`INSERT INTO memory_candidates
+    (id,type,semantic_key,title,content,data_json,status,source_id,author,created_at,updated_at,version)
+    VALUES (?,?,?,?,?,?,'pending',?,'owner',?,?,1)`).run(
+    fixtureTenChatPolicyId, 'editorial_rule', 'editorial.tenchat_format_and_search_policy',
+    'Редакционное правило TenChat: объём и поисковая подача',
+    'TenChat: максимум 7 000 знаков, цель 4 000–5 500, один интент, естественный ключ в заголовке и начале, 2–4 ссылки без спама.',
+    JSON.stringify({ platform: 'TenChat', maximum_characters: 7000, target_characters: { minimum: 4000, maximum: 5500 },
+      primary_search_intents: 1, primary_keyword_placement: ['title', 'opening'], prohibited: ['link_spam'] }),
+    fixtureSourceId, '2026-08-31T00:00:00.000Z', '2026-08-31T00:00:00.000Z');
+  database.prepare(`INSERT INTO memory_candidates
+    (id,type,semantic_key,title,content,data_json,status,source_id,author,created_at,updated_at,version)
+    VALUES (?,?,?,?,?,?,'pending',?,'owner',?,?,1)`).run(
+    fixtureTelegramPolicyId, 'editorial_rule', 'editorial.telegram_short_professional',
+    'Формат Telegram', 'Только Telegram.', JSON.stringify({ channel: 'telegram' }),
+    fixtureSourceId, '2026-08-31T00:00:00.000Z', '2026-08-31T00:00:00.000Z');
+  database.prepare(`INSERT INTO memory_candidates
+    (id,type,semantic_key,title,content,data_json,status,source_id,author,created_at,updated_at,version)
+    VALUES (?,?,?,?,?,?,'pending',?,'owner',?,?,1)`).run(
+    fixturePfPolicyId, 'editorial_rule', 'content.public_pf_positive_framing',
+    'Позитивная подача ПФ', 'Публичный материал о ПФ раскрывает практическую пользу.',
+    JSON.stringify({ applies_to: ['public_articles'] }), fixtureSourceId,
+    '2026-08-31T00:00:00.000Z', '2026-08-31T00:00:00.000Z');
+  database.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by='owner',reviewed_at=?
+    WHERE id IN (?,?,?,?)`)
+    .run('2026-08-31T00:00:00.000Z', fixtureArticlePolicyId, fixtureTenChatPolicyId, fixtureTelegramPolicyId, fixturePfPolicyId);
+  database.prepare(`INSERT INTO tasks
+    (id,type,title,content,data_json,status,author,created_at,updated_at,version)
+    VALUES (?,'knowledge_task',?,?,?,'pending','owner',?,?,1)`).run(
+    '10000000-0000-4000-a000-000000000006', 'Статьи: ключевые ВЧ-запросы в главном заголовке',
+    'В главном заголовке H1 обязательно использовать «накрутка ПФ» или «накрутка поведенческого фактора».',
+    JSON.stringify({ project_id: '00000000-0000-4000-a000-000000000102' }),
+    '2026-08-31T00:00:00.000Z', '2026-08-31T00:00:00.000Z');
+  database.close();
   return { directory, databasePath };
+}
+
+function tenChatContentQa() {
+  const digest = 'a'.repeat(64);
+  return {
+    checks: [
+      { id: 'landing_link_distribution', performed: true, passed: true, result: '4 landing links: beginning=1, body=2, final CTA=1.',
+        evidence: { url: 'https://go.mtrhit.ru/', exact_count: 4,
+          positions: ['beginning', 'body_1', 'body_2', 'final_cta'], natural_anchors: true, link_spam: false } },
+      { id: 'originality_source_overlap', performed: true, passed: true,
+        result: 'Local deterministic comparison: maximum normalized source overlap 8.5%; no template match.',
+        evidence: { method: 'local_deterministic_source_overlap', content_sha256: digest,
+          compared_sources: [{ path: 'work/social/tenchat/reference.md', sha256: 'b'.repeat(64), overlap_percent: 8.5 }],
+          max_overlap_percent: 8.5, template_match: false } },
+      { id: 'h1_high_frequency_query', performed: true, passed: true,
+        result: 'H1 contains the approved high-frequency query “накрутка ПФ”.',
+        evidence: { heading: 'Накрутка ПФ в Яндексе', matched_query: 'накрутка ПФ' } },
+      { id: 'tenchat_character_count', performed: true, passed: true,
+        result: '4,812 characters including spaces and punctuation; within 4,000–5,500 target and below 7,000 maximum.',
+        evidence: { character_count: 4812, maximum: 7000, target_minimum: 4000, target_maximum: 5500, within_target: true } },
+      { id: 'single_search_intent', performed: true, passed: true, result: 'Exactly one primary intent: controlled PF promotion in Yandex.',
+        evidence: { intent_count: 1, primary_intent: 'controlled PF promotion in Yandex' } },
+      { id: 'natural_primary_keyword', performed: true, passed: true,
+        result: 'Primary keyword appears once in H1 and naturally in the opening paragraph.',
+        evidence: { primary_keyword: 'накрутка ПФ', in_title: true, in_opening: true, natural: true } },
+      { id: 'link_count_and_spam', performed: true, passed: true, result: '4 relevant links; no repeated-anchor or link-spam pattern.',
+        evidence: { link_count: 4, minimum: 2, maximum: 4, link_spam: false } },
+    ],
+    external_checks: {
+      plagiarism: { status: 'not_performed', result: 'No third-party plagiarism service was used; no external plagiarism claim is made.' },
+      ai_detection: { status: 'unavailable', result: 'No external AI detector result is available; no AI-authorship claim is made.' },
+    },
+  };
 }
 
 function referenceFixture() {
@@ -159,6 +243,7 @@ test('P4/P5: compiler is stable, smaller than baseline and isolates Editorial fr
     assert.equal(closeContextPack(databasePath, compiled.pack.id, {
       result: 'Материал проверен', checks: ['node --test tests/structured-memory.test.mjs'],
       satisfiedAcceptance: ['context_is_minimal'], scopeCompliance: true, forbiddenChangesObserved: [],
+      contentQa: tenChatContentQa(),
     }).status, 'closed');
     const readOnly = new DatabaseSync(databasePath, { readOnly: true });
     assert.equal(readOnly.prepare('SELECT status FROM context_packs WHERE id=?').get(compiled.pack.id).status, 'closed');
@@ -220,9 +305,65 @@ test('global execution gate fails closed for incomplete cards and validates all 
       const closed = closeContextPack(databasePath, compiled.pack.id, {
         result: 'done', checks: [firstCheck], satisfiedAcceptance: acceptance,
         scopeCompliance: true, forbiddenChangesObserved: [],
+        contentQa: taskType === 'editorial' ? tenChatContentQa() : null,
       });
       assert.equal(closed.validation.scope_compliant, true);
     }
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('editorial TenChat gate includes approved unscoped requirements and requires exact local content QA', () => {
+  const { directory, databasePath } = fixture();
+  try {
+    const taskBrief = {
+      result: 'Проверенный TenChat-материал', scope: ['work/social/tenchat'],
+      firstCheck: 'node --test tests/structured-memory.test.mjs',
+      acceptance: ['tenchat_ready'], forbiddenChanges: ['publication'],
+    };
+    const compiled = compileContextPack(databasePath, {
+      text: 'Подготовь статью TenChat о накрутке ПФ для MetricHit', taskBrief,
+    });
+    const card = compiled.pack.payload.execution_card;
+    const keys = card.mandatory_rules.map((item) => item.semantic_key);
+    assert.ok(keys.includes('content.editorial_article_preparation_policy'));
+    assert.ok(keys.includes('content.public_pf_positive_framing'));
+    assert.ok(keys.includes('owner.editorial.h1_high_frequency_query'));
+    assert.ok(keys.includes('editorial.tenchat_format_and_search_policy'));
+    assert.equal(keys.includes('editorial.telegram_short_professional'), false);
+    assert.match(card.mandatory_rules.find((item) => item.semantic_key === 'content.editorial_article_preparation_policy').content,
+      /четыре естественные ссылки/);
+    assert.match(card.mandatory_rules.find((item) => item.semantic_key === 'owner.editorial.h1_high_frequency_query').content,
+      /накрутка ПФ.*накрутка поведенческого фактора/);
+    assert.deepEqual(card.delivery_qa.checks.map((item) => item.id), [
+      'landing_link_distribution', 'originality_source_overlap', 'h1_high_frequency_query',
+      'tenchat_character_count', 'single_search_intent', 'natural_primary_keyword', 'link_count_and_spam',
+    ]);
+
+    const baseDelivery = {
+      result: 'Материал проверен', checks: [taskBrief.firstCheck],
+      satisfiedAcceptance: taskBrief.acceptance, scopeCompliance: true, forbiddenChangesObserved: [],
+    };
+    assert.throws(() => closeContextPack(databasePath, compiled.pack.id, baseDelivery), /editorial_content_qa_missing/);
+    const incompleteQa = tenChatContentQa();
+    incompleteQa.checks = incompleteQa.checks.filter((item) => item.id !== 'originality_source_overlap');
+    assert.throws(() => closeContextPack(databasePath, compiled.pack.id, { ...baseDelivery, contentQa: incompleteQa }),
+      /editorial_content_qa_incomplete:originality_source_overlap/);
+    const falseExternalClaim = tenChatContentQa();
+    falseExternalClaim.external_checks.plagiarism.status = 'passed';
+    assert.throws(() => closeContextPack(databasePath, compiled.pack.id, { ...baseDelivery, contentQa: falseExternalClaim }),
+      /editorial_external_check_claim:plagiarism/);
+    const closed = closeContextPack(databasePath, compiled.pack.id, { ...baseDelivery, contentQa: tenChatContentQa() });
+    assert.equal(closed.status, 'closed');
+    assert.equal(closed.validation.content_qa.local_deterministic_checks
+      .find((item) => item.id === 'originality_source_overlap').evidence.max_overlap_percent, 8.5);
+    assert.equal(closed.validation.content_qa.external_checks.plagiarism.status, 'not_performed');
+
+    const unrelated = compileContextPack(databasePath, { text: 'Исправь UI operator panel MetricHit', taskBrief: {
+      result: 'UI', scope: ['operator-panel'], firstCheck: 'ui-check', acceptance: ['visible'], forbiddenChanges: ['editorial'],
+    } });
+    assert.equal(unrelated.pack.payload.execution_card.mandatory_rules
+      .some((item) => item.semantic_key === 'content.editorial_article_preparation_policy'), false);
+    assert.equal(unrelated.pack.payload.execution_card.delivery_qa, null);
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 

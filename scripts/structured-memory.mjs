@@ -9,7 +9,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
-export const COMPILER_VERSION = 3;
+export const COMPILER_VERSION = 4;
 export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
 export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
 export const SCOPE_IDS = Object.freeze({
@@ -166,12 +166,105 @@ export function resolveScopedMemory(database, scopeId, taskType, { includeHistor
 function inferTaskType(text, explicit) {
   if (explicit) return explicit;
   if (/(research|исследован|семантическ|ключев.{0,20}запрос)/iu.test(text)) return 'research';
-  if (/(стать|редак|контент|social|smm|публикац)/iu.test(text)) return 'editorial';
+  if (/(стать|редак|контент|social|smm|публикац|tenchat|тенчат)/iu.test(text)) return 'editorial';
   if (/(интерфейс|\bui\b|css|html|e2e|operator panel)/iu.test(text)) return 'ui';
   if (/(памят|governance|policy|правил)/iu.test(text)) return 'governance';
   if (/(документ|документац|\bdocs?\b|readme)/iu.test(text)) return 'docs';
   if (/(\bcode\b|\bpython\b|\bjavascript\b|\bnode\b|скрипт|компилятор|router|маршрутизатор|модул|тест)/iu.test(text)) return 'code';
   return 'general';
+}
+
+function hasTable(database, name) {
+  return Boolean(database.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(name));
+}
+
+const REQUIRED_EDITORIAL_RULES = Object.freeze({
+  article: 'content.editorial_article_preparation_policy',
+  tenchat: 'editorial.tenchat_format_and_search_policy',
+});
+const OWNER_H1_OBLIGATION_TITLE = 'Статьи: ключевые ВЧ-запросы в главном заголовке';
+const OWNER_H1_SEMANTIC_KEY = 'owner.editorial.h1_high_frequency_query';
+
+function editorialRequirementApplies(candidate, signals) {
+  const data = parseJson(candidate.data_json, {});
+  const isTenChat = signals.includes('tenchat');
+  const isArticle = signals.includes('article') || isTenChat;
+  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.article) return isArticle;
+  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.tenchat) return isTenChat;
+  if (data.channel) return signals.includes(String(data.channel).toLocaleLowerCase('ru-RU'));
+  if (data.platform) return signals.includes(String(data.platform).toLocaleLowerCase('ru-RU'));
+  if (candidate.semantic_key === 'content.test_bonus_messaging') return signals.includes('bonus');
+  if (candidate.semantic_key === 'content.public_pf_positive_framing') return signals.includes('pf');
+  return true;
+}
+
+export function resolveApprovedEditorialRequirements(database, route) {
+  if (route.taskType !== 'editorial' || route.scopeId !== SCOPE_IDS.editorial) return [];
+  if (!hasTable(database, 'memory_candidates') || !hasTable(database, 'tasks')) {
+    throw new Error('applicable approved editorial memory is unavailable');
+  }
+  const signals = Array.isArray(route.signals) ? route.signals : [];
+  const approved = database.prepare(`SELECT id,type,semantic_key,title,content,data_json,source_id
+    FROM memory_candidates WHERE status='approved' ORDER BY semantic_key,id`).all();
+  const directness = approved.find((row) => row.semantic_key === 'content.editorial_directness_policy');
+  const superseded = new Set(parseJson(directness?.data_json, {}).supersedes_editorial_rules ?? []);
+  const requirements = approved.filter((row) => row.type === 'editorial_rule'
+      && !superseded.has(row.semantic_key) && editorialRequirementApplies(row, signals))
+    .map((row) => ({
+      id: row.id, semantic_key: row.semantic_key, scope_id: SCOPE_IDS.editorial,
+      type: 'rule', title: row.title, content: row.content,
+      source: `approved-memory://memory_candidates/${row.id}`, effect: 'require',
+      metadata: parseJson(row.data_json, {}), authority: 'approved_memory',
+    }));
+  const requiredKeys = [];
+  if (signals.includes('article') || signals.includes('tenchat')) requiredKeys.push(REQUIRED_EDITORIAL_RULES.article);
+  if (signals.includes('tenchat')) requiredKeys.push(REQUIRED_EDITORIAL_RULES.tenchat);
+  for (const semanticKey of requiredKeys) {
+    if (!requirements.some((item) => item.semantic_key === semanticKey)) {
+      throw new Error(`applicable approved editorial requirement is unavailable: ${semanticKey}`);
+    }
+  }
+  if (signals.includes('article') || signals.includes('tenchat')) {
+    const task = database.prepare(`SELECT id,type,title,content,status,author FROM tasks
+      WHERE title=? ORDER BY updated_at DESC,id LIMIT 1`).get(OWNER_H1_OBLIGATION_TITLE);
+    if (!task || task.type !== 'knowledge_task' || task.status !== 'pending' || task.author !== 'owner'
+      || !/накрутка\s+(?:пф|pf)|накрутка\s+поведенческого\s+фактора/iu.test(task.content)) {
+      throw new Error(`applicable owner editorial obligation is unavailable: ${OWNER_H1_SEMANTIC_KEY}`);
+    }
+    requirements.push({
+      id: task.id, semantic_key: OWNER_H1_SEMANTIC_KEY, scope_id: SCOPE_IDS.editorial,
+      type: 'commitment', title: task.title, content: task.content,
+      source: `approved-memory://tasks/${task.id}`, effect: 'require', authority: 'owner_obligation',
+      metadata: { required_h1_queries: ['накрутка ПФ', 'накрутка поведенческого фактора'] },
+    });
+  }
+  return requirements.sort((a, b) => a.semantic_key.localeCompare(b.semantic_key) || a.id.localeCompare(b.id));
+}
+
+function editorialQaRequirements(rules) {
+  const keys = new Set(rules.map((rule) => rule.semantic_key));
+  if (!keys.has(REQUIRED_EDITORIAL_RULES.article) && !keys.has(REQUIRED_EDITORIAL_RULES.tenchat)) return null;
+  const checks = [];
+  if (keys.has(REQUIRED_EDITORIAL_RULES.article)) {
+    checks.push({ id: 'landing_link_distribution', evidence_fields: ['url', 'exact_count', 'positions', 'natural_anchors', 'link_spam'] });
+    checks.push({ id: 'originality_source_overlap', evidence_fields: ['method', 'content_sha256', 'compared_sources', 'max_overlap_percent', 'template_match'] });
+  }
+  if (keys.has(OWNER_H1_SEMANTIC_KEY)) {
+    checks.push({ id: 'h1_high_frequency_query', evidence_fields: ['heading', 'matched_query'] });
+  }
+  if (keys.has(REQUIRED_EDITORIAL_RULES.tenchat)) {
+    checks.push({ id: 'tenchat_character_count', evidence_fields: ['character_count', 'maximum', 'target_minimum', 'target_maximum', 'within_target'] });
+    checks.push({ id: 'single_search_intent', evidence_fields: ['intent_count', 'primary_intent'] });
+    checks.push({ id: 'natural_primary_keyword', evidence_fields: ['primary_keyword', 'in_title', 'in_opening', 'natural'] });
+    checks.push({ id: 'link_count_and_spam', evidence_fields: ['link_count', 'minimum', 'maximum', 'link_spam'] });
+  }
+  return {
+    required: true, checks,
+    external_detection: {
+      plagiarism: 'unavailable_or_not_performed',
+      ai_detection: 'unavailable_or_not_performed',
+    },
+  };
 }
 
 function buildExecutionCard(taskBrief, route, rules) {
@@ -185,8 +278,10 @@ function buildExecutionCard(taskBrief, route, rules) {
     target_scope: route.scopeId,
     mandatory_rules: [
       { semantic_key: 'governance.constitution', source: 'AGENTS.md', effect: 'mandatory' },
-      ...rules.map((rule) => ({ semantic_key: rule.semantic_key, source: rule.source, effect: rule.effect ?? 'mandatory' })),
+      ...rules.map((rule) => ({ semantic_key: rule.semantic_key, title: rule.title, content: rule.content,
+        source: rule.source, effect: rule.effect ?? 'mandatory', authority: rule.authority ?? 'scoped_memory' })),
     ],
+    delivery_qa: editorialQaRequirements(rules),
     first_check: nonEmptyText(taskBrief.firstCheck),
     acceptance,
     forbidden_changes: forbiddenChanges,
@@ -204,6 +299,84 @@ function buildExecutionCard(taskBrief, route, rules) {
   return card;
 }
 
+function validateEditorialContentQa(specification, contentQa) {
+  if (!specification?.required) return null;
+  if (!contentQa || !Array.isArray(contentQa.checks)) {
+    throw new Error('delivery validation failed: editorial_content_qa_missing');
+  }
+  const reports = new Map(contentQa.checks.map((item) => [item?.id, item]));
+  if (reports.size !== contentQa.checks.length) {
+    throw new Error('delivery validation failed: editorial_content_qa_duplicate_check');
+  }
+  const exactReports = [];
+  for (const required of specification.checks) {
+    const report = reports.get(required.id);
+    if (!report || report.performed !== true || report.passed !== true || !nonEmptyText(report.result)
+      || !report.evidence || typeof report.evidence !== 'object') {
+      throw new Error(`delivery validation failed: editorial_content_qa_incomplete:${required.id}`);
+    }
+    if (required.evidence_fields.some((field) => !Object.hasOwn(report.evidence, field))) {
+      throw new Error(`delivery validation failed: editorial_content_qa_evidence:${required.id}`);
+    }
+    exactReports.push({ id: required.id, performed: true, passed: true,
+      result: report.result.trim(), evidence: report.evidence });
+  }
+  const byId = new Map(exactReports.map((item) => [item.id, item.evidence]));
+  const links = byId.get('landing_link_distribution');
+  if (links && (links.url !== 'https://go.mtrhit.ru/' || links.exact_count !== 4
+    || canonical(links.positions) !== canonical(['beginning', 'body_1', 'body_2', 'final_cta'])
+    || links.natural_anchors !== true || links.link_spam !== false)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:landing_link_distribution');
+  }
+  const originality = byId.get('originality_source_overlap');
+  const overlapValues = Array.isArray(originality?.compared_sources)
+    ? originality.compared_sources.map((item) => item.overlap_percent) : [];
+  if (originality && (originality.method !== 'local_deterministic_source_overlap'
+    || !/^[a-f0-9]{64}$/.test(originality.content_sha256 ?? '')
+    || !Array.isArray(originality.compared_sources) || !originality.compared_sources.length
+    || originality.compared_sources.some((item) => !nonEmptyText(item?.path) || !/^[a-f0-9]{64}$/.test(item?.sha256 ?? '')
+      || typeof item?.overlap_percent !== 'number' || item.overlap_percent < 0 || item.overlap_percent > 100)
+    || typeof originality.max_overlap_percent !== 'number' || originality.max_overlap_percent < 0
+    || originality.max_overlap_percent > 100 || originality.max_overlap_percent !== Math.max(...overlapValues)
+    || originality.template_match !== false)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:originality_source_overlap');
+  }
+  const h1 = byId.get('h1_high_frequency_query');
+  if (h1 && (!nonEmptyText(h1.heading) || !['накрутка ПФ', 'накрутка поведенческого фактора'].includes(h1.matched_query)
+    || !h1.heading.toLocaleLowerCase('ru-RU').includes(h1.matched_query.toLocaleLowerCase('ru-RU')))) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:h1_high_frequency_query');
+  }
+  const length = byId.get('tenchat_character_count');
+  if (length && (!Number.isInteger(length.character_count) || length.character_count < 0 || length.maximum !== 7000
+    || length.target_minimum !== 4000 || length.target_maximum !== 5500 || typeof length.within_target !== 'boolean'
+    || length.character_count > length.maximum
+    || length.within_target !== (length.character_count >= length.target_minimum && length.character_count <= length.target_maximum))) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:tenchat_character_count');
+  }
+  const intent = byId.get('single_search_intent');
+  if (intent && (intent.intent_count !== 1 || !nonEmptyText(intent.primary_intent))) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:single_search_intent');
+  }
+  const keyword = byId.get('natural_primary_keyword');
+  if (keyword && (!nonEmptyText(keyword.primary_keyword) || keyword.in_title !== true
+    || keyword.in_opening !== true || keyword.natural !== true)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:natural_primary_keyword');
+  }
+  const linkSpam = byId.get('link_count_and_spam');
+  if (linkSpam && (!Number.isInteger(linkSpam.link_count) || linkSpam.minimum !== 2 || linkSpam.maximum !== 4
+    || linkSpam.link_count < 2 || linkSpam.link_count > 4 || linkSpam.link_spam !== false)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:link_count_and_spam');
+  }
+  const external = contentQa.external_checks;
+  for (const id of ['plagiarism', 'ai_detection']) {
+    if (!external?.[id] || !['unavailable', 'not_performed'].includes(external[id].status)
+      || !nonEmptyText(external[id].result)) {
+      throw new Error(`delivery validation failed: editorial_external_check_claim:${id}`);
+    }
+  }
+  return { local_deterministic_checks: exactReports, external_checks: external };
+}
+
 function validateDeliveryEvidence(card, delivery) {
   const checks = nonEmptyList(delivery.checks);
   const satisfiedAcceptance = nonEmptyList(delivery.satisfiedAcceptance);
@@ -216,10 +389,11 @@ function validateDeliveryEvidence(card, delivery) {
   if (!Array.isArray(delivery.forbiddenChangesObserved)) missing.push('forbidden_changes_evidence');
   if (forbiddenChangesObserved.length) missing.push('forbidden_changes_observed');
   if (missing.length) throw new Error(`delivery validation failed: ${missing.join(', ')}`);
+  const contentQa = validateEditorialContentQa(card.delivery_qa, delivery.contentQa);
   return {
     validated_at: now(), result: delivery.result.trim(), checks,
     satisfied_acceptance: satisfiedAcceptance, scope_compliant: true,
-    forbidden_changes_observed: [],
+    forbidden_changes_observed: [], content_qa: contentQa,
   };
 }
 
@@ -227,13 +401,17 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
   const normalized = String(text).trim().toLocaleLowerCase('ru-RU');
   const fingerprint = hash(normalized);
   const inferredType = inferTaskType(normalized, taskType);
-  if (explicitScopeId) {
-    scopeChain(database, explicitScopeId);
-    return { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope'], fingerprint };
-  }
   const signals = [];
   if (['editorial', 'research'].includes(inferredType)
-    || /(стать|редак|контент|social|smm|публикац|research|исследован|семантическ|ключев.{0,20}запрос)/iu.test(normalized)) signals.push('editorial');
+    || /(стать|редак|контент|social|smm|публикац|research|исследован|семантическ|ключев.{0,20}запрос|tenchat|тенчат)/iu.test(normalized)) signals.push('editorial');
+  if (/(стать|article|лонгрид)/iu.test(normalized)) signals.push('article');
+  if (/(tenchat|тенчат)/iu.test(normalized)) signals.push('tenchat');
+  if (/(?:^|[^\p{L}\p{N}])(?:пф|pf)(?:$|[^\p{L}\p{N}])|поведенческ|накрутк/iu.test(normalized)) signals.push('pf');
+  if (/(бонус|1\s*000\s+клик)/iu.test(normalized)) signals.push('bonus');
+  if (explicitScopeId) {
+    scopeChain(database, explicitScopeId);
+    return { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope', ...signals], fingerprint };
+  }
   const panelWord = /(панел)/iu.test(normalized);
   const panelSpecific = /(интерфейс|\bui\b|css|html|e2e|operator panel|backend)/iu.test(normalized);
   if (panelWord) signals.push('panel_word');
@@ -272,10 +450,13 @@ export function compileDeterministicContext(database, {
     ? loadReferencedMemory(projectDatabasePath, referenceRecords, taskType) : [];
   const latestDecisions = records.filter((item) => item.type === 'decision')
     .sort((a, b) => b.valid_from.localeCompare(a.valid_from) || a.semantic_key.localeCompare(b.semantic_key)).slice(0, 5);
-  const rules = records.filter((item) => item.type === 'rule');
-  const executionCard = buildExecutionCard(taskBrief, route ?? { scopeId, taskType }, rules);
+  const resolvedRoute = route ?? { scopeId, taskType, signals: [] };
+  const approvedEditorialRequirements = resolveApprovedEditorialRequirements(database, resolvedRoute);
+  const rules = [...new Map([...records.filter((item) => item.type === 'rule'), ...approvedEditorialRequirements]
+    .map((item) => [item.semantic_key, item])).values()];
+  const executionCard = buildExecutionCard(taskBrief, resolvedRoute, rules);
   const payload = {
-    schema_version: 3,
+    schema_version: 4,
     compiler_version: COMPILER_VERSION,
     task_type: taskType,
     target_scope: scopeId,
@@ -291,6 +472,7 @@ export function compileDeterministicContext(database, {
     agents: agentsContent ?? readFileSync(agentsPath, 'utf8'),
     passports: resolved.chain.map((scope) => ({ id: scope.id, kind: scope.scope_kind, name: scope.name, summary: scope.summary })),
     rules,
+    approved_editorial_requirements: approvedEditorialRequirements,
     decisions: latestDecisions,
     commitments: records.filter((item) => item.type === 'commitment'),
     references,
@@ -435,6 +617,12 @@ function jsonArgument(value, fallback = []) {
   if (!Array.isArray(parsed)) throw new Error('list arguments must be JSON arrays');
   return parsed;
 }
+function jsonObjectArgument(value, fallback = null) {
+  if (value === undefined) return fallback;
+  const parsed = parseJson(value, null);
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error('object arguments must be JSON objects');
+  return parsed;
+}
 
 function isMainModule() { return process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href; }
 if (isMainModule()) {
@@ -452,6 +640,7 @@ if (isMainModule()) {
     else if (args.command === 'close') console.log(JSON.stringify(closeContextPack(databasePath, args.id, {
       result: args.result, checks: jsonArgument(args.checks), satisfiedAcceptance: jsonArgument(args['satisfied-acceptance']),
       scopeCompliance: args['scope-compliant'] === 'true', forbiddenChangesObserved: jsonArgument(args['forbidden-observed']),
+      contentQa: jsonObjectArgument(args['content-qa']),
     }), null, 2));
     else throw new Error('Usage: structured-memory.mjs <baseline|compile|close> [--db path]');
   } catch (error) { console.error(`structured-memory: ${error.message}`); process.exitCode = 1; }

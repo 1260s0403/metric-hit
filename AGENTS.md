@@ -29,7 +29,9 @@
 5. **Acceptance** — измеримые критерии готовности.
 6. **Запрещённые изменения** — что не менять.
 
-Перед поставкой executor валидирует результат по той же сохранённой card: подтверждает соблюдение scope, выполнение первой проверки и всех acceptance-критериев и отсутствие запрещённых изменений. Без успешной validation пакет не закрывается и результат не поставляется. Правило обязательно для editorial, code, docs/research, UI и любых иных типов задач; scoped inheritance и запрет sibling leakage сохраняются.
+Для editorial-задачи card дополнительно включает все применимые approved editorial rules и точные owner editorial obligations, даже если они ещё не представлены в `scoped_memory_records`. Выбор остаётся ограничен editorial scope/type/platform и не включает unrelated open tasks или sibling rules. Для статьи/TenChat обязательны применимые правила ссылок, H1/ВЧ-запроса, объёма, интента, естественного ключа, originality/source overlap и link-spam.
+
+Перед поставкой executor валидирует результат по той же сохранённой card: подтверждает соблюдение scope, выполнение первой проверки и всех acceptance-критериев и отсутствие запрещённых изменений. Editorial delivery дополнительно сохраняет точные результаты реально выполненных deterministic local content checks; originality содержит хеши и source-overlap report. Недоступные внешние plagiarism/AI detectors отмечаются только как `unavailable` или `not_performed`, без ложного результата. Без успешной validation пакет не закрывается и результат не поставляется. Правило обязательно для editorial, code, docs/research, UI и любых иных типов задач; scoped inheritance и запрет sibling leakage сохраняются.
 
 ## Риск и скорость
 
