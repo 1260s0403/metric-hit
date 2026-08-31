@@ -1,0 +1,276 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { performance } from 'node:perf_hooks';
+import { DatabaseSync } from 'node:sqlite';
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
+const agentsPath = join(repositoryRoot, 'AGENTS.md');
+export const COMPILER_VERSION = 1;
+export const SCOPE_IDS = Object.freeze({
+  core: 'scope:core', metrichit: 'scope:project:metrichit',
+  editorial: 'scope:subproject:editorial', panel: 'scope:subproject:panel',
+});
+
+function now() { return new Date().toISOString(); }
+function hash(value) { return createHash('sha256').update(value).digest('hex'); }
+function canonical(value) { return JSON.stringify(value); }
+function open(databasePath, readOnly = false) {
+  if (!existsSync(databasePath)) throw new Error(`Database does not exist: ${databasePath}`);
+  const database = new DatabaseSync(databasePath, { readOnly });
+  database.exec(`PRAGMA foreign_keys=ON;${readOnly ? ' PRAGMA query_only=ON;' : ''}`);
+  return database;
+}
+function parseJson(value, fallback) { try { return JSON.parse(value); } catch { return fallback; } }
+
+export function scopeChain(database, scopeId) {
+  const chain = [];
+  const seen = new Set();
+  let current = scopeId;
+  while (current) {
+    if (seen.has(current)) throw new Error('scope hierarchy contains a cycle');
+    seen.add(current);
+    const row = database.prepare('SELECT * FROM scope_passports WHERE id=? AND status=\'active\'').get(current);
+    if (!row) throw new Error(`active scope was not found: ${current}`);
+    chain.push({ ...row, metadata: parseJson(row.metadata_json, {}) });
+    current = row.parent_scope_id;
+  }
+  chain.reverse();
+  if (chain[0]?.scope_kind !== 'core') throw new Error('scope hierarchy must start at core');
+  return chain;
+}
+
+export function createTaskScope(databasePath = defaultDatabasePath, { taskId, parentScopeId, name, summary }) {
+  if (!String(taskId ?? '').trim()) throw new Error('taskId is required');
+  const database = open(resolve(databasePath));
+  try {
+    scopeChain(database, parentScopeId);
+    const id = `scope:task:${String(taskId).trim()}`;
+    const timestamp = now();
+    database.prepare(`INSERT OR IGNORE INTO scope_passports
+      (id,scope_kind,parent_scope_id,name,summary,status,metadata_json,created_at,updated_at)
+      VALUES (?,'task',?,?,?,'active',?, ?, ?)`).run(id, parentScopeId, name, summary,
+        canonical({ task_id: String(taskId).trim() }), timestamp, timestamp);
+    const row = database.prepare('SELECT id,scope_kind,parent_scope_id,name,summary,status FROM scope_passports WHERE id=?').get(id);
+    if (!row || row.parent_scope_id !== parentScopeId) throw new Error('task scope conflicts with an existing passport');
+    return row;
+  } finally { database.close(); }
+}
+
+function appliesTo(record, taskType, includeHistory) {
+  if (!includeHistory && (record.layer === 'historical' || record.lifecycle_status !== 'active')) return false;
+  if (includeHistory && !['active', 'superseded', 'outdated', 'historical'].includes(record.lifecycle_status)) return false;
+  const taskTypes = parseJson(record.task_types_json, []);
+  return taskTypes.includes('all') || taskTypes.includes(taskType);
+}
+
+export function resolveScopedMemory(database, scopeId, taskType, { includeHistory = false } = {}) {
+  const chain = scopeChain(database, scopeId);
+  const rank = new Map(chain.map((scope, index) => [scope.id, index]));
+  const placeholders = chain.map(() => '?').join(',');
+  const rows = database.prepare(
+    `SELECT * FROM scoped_memory_records WHERE scope_id IN (${placeholders}) ORDER BY valid_from,id`,
+  ).all(...chain.map((scope) => scope.id)).filter((row) => appliesTo(row, taskType, includeHistory));
+  const selected = new Map();
+  for (const row of rows.sort((a, b) => rank.get(a.scope_id) - rank.get(b.scope_id)
+    || a.semantic_key.localeCompare(b.semantic_key)
+    || Number(a.lifecycle_status === 'active') - Number(b.lifecycle_status === 'active')
+    || a.valid_from.localeCompare(b.valid_from) || a.id.localeCompare(b.id))) {
+    const prior = selected.get(row.semantic_key);
+    if (prior?.rule_effect === 'prohibit' && prior.scope_id === SCOPE_IDS.core) continue;
+    selected.set(row.semantic_key, row);
+  }
+  return { chain, records: [...selected.values()] };
+}
+
+function inferTaskType(text, explicit) {
+  if (explicit) return explicit;
+  if (/(стать|редак|контент|social|smm|публикац)/iu.test(text)) return 'editorial';
+  if (/(интерфейс|\bui\b|css|html|e2e|operator panel)/iu.test(text)) return 'ui';
+  if (/(памят|governance|policy|правил)/iu.test(text)) return 'governance';
+  return 'general';
+}
+
+export function routeTask(database, { text = '', explicitScopeId = null, taskType = null } = {}) {
+  const normalized = String(text).trim().toLocaleLowerCase('ru-RU');
+  const fingerprint = hash(normalized);
+  const inferredType = inferTaskType(normalized, taskType);
+  if (explicitScopeId) {
+    scopeChain(database, explicitScopeId);
+    return { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope'], fingerprint };
+  }
+  const signals = [];
+  if (/(стать|редак|контент|social|smm|публикац)/iu.test(normalized)) signals.push('editorial');
+  const panelWord = /(панел)/iu.test(normalized);
+  const panelSpecific = /(интерфейс|\bui\b|css|html|e2e|operator panel|backend)/iu.test(normalized);
+  if (panelWord) signals.push('panel_word');
+  if (panelSpecific) signals.push('panel_specific');
+  if (/(metrichit|метрикхит)/iu.test(normalized)) signals.push('metrichit');
+  if (/(ядр|\bcore\b)/iu.test(normalized)) signals.push('core');
+  if (panelWord && !panelSpecific && !signals.includes('editorial')) {
+    return { outcome: 'needs_clarification', scopeId: null, taskType: inferredType, signals, fingerprint,
+      question: 'Уточните один scope: речь об operator panel MetricHit или о другой панели?' };
+  }
+  if (signals.includes('editorial') && panelSpecific) {
+    return { outcome: 'needs_clarification', scopeId: null, taskType: inferredType, signals, fingerprint,
+      question: 'Уточните один scope: «Редакция» или «Панель» MetricHit?' };
+  }
+  const scopeId = signals.includes('editorial') ? SCOPE_IDS.editorial
+    : panelSpecific ? SCOPE_IDS.panel
+      : signals.includes('core') && !signals.includes('metrichit') ? SCOPE_IDS.core : SCOPE_IDS.metrichit;
+  scopeChain(database, scopeId);
+  return { outcome: 'routed', scopeId, taskType: inferredType, signals, fingerprint };
+}
+
+export function compileDeterministicContext(database, { scopeId, taskType, includeHistory = false, agentsContent = null, taskBrief = {} }) {
+  const resolved = resolveScopedMemory(database, scopeId, taskType, { includeHistory });
+  const records = resolved.records.map((row) => ({
+    id: row.id, semantic_key: row.semantic_key, scope_id: row.scope_id, layer: row.layer,
+    type: row.record_type, status: row.lifecycle_status, title: row.title, content: row.content,
+    source: row.source_ref, valid_from: row.valid_from, supersedes: row.supersedes_id,
+    effect: row.rule_effect,
+  }));
+  const latestDecisions = records.filter((item) => item.type === 'decision')
+    .sort((a, b) => b.valid_from.localeCompare(a.valid_from) || a.semantic_key.localeCompare(b.semantic_key)).slice(0, 5);
+  const payload = {
+    schema_version: 1,
+    compiler_version: COMPILER_VERSION,
+    task_type: taskType,
+    target_scope: scopeId,
+    task_brief: {
+      result: taskBrief.result ?? null,
+      allowed_changes: taskBrief.allowedChanges ?? [],
+      forbidden_changes: taskBrief.forbiddenChanges ?? [],
+      first_check: taskBrief.firstCheck ?? null,
+      acceptance: taskBrief.acceptance ?? [],
+    },
+    agents: agentsContent ?? readFileSync(agentsPath, 'utf8'),
+    passports: resolved.chain.map((scope) => ({ id: scope.id, kind: scope.scope_kind, name: scope.name, summary: scope.summary })),
+    rules: records.filter((item) => item.type === 'rule'),
+    decisions: latestDecisions,
+    commitments: records.filter((item) => item.type === 'commitment'),
+    history_included: includeHistory,
+  };
+  return payload;
+}
+
+function writeAudit(database, route, packId, requestedScopeId = null) {
+  database.prepare(`INSERT INTO scope_routing_audit
+    (id,task_fingerprint,requested_scope_id,resolved_scope_id,task_type,outcome,signals_json,context_pack_id,created_at)
+    VALUES (?,?,?,?,?,?,?,?,?)`).run(randomUUID(), route.fingerprint, requestedScopeId, route.scopeId,
+      route.taskType, route.outcome, canonical(route.signals), packId, now());
+}
+
+export function compileContextPack(databasePath = defaultDatabasePath, request = {}) {
+  const database = open(resolve(databasePath));
+  try {
+    const route = routeTask(database, request);
+    if (route.outcome !== 'routed') {
+      writeAudit(database, route, null, request.explicitScopeId ?? null);
+      return { route, pack: null };
+    }
+    const payload = compileDeterministicContext(database, {
+      scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory),
+      taskBrief: request.taskBrief ?? {},
+    });
+    const serialized = canonical(payload);
+    const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), taskBrief: request.taskBrief ?? {} })), compiled_bytes: Buffer.byteLength(serialized) };
+    database.prepare(`INSERT INTO context_packs
+      (id,scope_id,task_type,compiler_version,input_hash,payload_json,compiled_bytes,status,created_at)
+      VALUES (?,?,?,?,?,?,?,'open',?)`).run(pack.id, route.scopeId, route.taskType, COMPILER_VERSION,
+        pack.input_hash, serialized, pack.compiled_bytes, now());
+    writeAudit(database, route, pack.id, request.explicitScopeId ?? null);
+    return { route, pack: { ...pack, status: 'open', payload } };
+  } finally { database.close(); }
+}
+
+export function closeContextPack(databasePath = defaultDatabasePath, packId) {
+  const database = open(resolve(databasePath));
+  try {
+    const closedAt = now();
+    const changed = database.prepare("UPDATE context_packs SET status='closed',closed_at=? WHERE id=? AND status='open'").run(closedAt, packId).changes;
+    const row = database.prepare('SELECT id,status,closed_at FROM context_packs WHERE id=?').get(packId);
+    if (!row) throw new Error('context pack was not found');
+    return { ...row, changed: changed === 1 };
+  } finally { database.close(); }
+}
+
+export function registerScopedRecord(databasePath = defaultDatabasePath, record) {
+  const database = open(resolve(databasePath));
+  try {
+    const scope = typeof record.scopeId === 'string'
+      ? database.prepare("SELECT id FROM scope_passports WHERE id=? AND status='active'").get(record.scopeId) : null;
+    if (!scope) {
+      const id = randomUUID();
+      database.prepare(`INSERT INTO unresolved_memory_queue
+        (id,semantic_key,title,content,reason,candidate_scope_id,status,created_at) VALUES (?,?,?,?,?,?,'pending',?)`)
+        .run(id, record.semanticKey ?? null, record.title ?? 'Без названия', record.content ?? '', 'scope_missing_or_invalid', record.scopeId ?? null, now());
+      return { status: 'queued', id };
+    }
+    const id = record.id ?? randomUUID();
+    const timestamp = now();
+    database.prepare(`INSERT INTO scoped_memory_records
+      (id,semantic_key,scope_id,layer,record_type,lifecycle_status,title,content,source_ref,valid_from,supersedes_id,rule_effect,task_types_json,metadata_json,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, record.semanticKey, record.scopeId,
+        record.layer, record.recordType, record.lifecycleStatus ?? 'active', record.title, record.content,
+        record.sourceRef, record.validFrom ?? timestamp, record.supersedesId ?? null, record.ruleEffect ?? null,
+        canonical(record.taskTypes ?? ['all']), canonical(record.metadata ?? {}), timestamp, timestamp);
+    return { status: 'stored', id };
+  } finally { database.close(); }
+}
+
+export function supersedeScopedRecord(databasePath = defaultDatabasePath, priorId, record) {
+  const database = open(resolve(databasePath));
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    const prior = database.prepare("SELECT * FROM scoped_memory_records WHERE id=? AND lifecycle_status='active'").get(priorId);
+    if (!prior) throw new Error('active prior record was not found');
+    if (record.scopeId !== prior.scope_id || record.semanticKey !== prior.semantic_key) {
+      throw new Error('superseding record must keep the same scope and semantic key');
+    }
+    const timestamp = now();
+    database.prepare("UPDATE scoped_memory_records SET lifecycle_status='superseded',updated_at=? WHERE id=? AND lifecycle_status='active'").run(timestamp, priorId);
+    const id = record.id ?? randomUUID();
+    database.prepare(`INSERT INTO scoped_memory_records
+      (id,semantic_key,scope_id,layer,record_type,lifecycle_status,title,content,source_ref,valid_from,supersedes_id,rule_effect,task_types_json,metadata_json,created_at,updated_at)
+      VALUES (?,?,?,?,?,'active',?,?,?,?,?,?,?,?,?,?)`).run(id, record.semanticKey, record.scopeId,
+        record.layer, record.recordType, record.title, record.content, record.sourceRef,
+        record.validFrom ?? timestamp, priorId, record.ruleEffect ?? null,
+        canonical(record.taskTypes ?? ['all']), canonical(record.metadata ?? {}), timestamp, timestamp);
+    database.exec('COMMIT');
+    return { status: 'stored', id, supersedesId: priorId };
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  } finally { database.close(); }
+}
+
+export function baselineMetrics(paths = [agentsPath, join(repositoryRoot, 'knowledge', 'approved', 'current-context.md'), join(repositoryRoot, 'documents', 'operating-context.md'), join(repositoryRoot, 'documents', 'roadmap.md')]) {
+  const started = performance.now();
+  for (const path of paths) readFileSync(path, 'utf8');
+  return { files: paths.map((path) => ({ path: resolve(path), bytes: statSync(path).size })), total_bytes: paths.reduce((total, path) => total + statSync(path).size, 0), elapsed_ms: performance.now() - started };
+}
+
+function argumentsOf(values) {
+  const result = { command: values[0] };
+  for (let index = 1; index < values.length; index += 1) {
+    const key = values[index];
+    if (!key.startsWith('--')) continue;
+    result[key.slice(2)] = values[index + 1]; index += 1;
+  }
+  return result;
+}
+
+function isMainModule() { return process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href; }
+if (isMainModule()) {
+  try {
+    const args = argumentsOf(process.argv.slice(2));
+    const databasePath = resolve(args.db ?? defaultDatabasePath);
+    if (args.command === 'baseline') console.log(JSON.stringify(baselineMetrics(), null, 2));
+    else if (args.command === 'compile') console.log(JSON.stringify(compileContextPack(databasePath, { text: args.text ?? '', explicitScopeId: args.scope ?? null, taskType: args['task-type'] ?? null }), null, 2));
+    else if (args.command === 'close') console.log(JSON.stringify(closeContextPack(databasePath, args.id), null, 2));
+    else throw new Error('Usage: structured-memory.mjs <baseline|compile|close> [--db path]');
+  } catch (error) { console.error(`structured-memory: ${error.message}`); process.exitCode = 1; }
+}

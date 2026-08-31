@@ -16,9 +16,14 @@ export const requiredTables = [
   'memory_candidates',
   'memory_conflicts',
   'memory_items',
+  'context_packs',
+  'scope_passports',
+  'scope_routing_audit',
+  'scoped_memory_records',
   'schema_migrations',
   'sources',
   'tasks',
+  'unresolved_memory_queue',
 ];
 
 export const requiredTriggers = [
@@ -34,6 +39,11 @@ export const requiredTriggers = [
   'memory_conflicts_validate_insert', 'memory_conflicts_validate_update',
   'memory_items_prevent_delete',
   'memory_items_validate_update',
+  'scope_passports_validate_hierarchy_insert',
+  'scoped_memory_prevent_delete',
+  'scoped_memory_protect_core_prohibition_insert',
+  'scoped_memory_validate_supersedes_insert',
+  'scope_routing_audit_prevent_delete', 'scope_routing_audit_prevent_update',
 ];
 
 function expectedMigrations() {

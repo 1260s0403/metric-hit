@@ -16,7 +16,9 @@ from .database import normalize_sql, read_only_database
 MEMORY_TABLES = [
     "audit_log", "decisions", "document_versions", "documents",
     "memory_candidates", "memory_conflicts", "memory_items",
-    "schema_migrations", "sources", "tasks",
+    "context_packs", "scope_passports", "scope_routing_audit",
+    "scoped_memory_records", "schema_migrations", "sources", "tasks",
+    "unresolved_memory_queue",
 ]
 MEMORY_TRIGGERS = [
     "audit_log_prevent_delete", "audit_log_prevent_update",
@@ -30,6 +32,10 @@ MEMORY_TRIGGERS = [
     "memory_conflicts_protect_closed_decision", "memory_conflicts_protect_history",
     "memory_conflicts_validate_insert", "memory_conflicts_validate_update",
     "memory_items_prevent_delete", "memory_items_validate_update",
+    "scope_passports_validate_hierarchy_insert", "scoped_memory_prevent_delete",
+    "scoped_memory_protect_core_prohibition_insert",
+    "scoped_memory_validate_supersedes_insert",
+    "scope_routing_audit_prevent_delete", "scope_routing_audit_prevent_update",
 ]
 EDITORIAL_TABLES = [
     "approvals", "audit_events", "daily_plans", "editorial_runs", "idempotency_keys",

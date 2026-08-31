@@ -44,7 +44,7 @@ test('initialization is repeatable and creates the required schema', (t) => {
 
   const result = checkDatabase(databasePath);
   assert.deepEqual(result.tables, [...requiredTables].sort());
-  assert.equal(result.migrationCount, 10);
+  assert.equal(result.migrationCount, 11);
   assert.equal(result.integrity, 'ok');
 });
 
