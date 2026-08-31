@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -288,6 +288,36 @@ test('project storage snapshot supports zero and two isolated online SQLite back
     mkdirSync(join(source, '..-escape'), { recursive: true });
     await assert.rejects(snapshotProjectStorages(source, join(testRoot, 'rejected')), /Unexpected entry/);
   } finally {
+    rmSync(testRoot, { recursive: true, force: true });
+  }
+});
+
+test('project storage snapshot accepts only its SQLite WAL and SHM sidecars', async () => {
+  const testRoot = join(tmpdir(), `MetricHitProjectBackupWal-${randomUUID()}`);
+  const source = join(testRoot, 'source');
+  const destination = join(testRoot, 'destination');
+  const rejected = join(testRoot, 'rejected');
+  const id = '30000000-0000-4000-a000-000000000003';
+  const directory = join(source, id);
+  const databasePath = join(directory, 'project.sqlite');
+  let database;
+  try {
+    mkdirSync(directory, { recursive: true });
+    database = new DatabaseSync(databasePath);
+    database.exec('PRAGMA journal_mode=WAL;');
+    database.exec('CREATE TABLE project_storage_metadata(singleton INTEGER PRIMARY KEY, project_id TEXT, storage_format INTEGER);');
+    database.prepare('INSERT INTO project_storage_metadata VALUES (1, ?, 1)').run(id);
+    database.exec('CREATE TABLE payload(value TEXT); INSERT INTO payload VALUES (\'owned\');');
+    assert.equal(existsSync(`${databasePath}-wal`), true);
+    assert.equal(existsSync(`${databasePath}-shm`), true);
+
+    const inventory = await snapshotProjectStorages(source, destination);
+    assert.deepEqual(verifyProjectStorages(destination, inventory), inventory);
+
+    writeFileSync(join(directory, 'foreign.txt'), 'not a SQLite sidecar');
+    await assert.rejects(snapshotProjectStorages(source, rejected), /invalid layout/);
+  } finally {
+    database?.close();
     rmSync(testRoot, { recursive: true, force: true });
   }
 });

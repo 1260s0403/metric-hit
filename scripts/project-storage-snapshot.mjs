@@ -8,6 +8,10 @@ import { DatabaseSync, backup } from 'node:sqlite';
 
 const PROJECT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 const DATABASE_FILENAME = 'project.sqlite';
+const SQLITE_SIDECAR_FILENAMES = new Set([
+  `${DATABASE_FILENAME}-wal`,
+  `${DATABASE_FILENAME}-shm`,
+]);
 
 function inside(root, candidate) {
   const rel = relative(root, candidate);
@@ -53,7 +57,13 @@ function enumerate(root) {
       throw new Error(`Project storage path escapes or redirects outside its root: ${entry.name}`);
     }
     const entries = readdirSync(directory, { withFileTypes: true });
-    if (entries.length !== 1 || entries[0].name !== DATABASE_FILENAME || !entries[0].isFile() || entries[0].isSymbolicLink()) {
+    const databaseEntry = entries.find((item) => item.name === DATABASE_FILENAME);
+    const invalidEntry = entries.find((item) => (
+      (item.name !== DATABASE_FILENAME && !SQLITE_SIDECAR_FILENAMES.has(item.name))
+      || !item.isFile()
+      || item.isSymbolicLink()
+    ));
+    if (!databaseEntry || invalidEntry) {
       throw new Error(`Project storage directory has an invalid layout: ${entry.name}`);
     }
     const database = join(directory, DATABASE_FILENAME);

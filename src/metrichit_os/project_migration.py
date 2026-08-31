@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
+from .config import MEMORY_MIGRATIONS
 from .database import read_only_database, sha256_file
 from .editorial_domain import (
     EDITORIAL_SCHEMA_OBJECTS,
@@ -120,6 +121,23 @@ TARGET_METADATA_RELATION_FIELDS = {
     "knowledge_entry_id", "parent_project_id", "project_id", "subproject_id",
 }
 TARGET_METADATA_TABLES = {"project_storage_metadata", "project_migration_manifest"}
+
+
+def _migration_schema_object_names(path: Path) -> frozenset[str]:
+    with sqlite3.connect(":memory:") as connection:
+        connection.executescript(path.read_text(encoding="utf-8"))
+        return frozenset(
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master "
+                "WHERE name NOT LIKE 'sqlite_%' AND sql IS NOT NULL"
+            )
+        )
+
+
+STRUCTURED_MEMORY_SCHEMA_OBJECTS = _migration_schema_object_names(
+    MEMORY_MIGRATIONS / "011_structured_memory.sql"
+)
 
 APPROVED_OWNERSHIP_ASSIGNMENTS = {
     DEFAULT_PROJECT_ID: {
@@ -2068,9 +2086,13 @@ def verify_metrichit_runtime_storage(
         object_names = {item["name"] for item in objects}
         baseline_names = source_names | TARGET_METADATA_TABLES
         editorial_names = EDITORIAL_SCHEMA_OBJECTS
-        if object_names == baseline_names:
+        supported_names = baseline_names | STRUCTURED_MEMORY_SCHEMA_OBJECTS
+        if object_names in (baseline_names, supported_names):
             pass
-        elif object_names == baseline_names | editorial_names:
+        elif object_names in (
+            baseline_names | editorial_names,
+            supported_names | editorial_names,
+        ):
             try:
                 check_editorial_domain(target_path)
             except EditorialDomainError as error:
@@ -2086,7 +2108,15 @@ def verify_metrichit_runtime_storage(
 
 def _verify_legacy_source_schema(source_path: Path, manifest: dict[str, Any]) -> None:
     with read_only_database(source_path) as source:
-        source_objects = _schema_objects(source)
+        objects = _schema_objects(source)
+        baseline_names = set(manifest["sourceSchema"]["objectNames"])
+        object_names = {item["name"] for item in objects}
+        if object_names not in (
+            baseline_names,
+            baseline_names | STRUCTURED_MEMORY_SCHEMA_OBJECTS,
+        ):
+            raise RuntimeError("current legacy source schema differs from the materialized manifest")
+        source_objects = [item for item in objects if item["name"] in baseline_names]
         if (
             _json_sha256(source_objects) != manifest["sourceSchema"]["sha256"]
             or [item["name"] for item in source_objects] != manifest["sourceSchema"]["objectNames"]

@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from metrichit_os import project_migration
+from metrichit_os.config import MEMORY_MIGRATIONS
 from metrichit_os.database import sha256_file
 from metrichit_os.editorial_domain import initialize_editorial_domain
 from metrichit_os.project_migration import (
@@ -1126,6 +1127,19 @@ def test_runtime_storage_accepts_only_the_canonical_editorial_schema(tmp_path: P
 
     manifest = project_migration.verify_metrichit_runtime_storage(source, target)
     assert manifest["cutover"] is True
+
+    with sqlite3.connect(target) as database:
+        database.executescript(
+            (MEMORY_MIGRATIONS / "011_structured_memory.sql").read_text(encoding="utf-8")
+        )
+    assert len(project_migration.STRUCTURED_MEMORY_SCHEMA_OBJECTS) == 15
+    assert project_migration.verify_metrichit_runtime_storage(source, target)["cutover"] is True
+
+    with sqlite3.connect(source) as database:
+        database.executescript(
+            (MEMORY_MIGRATIONS / "011_structured_memory.sql").read_text(encoding="utf-8")
+        )
+    assert project_migration.verify_metrichit_runtime_storage(source, target)["cutover"] is True
 
     with sqlite3.connect(target) as database:
         database.execute("CREATE TABLE editorial_unexpected(id TEXT PRIMARY KEY)")
