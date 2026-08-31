@@ -1005,11 +1005,13 @@ test('editorial article policy and Timeweb draft are repeatable approved records
 
   const first = applyEditorialPublicationPolicyAndTimewebDraft(databasePath);
   const second = applyEditorialPublicationPolicyAndTimewebDraft(databasePath);
-  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 4 });
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 6 });
   assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
   const policy = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='content.editorial_article_preparation_policy'").get();
+  const botMechanics = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='content.article_prohibit_bot_mechanics'").get();
+  const noGuarantees = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='content.article_prohibit_no_guarantees'").get();
   const draft = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='publication.timeweb_cloud_draft_2026_08_29'").get();
   const registry = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='editorial.registry_current_state'").get();
   const contour = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='editorial.metrichit_contour_and_research_mvp' ORDER BY coalesce(json_extract(data_json, '$.revision'), 0) DESC").get();
@@ -1017,6 +1019,12 @@ test('editorial article policy and Timeweb draft are repeatable approved records
   assert.equal(policy.status, 'approved');
   assert.match(policy.content, /не менее 9 000 знаков/);
   assert.deepEqual(JSON.parse(policy.data_json).landing_link_distribution, ['beginning', 'body_1', 'body_2', 'final_cta']);
+  assert.equal(botMechanics.status, 'approved');
+  assert.match(botMechanics.content, /Никогда не описывать, как работает бот/);
+  assert.deepEqual(JSON.parse(botMechanics.data_json).platforms, ['all']);
+  assert.equal(noGuarantees.status, 'approved');
+  assert.match(noGuarantees.content, /Никогда не писать об отсутствии гарантий/);
+  assert.deepEqual(JSON.parse(noGuarantees.data_json).platforms, ['all']);
   assert.equal(draft.status, 'approved');
   assert.match(draft.content, /draft\/unpublished/);
   assert.deepEqual(JSON.parse(draft.data_json), {
