@@ -393,3 +393,7 @@ body[data-view-name="tasks"] .workspace{width:min(1280px,calc(100vw - 442px));pa
 .tasks-feed-item .task-dashboard-details.is-open{position:absolute;z-index:3;top:8px;right:16px;display:block;width:min(360px,calc(100% - 88px));box-sizing:border-box;padding:10px 12px;border:1px solid #4a4d50;border-radius:4px;background:#1b1d1f;box-shadow:0 8px 18px #0008}
 .tasks-feed-item .task-dashboard-details.is-open .row-detail{padding:0}
 @media(max-width:800px){.tasks-feed-item .task-dashboard-details.is-open{right:8px;width:min(360px,calc(100% - 52px))}}
+
+/* A focused task keeps the canonical highlight; its popover opens below the row. */
+.tasks-feed-item.task-focused{background:#202225}
+.tasks-feed-item .task-dashboard-details.is-open{top:calc(100% + 4px)}
