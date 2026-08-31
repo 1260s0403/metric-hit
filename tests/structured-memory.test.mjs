@@ -126,9 +126,11 @@ test('P4/P5: compiler is stable, smaller than baseline and isolates Editorial fr
   try {
     const db = new DatabaseSync(databasePath, { readOnly: true });
     const agents = readFileSync(resolve('AGENTS.md'), 'utf8');
-    const editorialA = compileDeterministicContext(db, { scopeId: SCOPE_IDS.editorial, taskType: 'editorial', agentsContent: agents });
-    const editorialB = compileDeterministicContext(db, { scopeId: SCOPE_IDS.editorial, taskType: 'editorial', agentsContent: agents });
-    const panel = compileDeterministicContext(db, { scopeId: SCOPE_IDS.panel, taskType: 'ui', agentsContent: agents });
+    const editorialCard = { result: 'Материал', scope: ['work/articles'], firstCheck: 'editorial-check', acceptance: ['ready'], forbiddenChanges: ['publication'] };
+    const panelCard = { result: 'Панель', scope: ['operator-panel'], firstCheck: 'ui-check', acceptance: ['visible'], forbiddenChanges: ['runtime'] };
+    const editorialA = compileDeterministicContext(db, { scopeId: SCOPE_IDS.editorial, taskType: 'editorial', agentsContent: agents, taskBrief: editorialCard });
+    const editorialB = compileDeterministicContext(db, { scopeId: SCOPE_IDS.editorial, taskType: 'editorial', agentsContent: agents, taskBrief: editorialCard });
+    const panel = compileDeterministicContext(db, { scopeId: SCOPE_IDS.panel, taskType: 'ui', agentsContent: agents, taskBrief: panelCard });
     assert.deepEqual(editorialA, editorialB);
     assert.deepEqual(editorialA.passports.map((item) => item.name), ['Ядро', 'MetricHit', 'Редакция']);
     assert.deepEqual(panel.passports.map((item) => item.name), ['Ядро', 'MetricHit', 'Панель']);
@@ -138,17 +140,26 @@ test('P4/P5: compiler is stable, smaller than baseline and isolates Editorial fr
     assert.deepEqual(editorialA.expanded_references, []);
     assert.deepEqual(panel.references, []);
     assert.deepEqual(panel.expanded_references, []);
+    assert.equal(editorialA.execution_card.task_type, 'editorial');
+    assert.equal(editorialA.execution_card.mandatory_rules.some((item) => item.source === 'AGENTS.md'), true);
+    assert.equal(editorialA.execution_card.mandatory_rules.some((item) => item.semantic_key.startsWith('panel.')), false);
+    assert.equal(panel.execution_card.mandatory_rules.some((item) => item.semantic_key.startsWith('editorial.')), false);
     assert.ok(Buffer.byteLength(JSON.stringify(editorialA)) < 147579);
     db.close();
     const compiled = compileContextPack(databasePath, { text: 'Подготовь статью MetricHit', taskBrief: {
-      result: 'Проверенный материал', allowedChanges: ['work/articles'], forbiddenChanges: ['publication'],
+      result: 'Проверенный материал', scope: ['work/articles'], forbiddenChanges: ['publication'],
       firstCheck: 'node --test tests/structured-memory.test.mjs', acceptance: ['context_is_minimal'],
     } });
     assert.equal(compiled.route.scopeId, SCOPE_IDS.editorial);
     assert.equal(compiled.pack.status, 'open');
     assert.equal(compiled.pack.payload.task_brief.result, 'Проверенный материал');
     assert.deepEqual(compiled.pack.payload.task_brief.forbidden_changes, ['publication']);
-    assert.equal(closeContextPack(databasePath, compiled.pack.id).status, 'closed');
+    assert.match(compiled.pack.payload.execution_card_hash, /^[a-f0-9]{64}$/);
+    assert.throws(() => closeContextPack(databasePath, compiled.pack.id), /delivery validation failed/);
+    assert.equal(closeContextPack(databasePath, compiled.pack.id, {
+      result: 'Материал проверен', checks: ['node --test tests/structured-memory.test.mjs'],
+      satisfiedAcceptance: ['context_is_minimal'], scopeCompliance: true, forbiddenChangesObserved: [],
+    }).status, 'closed');
     const readOnly = new DatabaseSync(databasePath, { readOnly: true });
     assert.equal(readOnly.prepare('SELECT status FROM context_packs WHERE id=?').get(compiled.pack.id).status, 'closed');
     assert.equal(readOnly.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
@@ -157,15 +168,74 @@ test('P4/P5: compiler is stable, smaller than baseline and isolates Editorial fr
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 
+test('delivery validation rejects a changed execution card', () => {
+  const { directory, databasePath } = fixture();
+  try {
+    const compiled = compileContextPack(databasePath, { text: 'Исправь Python модуль MetricHit', taskBrief: {
+      result: 'Исправление', scope: ['scripts'], firstCheck: 'code-check',
+      acceptance: ['fixed'], forbiddenChanges: ['ui'],
+    } });
+    const database = new DatabaseSync(databasePath);
+    const row = database.prepare('SELECT payload_json FROM context_packs WHERE id=?').get(compiled.pack.id);
+    const payload = JSON.parse(row.payload_json);
+    payload.execution_card.acceptance = ['changed'];
+    database.prepare('UPDATE context_packs SET payload_json=? WHERE id=?').run(JSON.stringify(payload), compiled.pack.id);
+    database.close();
+    assert.throws(() => closeContextPack(databasePath, compiled.pack.id, {
+      result: 'done', checks: ['code-check'], satisfiedAcceptance: ['changed'],
+      scopeCompliance: true, forbiddenChangesObserved: [],
+    }), /execution_card_hash_mismatch/);
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('global execution gate fails closed for incomplete cards and validates all supported task types', () => {
+  const { directory, databasePath } = fixture();
+  try {
+    assert.throws(() => compileContextPack(databasePath, { text: 'Обнови документацию MetricHit' }), /execution card is incomplete/);
+    const rejectedDb = new DatabaseSync(databasePath, { readOnly: true });
+    assert.equal(rejectedDb.prepare("SELECT outcome FROM scope_routing_audit WHERE outcome='rejected'").get().outcome, 'rejected');
+    assert.equal(rejectedDb.prepare('SELECT count(*) count FROM context_packs').get().count, 0);
+    rejectedDb.close();
+
+    const scenarios = [
+      ['editorial', 'Подготовь статью MetricHit', SCOPE_IDS.editorial],
+      ['code', 'Исправь Python модуль MetricHit', SCOPE_IDS.metrichit],
+      ['docs', 'Обнови документацию MetricHit', SCOPE_IDS.metrichit],
+      ['research', 'Исследуй семантическое ядро MetricHit', SCOPE_IDS.editorial],
+      ['ui', 'Исправь UI operator panel MetricHit', SCOPE_IDS.panel],
+    ];
+    for (const [taskType, text, scopeId] of scenarios) {
+      const acceptance = [`${taskType}_accepted`];
+      const firstCheck = `${taskType}-check`;
+      const compiled = compileContextPack(databasePath, { text, taskBrief: {
+        result: `${taskType} result`, scope: [`${taskType} scope`], firstCheck,
+        acceptance, forbiddenChanges: ['out of scope'],
+      } });
+      assert.equal(compiled.route.taskType, taskType);
+      assert.equal(compiled.route.scopeId, scopeId);
+      assert.equal(compiled.pack.payload.execution_card.target_scope, scopeId);
+      assert.throws(() => closeContextPack(databasePath, compiled.pack.id, {
+        result: 'done', checks: [firstCheck], satisfiedAcceptance: [], scopeCompliance: true, forbiddenChangesObserved: [],
+      }), /acceptance_evidence/);
+      const closed = closeContextPack(databasePath, compiled.pack.id, {
+        result: 'done', checks: [firstCheck], satisfiedAcceptance: acceptance,
+        scopeCompliance: true, forbiddenChangesObserved: [],
+      });
+      assert.equal(closed.validation.scope_compliant, true);
+    }
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
 test('semantic core pointer is scoped to editorial/research and full content is explicit and project-authoritative', () => {
   const { directory, databasePath, projectDatabasePath, keywords } = referenceFixture();
   try {
     const db = new DatabaseSync(databasePath, { readOnly: true });
-    const general = compileDeterministicContext(db, { scopeId: SCOPE_IDS.metrichit, taskType: 'general', agentsContent: '' });
-    const editorial = compileDeterministicContext(db, { scopeId: SCOPE_IDS.editorial, taskType: 'editorial', agentsContent: '' });
+    const card = { result: 'Reference test', scope: ['memory'], firstCheck: 'test', acceptance: ['valid'], forbiddenChanges: ['drift'] };
+    const general = compileDeterministicContext(db, { scopeId: SCOPE_IDS.metrichit, taskType: 'general', agentsContent: '', taskBrief: card });
+    const editorial = compileDeterministicContext(db, { scopeId: SCOPE_IDS.editorial, taskType: 'editorial', agentsContent: '', taskBrief: card });
     const research = compileDeterministicContext(db, {
       scopeId: SCOPE_IDS.editorial, taskType: 'research', includeReferencedContent: true,
-      projectDatabasePath, agentsContent: '',
+      projectDatabasePath, agentsContent: '', taskBrief: card,
     });
     assert.deepEqual(general.references, []);
     assert.deepEqual(general.expanded_references, []);
@@ -179,12 +249,12 @@ test('semantic core pointer is scoped to editorial/research and full content is 
     assert.equal(research.expanded_references[0].source_database, 'project.sqlite');
     const explicitEditorial = compileDeterministicContext(db, {
       scopeId: SCOPE_IDS.editorial, taskType: 'editorial', includeReferencedContent: true,
-      projectDatabasePath, agentsContent: '',
+      projectDatabasePath, agentsContent: '', taskBrief: card,
     });
     assert.equal(explicitEditorial.expanded_references[0].data.keyword_count, 145);
     assert.throws(() => compileDeterministicContext(db, {
       scopeId: SCOPE_IDS.metrichit, taskType: 'general', includeReferencedContent: true,
-      projectDatabasePath, agentsContent: '',
+      projectDatabasePath, agentsContent: '', taskBrief: card,
     }), /only for an explicit editorial or research task/);
     db.close();
 

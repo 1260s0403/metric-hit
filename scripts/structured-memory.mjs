@@ -9,7 +9,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
-export const COMPILER_VERSION = 2;
+export const COMPILER_VERSION = 3;
 export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
 export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
 export const SCOPE_IDS = Object.freeze({
@@ -27,6 +27,11 @@ function open(databasePath, readOnly = false) {
   return database;
 }
 function parseJson(value, fallback) { try { return JSON.parse(value); } catch { return fallback; } }
+function nonEmptyText(value) { return typeof value === 'string' && value.trim() ? value.trim() : null; }
+function nonEmptyList(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map(nonEmptyText).filter(Boolean);
+}
 
 export function scopeChain(database, scopeId) {
   const chain = [];
@@ -164,7 +169,58 @@ function inferTaskType(text, explicit) {
   if (/(стать|редак|контент|social|smm|публикац)/iu.test(text)) return 'editorial';
   if (/(интерфейс|\bui\b|css|html|e2e|operator panel)/iu.test(text)) return 'ui';
   if (/(памят|governance|policy|правил)/iu.test(text)) return 'governance';
+  if (/(документ|документац|\bdocs?\b|readme)/iu.test(text)) return 'docs';
+  if (/(\bcode\b|\bpython\b|\bjavascript\b|\bnode\b|скрипт|компилятор|router|маршрутизатор|модул|тест)/iu.test(text)) return 'code';
   return 'general';
+}
+
+function buildExecutionCard(taskBrief, route, rules) {
+  const scope = nonEmptyList(taskBrief.scope ?? taskBrief.allowedChanges);
+  const acceptance = nonEmptyList(taskBrief.acceptance);
+  const forbiddenChanges = nonEmptyList(taskBrief.forbiddenChanges);
+  const card = {
+    result: nonEmptyText(taskBrief.result),
+    scope,
+    task_type: route.taskType,
+    target_scope: route.scopeId,
+    mandatory_rules: [
+      { semantic_key: 'governance.constitution', source: 'AGENTS.md', effect: 'mandatory' },
+      ...rules.map((rule) => ({ semantic_key: rule.semantic_key, source: rule.source, effect: rule.effect ?? 'mandatory' })),
+    ],
+    first_check: nonEmptyText(taskBrief.firstCheck),
+    acceptance,
+    forbidden_changes: forbiddenChanges,
+  };
+  const missing = [];
+  if (!card.result) missing.push('result');
+  if (!card.scope.length) missing.push('scope');
+  if (!card.task_type) missing.push('task_type');
+  if (!card.target_scope) missing.push('target_scope');
+  if (!card.mandatory_rules.length) missing.push('mandatory_rules');
+  if (!card.first_check) missing.push('first_check');
+  if (!card.acceptance.length) missing.push('acceptance');
+  if (!card.forbidden_changes.length) missing.push('forbidden_changes');
+  if (missing.length) throw new Error(`execution card is incomplete: ${missing.join(', ')}`);
+  return card;
+}
+
+function validateDeliveryEvidence(card, delivery) {
+  const checks = nonEmptyList(delivery.checks);
+  const satisfiedAcceptance = nonEmptyList(delivery.satisfiedAcceptance);
+  const forbiddenChangesObserved = nonEmptyList(delivery.forbiddenChangesObserved);
+  const missing = [];
+  if (!nonEmptyText(delivery.result)) missing.push('result');
+  if (delivery.scopeCompliance !== true) missing.push('scope_compliance');
+  if (!checks.includes(card.first_check)) missing.push('first_check_evidence');
+  if (!card.acceptance.every((criterion) => satisfiedAcceptance.includes(criterion))) missing.push('acceptance_evidence');
+  if (!Array.isArray(delivery.forbiddenChangesObserved)) missing.push('forbidden_changes_evidence');
+  if (forbiddenChangesObserved.length) missing.push('forbidden_changes_observed');
+  if (missing.length) throw new Error(`delivery validation failed: ${missing.join(', ')}`);
+  return {
+    validated_at: now(), result: delivery.result.trim(), checks,
+    satisfied_acceptance: satisfiedAcceptance, scope_compliant: true,
+    forbidden_changes_observed: [],
+  };
 }
 
 export function routeTask(database, { text = '', explicitScopeId = null, taskType = null } = {}) {
@@ -201,7 +257,7 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
 
 export function compileDeterministicContext(database, {
   scopeId, taskType, includeHistory = false, includeReferencedContent = false,
-  projectDatabasePath = defaultProjectDatabasePath, agentsContent = null, taskBrief = {},
+  projectDatabasePath = defaultProjectDatabasePath, agentsContent = null, taskBrief = {}, route = null,
 }) {
   const resolved = resolveScopedMemory(database, scopeId, taskType, { includeHistory });
   const records = resolved.records.map((row) => ({
@@ -216,21 +272,25 @@ export function compileDeterministicContext(database, {
     ? loadReferencedMemory(projectDatabasePath, referenceRecords, taskType) : [];
   const latestDecisions = records.filter((item) => item.type === 'decision')
     .sort((a, b) => b.valid_from.localeCompare(a.valid_from) || a.semantic_key.localeCompare(b.semantic_key)).slice(0, 5);
+  const rules = records.filter((item) => item.type === 'rule');
+  const executionCard = buildExecutionCard(taskBrief, route ?? { scopeId, taskType }, rules);
   const payload = {
-    schema_version: 2,
+    schema_version: 3,
     compiler_version: COMPILER_VERSION,
     task_type: taskType,
     target_scope: scopeId,
+    execution_card: executionCard,
+    execution_card_hash: hash(canonical(executionCard)),
     task_brief: {
-      result: taskBrief.result ?? null,
-      allowed_changes: taskBrief.allowedChanges ?? [],
-      forbidden_changes: taskBrief.forbiddenChanges ?? [],
-      first_check: taskBrief.firstCheck ?? null,
-      acceptance: taskBrief.acceptance ?? [],
+      result: executionCard.result,
+      allowed_changes: executionCard.scope,
+      forbidden_changes: executionCard.forbidden_changes,
+      first_check: executionCard.first_check,
+      acceptance: executionCard.acceptance,
     },
     agents: agentsContent ?? readFileSync(agentsPath, 'utf8'),
     passports: resolved.chain.map((scope) => ({ id: scope.id, kind: scope.scope_kind, name: scope.name, summary: scope.summary })),
-    rules: records.filter((item) => item.type === 'rule'),
+    rules,
     decisions: latestDecisions,
     commitments: records.filter((item) => item.type === 'commitment'),
     references,
@@ -255,12 +315,19 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
       writeAudit(database, route, null, request.explicitScopeId ?? null);
       return { route, pack: null };
     }
-    const payload = compileDeterministicContext(database, {
-      scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory),
-      includeReferencedContent: Boolean(request.includeReferencedContent),
-      projectDatabasePath: request.projectDatabasePath ?? defaultProjectDatabasePath,
-      taskBrief: request.taskBrief ?? {},
-    });
+    let payload;
+    try {
+      payload = compileDeterministicContext(database, {
+        scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory),
+        includeReferencedContent: Boolean(request.includeReferencedContent),
+        projectDatabasePath: request.projectDatabasePath ?? defaultProjectDatabasePath,
+        taskBrief: request.taskBrief ?? {}, route,
+      });
+    } catch (error) {
+      writeAudit(database, { ...route, outcome: 'rejected', signals: [...route.signals, 'execution_preflight_rejected'] }, null,
+        request.explicitScopeId ?? null);
+      throw error;
+    }
     const serialized = canonical(payload);
     const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), includeReferencedContent: Boolean(request.includeReferencedContent), taskBrief: request.taskBrief ?? {} })), compiled_bytes: Buffer.byteLength(serialized) };
     database.prepare(`INSERT INTO context_packs
@@ -272,14 +339,28 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
   } finally { database.close(); }
 }
 
-export function closeContextPack(databasePath = defaultDatabasePath, packId) {
+export function closeContextPack(databasePath = defaultDatabasePath, packId, delivery = {}) {
   const database = open(resolve(databasePath));
   try {
-    const closedAt = now();
-    const changed = database.prepare("UPDATE context_packs SET status='closed',closed_at=? WHERE id=? AND status='open'").run(closedAt, packId).changes;
-    const row = database.prepare('SELECT id,status,closed_at FROM context_packs WHERE id=?').get(packId);
+    const stored = database.prepare('SELECT * FROM context_packs WHERE id=?').get(packId);
+    if (!stored) throw new Error('context pack was not found');
+    if (stored.status !== 'open') return { id: stored.id, status: stored.status, closed_at: stored.closed_at, changed: false };
+    const payload = parseJson(stored.payload_json, null);
+    if (!payload?.execution_card) throw new Error('delivery validation failed: execution_card_missing');
+    if (hash(canonical(payload.execution_card)) !== payload.execution_card_hash) {
+      throw new Error('delivery validation failed: execution_card_hash_mismatch');
+    }
+    const validation = validateDeliveryEvidence(payload.execution_card, delivery);
+    const deliveredPayload = { ...payload, delivery_validation: validation };
+    const serialized = canonical(deliveredPayload);
+    const closedAt = validation.validated_at;
+    const changed = database.prepare(`UPDATE context_packs
+      SET payload_json=?,compiled_bytes=?,status='closed',closed_at=? WHERE id=? AND status='open'`)
+      .run(serialized, Buffer.byteLength(serialized), closedAt, packId).changes;
+    const row = database.prepare('SELECT id,status,closed_at,payload_json FROM context_packs WHERE id=?').get(packId);
     if (!row) throw new Error('context pack was not found');
-    return { ...row, changed: changed === 1 };
+    return { id: row.id, status: row.status, closed_at: row.closed_at, changed: changed === 1,
+      validation: parseJson(row.payload_json, {}).delivery_validation };
   } finally { database.close(); }
 }
 
@@ -348,6 +429,12 @@ function argumentsOf(values) {
   }
   return result;
 }
+function jsonArgument(value, fallback = []) {
+  if (value === undefined) return fallback;
+  const parsed = parseJson(value, null);
+  if (!Array.isArray(parsed)) throw new Error('list arguments must be JSON arrays');
+  return parsed;
+}
 
 function isMainModule() { return process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href; }
 if (isMainModule()) {
@@ -359,8 +446,13 @@ if (isMainModule()) {
       text: args.text ?? '', explicitScopeId: args.scope ?? null, taskType: args['task-type'] ?? null,
       includeReferencedContent: args['include-references'] === 'true',
       projectDatabasePath: args['project-db'] ? resolve(args['project-db']) : defaultProjectDatabasePath,
+      taskBrief: { result: args.result, scope: jsonArgument(args['card-scope']), firstCheck: args['first-check'],
+        acceptance: jsonArgument(args.acceptance), forbiddenChanges: jsonArgument(args['forbidden-changes']) },
     }), null, 2));
-    else if (args.command === 'close') console.log(JSON.stringify(closeContextPack(databasePath, args.id), null, 2));
+    else if (args.command === 'close') console.log(JSON.stringify(closeContextPack(databasePath, args.id, {
+      result: args.result, checks: jsonArgument(args.checks), satisfiedAcceptance: jsonArgument(args['satisfied-acceptance']),
+      scopeCompliance: args['scope-compliant'] === 'true', forbiddenChangesObserved: jsonArgument(args['forbidden-observed']),
+    }), null, 2));
     else throw new Error('Usage: structured-memory.mjs <baseline|compile|close> [--db path]');
   } catch (error) { console.error(`structured-memory: ${error.message}`); process.exitCode = 1; }
 }
