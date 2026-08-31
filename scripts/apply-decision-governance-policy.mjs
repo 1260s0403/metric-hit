@@ -9,10 +9,10 @@ const defaultDatabase = join(root, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/decision-governance-policy-2026-08-15.md';
 const semanticKey = 'architecture.decision_governance_policy';
 const operationsSemanticKey = 'operations.server_strategy_workflow';
-const reviewedAt = '2026-08-26T00:00:00.000Z';
+const reviewedAt = '2026-08-31T06:20:00.000Z';
 const owner = 'owner';
-const revision = 26;
-const operationsRevision = 13;
+const revision = 27;
+const operationsRevision = 14;
 const operationsSupersededCandidateIds = new Set([
   '93280439-9cda-48b9-a84f-90914eb4ab36',
   '39f80dbe-092b-4f63-a8a1-3e13aa09592b',
@@ -47,6 +47,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   content += ' Запрос владельца изменить или построить в названном scope является standing authorization на in-scope реализацию, тесты, обычный git staging и один commit; Strategy не запрашивает повторное промежуточное подтверждение. Отдельное явное решение требуется только для удаления, force-операций, внешней публикации, расходов, изменений доступов/прав, стратегии, политики памяти, настроек/глобальной системы или существенного расширения scope. Managed-sandbox prompts отменить нельзя и они сообщаются только при возникновении.';
   content += ' Strategy — основной human-language координатор продукта, архитектуры, приоритетов и разработки: до решений он читает approved memory, current context, operating context, roadmap и фактический Git, отмечает существенные пробелы и противоречия и предлагает ближайшие MVP-шаги. Он не требует повторять известный контекст и не считает историю чата канонической истиной. Если чат стал слишком длинным, регулярно требует сжатия, теряет важные детали, путает решения или заметно расходует контекст, Strategy сам предлагает новый чат. Перед переходом он read-only сверяет approved memory, current context и roadmap на полноту значимых утверждённых решений, планов, ограничений, незавершённых задач и ближайших следующих шагов. При пробеле отдельный native task-thread синхронизирует канонический контекст; после сверки Strategy подтверждает, что новый чат продолжит работу по startup protocol без старой истории.';
   content += ' AGENTS.md является коротким обязательным startup-контрактом, а полный постоянный контекст хранится в operating-context и roadmap без ослабления safety gates. Первая проверка выбирается из явной карты существующих команд: docs-only — git diff --check; governance/memory — целевой Node test и check-memory; Python — один относящийся pytest-файл; operator panel backend — test_operator_panel.py; UI/E2E — test_operator_panel_e2e.py; JavaScript — node --check operator-panel.js. Широкая регрессия не используется для поиска проверки. Executor переиспользует здоровые project .venv, system Edge/browser, dependency caches, running server и owner-facing port; без доказанной проблемы не переустанавливает зависимости, не перезапускает runtime и не меняет порт. Отсутствующее или сломанное окружение является точным blocker либо отдельной утверждённой environment-задачей.';
+  content += ' Целевая память организуется как наследуемая цепочка Ядро → проект → подпроект → задача. AGENTS.md остаётся короткой конституцией Strategy, а изменяемые знания хранятся вне него. Strategy сначала определяет scope и тип задачи, читает паспорта выбранного scope и только релевантные блоки родительской цепочки; память sibling-проектов и подпроектов не загружается. Каждый scope имеет компактный паспорт. Правила наследуются сверху вниз, причём запреты Ядра нельзя отменить ниже. Память делится на постоянную, рабочую и историческую; история читается только по основанию. Активные записи имеют явные ownership, layer, type, status, source, valid_from и supersedes, а неоднозначные записи направляются на разбор. Для исполнителя Strategy формирует временный минимальный task context pack и сохраняет audit маршрута без внутреннего reasoning. Общие знания хранятся один раз на ближайшем общем уровне. Context compiler должен собирать детерминированный минимальный пакет. Приоритетный порядок реализации: P0 контракт и baseline; P1 паспорта и принадлежность; P2 слои, актуальность и наследование; P3 маршрутизатор, context pack и audit; P4 context compiler и измеримая эффективность; P5 MVP-пилот MetricHit на «Редакции» и «Панели». Каждый следующий этап начинается только после acceptance предыдущего; архитектура этим решением утверждена, но ещё не реализована.';
   const policyData = JSON.stringify({
     belongs_to: 'central_core',
     is_department: false,
@@ -146,6 +147,38 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
       managed_sandbox_prompts_reported: 'only_when_they_occur',
     },
     owner_gates_preserved: ['deletion', 'force_operations', 'access_changes', 'publication', 'spending', 'strategy_changes', 'memory_changes', 'settings_changes', 'other_dangerous_actions'],
+    hierarchical_memory_target: {
+      hierarchy: ['core', 'project', 'subproject', 'task'],
+      agents_role: 'compact_strategy_constitution',
+      route_before_read: ['scope', 'task_type'],
+      scope_passport_fields: ['id', 'purpose', 'current_goal', 'responsibility_boundaries', 'active_rules', 'prohibitions', 'priority', 'next_step', 'relationships', 'memory_pointers'],
+      inheritance: { direction: 'top_down', core_prohibitions_overridable: false, lower_scopes: 'clarify_or_extend_only', common_knowledge: 'nearest_common_ancestor_reference' },
+      memory_layers: ['permanent', 'working', 'historical'],
+      default_read_layers: ['permanent', 'working_summary'],
+      historical_read_reasons: ['dispute', 'investigation', 'decision_provenance', 'direct_owner_request'],
+      record_fields: ['scope', 'project_id', 'subproject_id_optional', 'memory_layer', 'type', 'status', 'source', 'valid_from', 'supersedes'],
+      freshness_statuses: ['active', 'superseded', 'outdated', 'needs_review', 'historical'],
+      ambiguous_or_unowned_records: 'triage_queue_excluded_from_active_context',
+      task_context_pack: ['result', 'project_id', 'subproject_id_optional', 'relevant_facts_and_rules', 'allowed_changes', 'forbidden_changes', 'first_check', 'acceptance', 'recent_related_decisions', 'open_obligations'],
+      task_context_lifecycle: 'temporary_close_after_task',
+      permanent_write_after_task: 'significant_confirmed_outcome_only',
+      routing_audit: ['selected_scope', 'task_type', 'read_block_ids', 'routing_basis', 'delivered_pack_ids'],
+      routing_audit_excludes: ['chain_of_thought', 'private_reasoning'],
+      material_ambiguity: 'ask_one_short_owner_question',
+      context_compiler_inputs: ['AGENTS.md', 'project_passport', 'subproject_passport', 'active_task_type_rules', 'recent_related_decisions', 'open_obligations'],
+      context_compiler_output: 'minimal_sufficient_deterministic_context_pack',
+      sibling_scope_loading: false,
+    },
+    hierarchical_memory_plan: [
+      { priority: 'P0', stage: 'contract_and_baseline', acceptance: ['one_canonical_specification', 'explicit_rule_precedence', 'test_command_map', 'no_owner_gate_conflicts', 'current_context_load_baseline'] },
+      { priority: 'P1', stage: 'scope_passports_and_record_ownership', depends_on: 'P0', pilot_scopes: ['core', 'metrichit', 'metrichit_editorial', 'metrichit_panel'], acceptance: ['every_test_object_has_one_scope', 'unowned_record_excluded_from_active_memory', 'common_knowledge_not_duplicated'] },
+      { priority: 'P2', stage: 'layers_freshness_and_inheritance', depends_on: 'P1', acceptance: ['core_prohibition_cannot_be_overridden', 'supersedes_preserves_history', 'no_sibling_leakage'] },
+      { priority: 'P3', stage: 'strategy_router_context_pack_and_audit', depends_on: 'P2', acceptance: ['required_pack_fields_present', 'only_relevant_records_loaded', 'audit_excludes_internal_reasoning', 'temporary_pack_closed_after_task'] },
+      { priority: 'P4', stage: 'context_compiler_and_efficiency', depends_on: 'P3', acceptance: ['deterministic_repeat', 'history_and_siblings_not_read_without_reason', 'measurably_lower_load_than_baseline', 'mandatory_rules_retained'] },
+      { priority: 'P5', stage: 'metrichit_editorial_and_panel_pilot', depends_on: 'P4', acceptance: ['editorial_gets_core_metrichit_editorial', 'panel_gets_core_metrichit_panel', 'no_cross_subproject_memory', 'ambiguous_panel_command_requests_scope', 'control_tasks_pass_without_manual_extra_context'] },
+    ],
+    hierarchical_memory_implemented: false,
+    hierarchical_memory_priority: 'number_one_core_memory_development_priority',
     strategy: { mode: 'read_only', role: 'human_facing_router', exact_scope_only: true, observable_reporting_only: true, repository_file_modifications_allowed: false, executor_result: ['verified_clean_git_result', 'exact_technical_blocker'], recovery: 'new_explicit_owner_direction_only' },
     handoff: { create_command: 'handoff-create', next_command: 'handoff-next', claim_command: 'handoff-claim', complete_command: 'handoff-complete', task_type: 'standalone_task', atomic_decision_task_link: true, native_task_thread: 'internal_execution_mechanism', repo_side_role: 'decision_task_context_and_result_audit', repo_side_is_execution_queue: false, permanent_developer_chat_required: false, user_workflow_requires_lifecycle_commands: false, lifecycle: ['ready', 'in_progress', 'completed'], claim_complete_idempotent: true, completion_links_commit_hash: true, one_native_thread_per_user_engineering_decision: true, strategy_checks_existing_thread_by_user_turn_or_decision_before_create: true, repeated_user_turn_routing_is_idempotent: true, existing_thread_response_includes_id_and_status: true, existing_thread_prevents_second_creation: true, new_engineering_task_requires_new_native_thread: true, strategy_may_replace_existing_or_completed_thread_scope: false, active_engineering_thread_blocks_second_thread: true, maximum_active_executors: 1, active_thread_requires_wait_or_owner_explicit_cancellation: true, thread_closed_after_commit_result_and_clean_git_status: true, completed_thread_reuse_allowed: false },
     future_ui: ['memory_candidate_management', 'owner_decision_center'],
@@ -156,6 +189,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
   });
   const policy = JSON.parse(policyData);
   const operationsContent = 'SERVER и C:\\MetricHit\\workspace остаются primary workspace MetricHit. Strategy — read-only human-facing router: один точный owner-approved scope передаётся одному named executor-у для одного commit либо точного технического blocker. Fast path ограничен тремя изменёнными отслеживаемыми файлами и исключает новые файлы, зависимости, runtime/configuration/system-изменения, схему данных и миграции; превышение предела до реализации переводит задачу в стандартный этап. AGENTS.md остаётся коротким startup-контрактом, а подробный контекст хранится в operating-context и roadmap. Краткая постановка содержит Result, Scope, одну команду из карты быстрых проверок и Forbidden changes; широкая регрессия не используется для поиска проверки. До мутаций executor требует чистый git status --short; при грязной копии сообщает точные файлы и ждёт нового прямого решения владельца. Executor использует только существующие workflow, не создаёт неуказанные артефакты и не расширяет scope. Fast path автоматически использует самую быструю доступную совместимую одобренную executor-модель с fallback на Terra Medium; стандартный этап использует Terra Medium; Sol/Luna gates сохраняются, owner-visible Strategy-модель не меняется. Здоровые .venv, browser/cache, running server и owner-facing port переиспользуются без reinstall/restart/port change; неисправное окружение является blocker либо отдельной environment-задачей. Отсутствие промежуточного сообщения не останавливает работу. Поставка — только проверенный результат с чистым Git либо точный blocker. Сохраняются risk routing, single writer, один commit, UI E2E, owner-gates и managed sandbox.';
+  const hierarchicalOperationsContent = ' AGENTS.md является целевой короткой конституцией Strategy. Перед задачей Strategy определяет scope и тип, затем читает только паспорта и активную память цепочки Ядро → проект → подпроект → задача. Для executor формируется минимальный task context pack; sibling scope и история без основания не загружаются, а audit сохраняет маршрут без внутреннего reasoning. Приоритетный план P0–P5 и его acceptance зафиксированы в approved memory и roadmap; реализация ещё не начиналась.';
   const operationsData = JSON.stringify({
     revision: operationsRevision,
     supersedes_candidate_id: uuid(`candidate:${operationsSemanticKey}:${operationsRevision - 1}`),
@@ -168,6 +202,9 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     task_brief_template: ['result', 'scope', 'first_check', 'forbidden_changes'],
     scope_control: { existing_workflows_only: true, unlisted_artifacts_forbidden: ['plans', 'reports', 'scripts', 'files', 'tasks', 'abstractions', 'auxiliary_workflows'], vague_while_you_are_there_expansion_allowed: false, scope_expansion: 'new_direct_owner_approval_required', replacement_executor_chain_allowed: false, recovery: 'new_explicit_owner_direction_only', fast_path_maximum_modified_tracked_files: 3, fast_path_new_files_allowed: false, fast_path_excluded_change_categories: ['dependencies', 'runtime_changes', 'configuration_changes', 'system_changes', 'data_schema_or_migrations'], fast_path_limit_exceeded_routes_to: 'standard_staged_task_before_implementation', dirty_worktree_mutations_allowed: false, dirty_worktree_response: 'report_exact_dirty_files_and_wait_for_new_direct_owner_decision', dirty_worktree_forbidden_actions: ['absorb', 'restore', 'delete', 'commit', 'work_around'], existing_fast_targeted_check_required: true, unknown_targeted_check_routes_to: 'standard_task_identify_existing_scope_check_before_mutations', broad_regression_for_check_discovery_allowed: false },
     canonical_sync: { ordinary_technical_change_allowed: false, allowed_for: ['direct_owner_request', 'genuinely_significant_approved_decision'] },
+    context_routing_target: policy.hierarchical_memory_target,
+    context_routing_plan: policy.hierarchical_memory_plan,
+    context_routing_implemented: false,
     primary_workspace: 'C:\\MetricHit\\workspace',
     strategy: { owner_visible: true, read_only: true, permanent_project_chat: true },
     repository_mutation: { responsible_executors: 1, commits: 1, in_scope_owner_request_is_authorization: true, redundant_intermediate_confirmation_required: false },
@@ -184,7 +221,7 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     sha256: createHash('sha256').update(bytes).digest('hex'),
     encoding: 'utf-8',
     authority: 'direct_owner_confirmation',
-    decision_date: '2026-08-26',
+    decision_date: '2026-08-30',
   });
 
   const sourceId = uuid(`source:${decisionPath}:${revision}`);
@@ -226,22 +263,22 @@ export function applyDecisionGovernancePolicy(databasePath = defaultDatabase) {
     const operationsConflict = db.prepare(`SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))`).get(operationsCandidateId, operationsSemanticKey);
     if (operationsConflict) throw new Error(`Open memory conflict blocks ${operationsSemanticKey}`);
 
-    created.sources += Number(db.prepare(`INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-26', 'internal')`).run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
-    created.documents += Number(db.prepare(`INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-26', 'internal', 1)`).run(documentId, title, decision, metadata, sourceId, owner).changes);
-    created.versions += Number(db.prepare(`INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-26', 'internal', 1)`).run(versionId, documentId, title, decision, metadata, sourceId, owner).changes);
-    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)`).run(candidateId, semanticKey, title, content, policyData, sourceId, owner).changes);
+    created.sources += Number(db.prepare(`INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-30', 'internal')`).run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
+    created.documents += Number(db.prepare(`INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-30', 'internal', 1)`).run(documentId, title, decision, metadata, sourceId, owner).changes);
+    created.versions += Number(db.prepare(`INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-30', 'internal', 1)`).run(versionId, documentId, title, decision, metadata, sourceId, owner).changes);
+    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-30', 'internal', 1)`).run(candidateId, semanticKey, title, content, policyData, sourceId, owner).changes);
 
     const candidate = db.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
     if (candidate.status === 'pending') {
-      db.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 26.08.2026.', reviewedAt, candidateId);
+      db.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(owner, reviewedAt, 'Одобрено прямым решением владельца от 30.08.2026.', reviewedAt, candidateId);
     }
-    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-26', 'internal', 1)`).run(operationsCandidateId, operationsSemanticKey, 'Рабочий процесс SERVER, Strategy и executor', operationsContent, operationsData, sourceId, owner).changes);
+    created.candidates += Number(db.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'decision', ?, ?, ?, ?, 'pending', ?, ?, '2026-08-30', 'internal', 1)`).run(operationsCandidateId, operationsSemanticKey, 'Рабочий процесс SERVER, Strategy и executor', operationsContent + hierarchicalOperationsContent, operationsData, sourceId, owner).changes);
     const operationsCandidate = db.prepare('SELECT status FROM memory_candidates WHERE id=?').get(operationsCandidateId);
     if (operationsCandidate.status === 'pending') {
-      db.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 26.08.2026.', reviewedAt, operationsCandidateId);
+      db.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(owner, reviewedAt, 'Одобрено прямым решением владельца от 30.08.2026.', reviewedAt, operationsCandidateId);
     }
     assertRow(db.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), { type: 'decision', semantic_key: semanticKey, title, content, data_json: policyData, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: reviewedAt }, 'decision governance candidate');
-    assertRow(db.prepare('SELECT * FROM memory_candidates WHERE id=?').get(operationsCandidateId), { type: 'decision', semantic_key: operationsSemanticKey, title: 'Рабочий процесс SERVER, Strategy и executor', content: operationsContent, data_json: operationsData, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: reviewedAt }, 'server strategy workflow candidate');
+    assertRow(db.prepare('SELECT * FROM memory_candidates WHERE id=?').get(operationsCandidateId), { type: 'decision', semantic_key: operationsSemanticKey, title: 'Рабочий процесс SERVER, Strategy и executor', content: operationsContent + hierarchicalOperationsContent, data_json: operationsData, status: 'approved', source_id: sourceId, reviewed_by: owner, reviewed_at: reviewedAt }, 'server strategy workflow candidate');
     assertRow(db.prepare('SELECT * FROM sources WHERE id=?').get(sourceId), { data_json: metadata, status: 'active' }, 'source');
     assertRow(db.prepare('SELECT * FROM documents WHERE id=?').get(documentId), { content: decision, data_json: metadata, source_id: sourceId, version: 1 }, 'document');
     assertRow(db.prepare('SELECT * FROM document_versions WHERE id=?').get(versionId), { document_id: documentId, content: decision, data_json: metadata, version: 1 }, 'document version');

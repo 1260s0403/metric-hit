@@ -27,6 +27,15 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.belongs_to, 'central_core');
       assert.equal(data.potential_decisions_auto_approve, false);
       assert.deepEqual(data.pre_save_checks, ['semantic_duplicate', 'evolution', 'conflicts']);
+      assert.deepEqual(data.hierarchical_memory_target.hierarchy, ['core', 'project', 'subproject', 'task']);
+      assert.equal(data.hierarchical_memory_target.agents_role, 'compact_strategy_constitution');
+      assert.deepEqual(data.hierarchical_memory_target.route_before_read, ['scope', 'task_type']);
+      assert.equal(data.hierarchical_memory_target.inheritance.core_prohibitions_overridable, false);
+      assert.deepEqual(data.hierarchical_memory_target.memory_layers, ['permanent', 'working', 'historical']);
+      assert.equal(data.hierarchical_memory_target.sibling_scope_loading, false);
+      assert.deepEqual(data.hierarchical_memory_plan.map((stage) => stage.priority), ['P0', 'P1', 'P2', 'P3', 'P4', 'P5']);
+      assert.deepEqual(data.hierarchical_memory_plan.at(-1).acceptance.slice(0, 3), ['editorial_gets_core_metrichit_editorial', 'panel_gets_core_metrichit_panel', 'no_cross_subproject_memory']);
+      assert.equal(data.hierarchical_memory_implemented, false);
       assert.equal(data.execution.separate_llm_call_required, false);
       assert.equal(data.execution.target_overhead, 'few_percent_or_less');
       assert.equal(data.execution.implementation, 'native_codex_task_thread');
@@ -86,9 +95,12 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 13);
+      assert.equal(operations.revision, 14);
       assert.equal(operations.startup_surface.agents_is_compact_contract, true);
       assert.equal(operations.startup_surface.safety_gates_preserved, true);
+      assert.deepEqual(operations.context_routing_target.hierarchy, ['core', 'project', 'subproject', 'task']);
+      assert.deepEqual(operations.context_routing_plan.map((stage) => stage.priority), ['P0', 'P1', 'P2', 'P3', 'P4', 'P5']);
+      assert.equal(operations.context_routing_implemented, false);
       assert.equal(operations.targeted_check_map.docs_only, 'git diff --check');
       assert.equal(operations.targeted_check_map.operator_panel_backend, '.\\.venv\\Scripts\\python.exe -m pytest tests_python\\test_operator_panel.py -q');
       assert.equal(operations.targeted_check_map.operator_panel_ui_e2e, '.\\.venv\\Scripts\\python.exe -m pytest tests_python\\test_operator_panel_e2e.py -q');
@@ -154,7 +166,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_thread_requires_wait_or_owner_explicit_cancellation, true);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 26);
+      assert.equal(data.revision, 27);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
