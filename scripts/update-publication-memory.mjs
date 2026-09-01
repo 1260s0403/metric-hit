@@ -31,6 +31,11 @@ function assertPublicationUpdate(update) {
   if (!Array.isArray(update.expectedPriorRevisions) || !update.expectedPriorRevisions.every(Number.isInteger)) {
     throw new Error('expectedPriorRevisions must be an integer array');
   }
+  if (update.allowCreate !== undefined && typeof update.allowCreate !== 'boolean') {
+    throw new Error('allowCreate must be a boolean when provided');
+  }
+  const publicationStatus = update.publicationStatus === undefined
+    ? 'independently_verified' : requiredText(update.publicationStatus, 'publicationStatus');
   if (!update.verifiedFacts || typeof update.verifiedFacts !== 'object' || Array.isArray(update.verifiedFacts)) {
     throw new Error('verifiedFacts must be an object');
   }
@@ -38,7 +43,8 @@ function assertPublicationUpdate(update) {
     ? 'direct_owner_request_with_public_readonly_verification' : requiredText(update.authority, 'authority');
   const verificationMethod = update.verificationMethod === undefined
     ? 'public_page_read_only' : requiredText(update.verificationMethod, 'verificationMethod');
-  return { ...update, semanticKey, title, content, platform, canonicalUrl, publishedAt, reviewedAt, authority, verificationMethod };
+  return { ...update, semanticKey, title, content, platform, canonicalUrl, publishedAt, reviewedAt,
+    publicationStatus, authority, verificationMethod };
 }
 
 function assertFields(row, expected, label) {
@@ -65,7 +71,7 @@ export function updatePublicationMemory(databasePath = defaultDatabasePath, inpu
   const candidateId = stableUuid(`candidate:${update.semanticKey}:revision:${update.revision}`);
   const data = json({
     platform: update.platform,
-    publication_status: 'independently_verified',
+    publication_status: update.publicationStatus,
     canonical_url: update.canonicalUrl,
     public_url: update.canonicalUrl,
     published_at: update.publishedAt,
@@ -85,7 +91,7 @@ export function updatePublicationMemory(databasePath = defaultDatabasePath, inpu
     if (revisions.some((revision) => !update.expectedPriorRevisions.includes(revision))) {
       throw new Error(`Unexpected semantic revision blocks ${update.semanticKey}: ${revisions.join(',')}`);
     }
-    if (!revisions.length) throw new Error(`Existing publication record is required for ${update.semanticKey}`);
+    if (!revisions.length && !update.allowCreate) throw new Error(`Existing publication record is required for ${update.semanticKey}`);
     created.sources += Number(database.prepare(`INSERT OR IGNORE INTO sources
       (id,type,title,content,data_json,status,author,valid_at,access_level)
       VALUES (?,'owner_decision',?,?,?,'active','owner',?,'internal')`)
@@ -153,12 +159,28 @@ export const oborotEditorialIntegrationUpdate = Object.freeze({
   },
 });
 
+export const oborotInternetShopPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.oborot_internet_shop_daily_limit_2026_09_01', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed',
+  title: 'Статья MetricHit опубликована на Oborot.ru',
+  content: 'Статья «Накрутка ПФ для интернет-магазина: как выбрать запросы, категории и дневной лимит в Яндексе» опубликована на Oborot.ru 01.09.2026. Публичная страница: https://oborot.ru/blogs/nakrutka-pf-dlya-internet-magazina-kak-vybrat-zaprosy-kategorii-i-dnevnoj-limit-v-yandekse-i277848.html.',
+  platform: 'Oborot.ru',
+  canonicalUrl: 'https://oborot.ru/blogs/nakrutka-pf-dlya-internet-magazina-kak-vybrat-zaprosy-kategorii-i-dnevnoj-limit-v-yandekse-i277848.html',
+  publishedAt: '2026-09-01T00:00:00+03:00', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_provided_public_url',
+  verifiedFacts: {
+    published: true, publication_date: '2026-09-01',
+    article_title: 'Накрутка ПФ для интернет-магазина: как выбрать запросы, категории и дневной лимит в Яндексе',
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
-  const update = command === 'oborot-editorial-integration' ? oborotEditorialIntegrationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration'].includes(command)) {
-    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration> [databasePath]');
+  const update = command === 'oborot-editorial-integration' ? oborotEditorialIntegrationUpdate
+    : command === 'oborot-internet-shop-publication' ? oborotInternetShopPublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }

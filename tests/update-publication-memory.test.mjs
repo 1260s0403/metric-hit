@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { oborotEditorialIntegrationUpdate, sostavFirstArticleUpdate, updatePublicationMemory } from '../scripts/update-publication-memory.mjs';
+import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, updatePublicationMemory } from '../scripts/update-publication-memory.mjs';
 
 test('publication memory update supersedes the existing revision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-publication-update-'));
@@ -91,5 +91,33 @@ test('Oborot editorial integration update is idempotent and keeps publishing man
     } catch (error) {
       if (error?.code !== 'EBUSY') throw error;
     }
+  }
+});
+
+test('owner-confirmed Oborot publication is created once without unrelated workflow facts', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-oborot-publication-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    const first = updatePublicationMemory(databasePath, oborotInternetShopPublicationUpdate);
+    const second = updatePublicationMemory(databasePath, oborotInternetShopPublicationUpdate);
+    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    const readOnly = new DatabaseSync(databasePath, { readOnly: true });
+    const current = readOnly.prepare(`SELECT title,content,data_json,status FROM memory_candidates
+      WHERE semantic_key='publication.oborot_internet_shop_daily_limit_2026_09_01'`).get();
+    const data = JSON.parse(current.data_json);
+    assert.equal(current.status, 'approved');
+    assert.equal(current.title, 'Статья MetricHit опубликована на Oborot.ru');
+    assert.match(current.content, /01\.09\.2026/);
+    assert.equal(data.publication_status, 'owner_confirmed');
+    assert.equal(data.canonical_url, oborotInternetShopPublicationUpdate.canonicalUrl);
+    assert.equal(data.verified_facts.article_title, oborotInternetShopPublicationUpdate.verifiedFacts.article_title);
+    assert.deepEqual(data.supersedes_semantic_revisions, []);
+    assert.equal(/Chrome|расширен|автоматизац|изображен/iu.test(current.content), false);
+    readOnly.close();
+  } finally {
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
+    catch (error) { if (error?.code !== 'EBUSY') throw error; }
   }
 });
