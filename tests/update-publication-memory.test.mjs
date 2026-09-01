@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { sostavFirstArticleUpdate, updatePublicationMemory } from '../scripts/update-publication-memory.mjs';
+import { oborotEditorialIntegrationUpdate, sostavFirstArticleUpdate, updatePublicationMemory } from '../scripts/update-publication-memory.mjs';
 
 test('publication memory update supersedes the existing revision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-publication-update-'));
@@ -47,6 +47,48 @@ test('publication memory update supersedes the existing revision and is idempote
     } catch (error) {
       // Windows may retain a transient SQLite file lock after a closed read-only connection.
       // The fixture lives outside the workspace, so retaining it does not affect repository state.
+      if (error?.code !== 'EBUSY') throw error;
+    }
+  }
+});
+
+test('Oborot editorial integration update is idempotent and keeps publishing manual', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-oborot-integration-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    const database = new DatabaseSync(databasePath);
+    database.exec("INSERT INTO sources(id,type,title,content,status,author,access_level) VALUES ('20000000-0000-4000-a000-000000000001','owner_decision','Legacy Oborot source','Legacy','active','owner','internal');");
+    database.exec("INSERT INTO memory_candidates(id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES ('20000000-0000-4000-a000-000000000002','publication_state','publication.oborot_nakrutka_pf_business_2026_08_29','Legacy Oborot','Legacy','{\"revision\":1}','pending','20000000-0000-4000-a000-000000000001','owner','2026-08-29','internal',1);");
+    database.exec("INSERT INTO memory_candidates(id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES ('20000000-0000-4000-a000-000000000003','publication_state','publication.oborot_nakrutka_pf_business_2026_08_29','Current Oborot','Current','{\"revision\":2}','pending','20000000-0000-4000-a000-000000000001','owner','2026-08-30','internal',1);");
+    database.exec("UPDATE memory_candidates SET status='approved',reviewed_by='owner',reviewed_at='2026-08-29T00:00:00.000Z' WHERE id='20000000-0000-4000-a000-000000000002';");
+    database.exec("UPDATE memory_candidates SET status='approved',reviewed_by='owner',reviewed_at='2026-08-30T00:00:00.000Z' WHERE id='20000000-0000-4000-a000-000000000003';");
+    database.close();
+
+    const first = updatePublicationMemory(databasePath, oborotEditorialIntegrationUpdate);
+    const second = updatePublicationMemory(databasePath, oborotEditorialIntegrationUpdate);
+    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+    const readOnly = new DatabaseSync(databasePath, { readOnly: true });
+    const current = readOnly.prepare(`SELECT content,data_json,status FROM memory_candidates
+      WHERE semantic_key='publication.oborot_nakrutka_pf_business_2026_08_29'
+      ORDER BY coalesce(json_extract(data_json, '$.revision'), 0) DESC LIMIT 1`).get();
+    const data = JSON.parse(current.data_json);
+    assert.equal(current.status, 'approved');
+    assert.match(current.content, /manual-package/);
+    assert.equal(data.canonical_url, 'https://oborot.ru/blogs/nakrutka-pf-i277755.html');
+    assert.equal(data.verified_facts.editorial_connection, 'verified');
+    assert.equal(data.verified_facts.workflow_mode, 'manual-package');
+    assert.equal(data.verified_facts.official_publishing_api_exposed, false);
+    assert.equal(data.verified_facts.external_publication_requires_owner_approval, true);
+    assert.equal(data.verified_facts.session_data_stored, false);
+    assert.equal(data.evidence.verification_method, 'owner_authenticated_session_read_only_inspection');
+    readOnly.close();
+  } finally {
+    try {
+      rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 });
+    } catch (error) {
       if (error?.code !== 'EBUSY') throw error;
     }
   }

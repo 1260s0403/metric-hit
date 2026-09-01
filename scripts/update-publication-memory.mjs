@@ -34,7 +34,11 @@ function assertPublicationUpdate(update) {
   if (!update.verifiedFacts || typeof update.verifiedFacts !== 'object' || Array.isArray(update.verifiedFacts)) {
     throw new Error('verifiedFacts must be an object');
   }
-  return { ...update, semanticKey, title, content, platform, canonicalUrl, publishedAt, reviewedAt };
+  const authority = update.authority === undefined
+    ? 'direct_owner_request_with_public_readonly_verification' : requiredText(update.authority, 'authority');
+  const verificationMethod = update.verificationMethod === undefined
+    ? 'public_page_read_only' : requiredText(update.verificationMethod, 'verificationMethod');
+  return { ...update, semanticKey, title, content, platform, canonicalUrl, publishedAt, reviewedAt, authority, verificationMethod };
 }
 
 function assertFields(row, expected, label) {
@@ -48,9 +52,9 @@ export function updatePublicationMemory(databasePath = defaultDatabasePath, inpu
   const update = assertPublicationUpdate(input);
   if (!existsSync(databasePath)) throw new Error(`Database does not exist: ${databasePath}`);
   const sourceData = {
-    authority: 'direct_owner_request_with_public_readonly_verification',
+    authority: update.authority,
     canonical_url: update.canonicalUrl,
-    verification_method: 'public_page_read_only',
+    verification_method: update.verificationMethod,
     verified_at: update.reviewedAt,
     verified_facts: update.verifiedFacts,
   };
@@ -68,7 +72,7 @@ export function updatePublicationMemory(databasePath = defaultDatabasePath, inpu
     verified_facts: update.verifiedFacts,
     revision: update.revision,
     supersedes_semantic_revisions: update.expectedPriorRevisions,
-    evidence: { source_id: sourceId, verification_method: 'public_page_read_only' },
+    evidence: { source_id: sourceId, verification_method: update.verificationMethod },
   });
   const database = new DatabaseSync(resolve(databasePath));
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
@@ -133,6 +137,28 @@ export const sostavFirstArticleUpdate = Object.freeze({
   },
 });
 
+export const oborotEditorialIntegrationUpdate = Object.freeze({
+  semanticKey: 'publication.oborot_nakrutka_pf_business_2026_08_29', revision: 3, expectedPriorRevisions: [1, 2],
+  title: 'Oborot.ru подключён к редакции MetricHit для ручного пакета',
+  content: 'Oborot.ru подключён и проверен для редакции MetricHit только в режиме manual-package. Вход владельца в существующий аккаунт подтверждён; в доступном кабинете не обнаружены официальный API или self-service механизм автоматической публикации. Публикации остаются ручными и требуют отдельного одобрения владельца. Связанная подтверждённая публикация: https://oborot.ru/blogs/nakrutka-pf-i277755.html.',
+  platform: 'Oborot.ru', canonicalUrl: 'https://oborot.ru/blogs/nakrutka-pf-i277755.html',
+  publishedAt: '2026-08-29T00:00:00+03:00', reviewedAt: '2026-08-31T23:59:00.000Z',
+  authority: 'direct_owner_authenticated_session_confirmation',
+  verificationMethod: 'owner_authenticated_session_read_only_inspection',
+  verifiedFacts: {
+    editorial_connection: 'verified', workflow_mode: 'manual-package',
+    connected_publication_url: 'https://oborot.ru/blogs/nakrutka-pf-i277755.html',
+    official_publishing_api_exposed: false, self_service_automatic_publishing_exposed: false,
+    external_publication_requires_owner_approval: true, session_data_stored: false,
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  console.log(JSON.stringify(updatePublicationMemory(process.argv[2] ? resolve(process.argv[2]) : defaultDatabasePath, sostavFirstArticleUpdate)));
+  const command = process.argv[2] ?? 'sostav-first-article';
+  const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
+  const update = command === 'oborot-editorial-integration' ? oborotEditorialIntegrationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration> [databasePath]');
+  }
+  console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }
