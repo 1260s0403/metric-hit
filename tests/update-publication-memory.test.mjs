@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, updatePublicationMemory } from '../scripts/update-publication-memory.mjs';
+import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory } from '../scripts/update-publication-memory.mjs';
 
 test('publication memory update supersedes the existing revision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-publication-update-'));
@@ -115,6 +115,33 @@ test('owner-confirmed Oborot publication is created once without unrelated workf
     assert.equal(data.verified_facts.article_title, oborotInternetShopPublicationUpdate.verifiedFacts.article_title);
     assert.deepEqual(data.supersedes_semantic_revisions, []);
     assert.equal(/Chrome|расширен|автоматизац|изображен/iu.test(current.content), false);
+    readOnly.close();
+  } finally {
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
+    catch (error) { if (error?.code !== 'EBUSY') throw error; }
+  }
+});
+
+test('owner-confirmed TenChat publication records the exact cover asset', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-tenchat-publication-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    const first = updatePublicationMemory(databasePath, tenchatInternetShopPublicationUpdate);
+    const second = updatePublicationMemory(databasePath, tenchatInternetShopPublicationUpdate);
+    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    const readOnly = new DatabaseSync(databasePath, { readOnly: true });
+    const current = readOnly.prepare(`SELECT data_json,status FROM memory_candidates
+      WHERE semantic_key='publication.tenchat_internet_shop_start_category_2026_09_01'`).get();
+    const data = JSON.parse(current.data_json);
+    assert.equal(current.status, 'approved');
+    assert.equal(data.publication_status, 'owner_confirmed');
+    assert.equal(data.canonical_url, tenchatInternetShopPublicationUpdate.canonicalUrl);
+    assert.equal(data.verified_facts.local_draft_path, 'work/social/tenchat/drafts/2026-09-01-oborot-nakrutka-pf-internet-shop.md');
+    assert.equal(data.verified_facts.cover_asset_sha256, '2d4ac5caf492867520e461b3f2d574280302ee6b134e48aeae38582a30bc51ff');
+    assert.deepEqual(data.verified_facts.cover_asset_dimensions, { width: 1536, height: 1024 });
+    assert.equal(data.verified_facts.independent_fetch, 'not_performed');
     readOnly.close();
   } finally {
     try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }

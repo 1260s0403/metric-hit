@@ -174,13 +174,34 @@ export const oborotInternetShopPublicationUpdate = Object.freeze({
   },
 });
 
+export const tenchatInternetShopPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.tenchat_internet_shop_start_category_2026_09_01', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed',
+  title: 'Статья MetricHit опубликована в TenChat',
+  content: 'Статья «Накрутка ПФ для интернет-магазина: как выбрать стартовую категорию» опубликована в TenChat 01.09.2026. Публичная страница: https://tenchat.ru/media/6035722-nakrutka-pf-dlya-internetmagazina-kak-vybrat-startovuyu-kategoriyu. В публикации использована подтверждённая владельцем обложка из локального пакета TenChat.',
+  platform: 'TenChat',
+  canonicalUrl: 'https://tenchat.ru/media/6035722-nakrutka-pf-dlya-internetmagazina-kak-vybrat-startovuyu-kategoriyu',
+  publishedAt: '2026-09-01T00:00:00+03:00', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation_with_owner_provided_public_url', verificationMethod: 'owner_confirmation_with_owner_provided_public_url',
+  verifiedFacts: {
+    published: true, publication_date: '2026-09-01',
+    article_title: 'Накрутка ПФ для интернет-магазина: как выбрать стартовую категорию',
+    local_draft_path: 'work/social/tenchat/drafts/2026-09-01-oborot-nakrutka-pf-internet-shop.md',
+    cover_asset_path: 'work/social/tenchat/assets/2026-09-01-online-store-category-planning-cover.png',
+    cover_asset_sha256: '2d4ac5caf492867520e461b3f2d574280302ee6b134e48aeae38582a30bc51ff',
+    cover_asset_dimensions: { width: 1536, height: 1024 },
+    independent_fetch: 'not_performed',
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
   const update = command === 'oborot-editorial-integration' ? oborotEditorialIntegrationUpdate
-    : command === 'oborot-internet-shop-publication' ? oborotInternetShopPublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication'].includes(command)) {
-    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication> [databasePath]');
+    : command === 'oborot-internet-shop-publication' ? oborotInternetShopPublicationUpdate
+      : command === 'tenchat-internet-shop-publication' ? tenchatInternetShopPublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }
