@@ -194,14 +194,43 @@ export const tenchatInternetShopPublicationUpdate = Object.freeze({
   },
 });
 
+export const vkCommunityCoverPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.vk_community_cover_2026_09_01', revision: 2, expectedPriorRevisions: [1],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Обложка сообщества MetricHit опубликована во VK',
+  content: 'Владелец подтвердил публикацию обложки сообщества MetricHit во VK 01.09.2026. Локальный принятый файл: work/social/vk/assets/2026-09-01-metrichit-community-cover-owner-confirmed-published.png. Статус: owner_confirmed_published; отдельное внешнее действие в рамках этого обновления не выполнялось. Handoff для нового чата: обложка завершена; остаются описание сообщества, контакты без номера телефона, дальнейшее наполнение и актуализация закреплённого поста. Автоматизация браузера VK блокируется политикой платформы, но это не препятствие для владельца.',
+  platform: 'VK', canonicalUrl: 'https://vk.ru/metrichit',
+  publishedAt: '2026-09-01T00:00:00+03:00', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: {
+    published: true, publication_date: '2026-09-01',
+    community_url: 'https://vk.ru/metrichit',
+    local_asset_path: 'work/social/vk/assets/2026-09-01-metrichit-community-cover-owner-confirmed-published.png',
+    source_file_path: 'C:/Users/Administrator/Downloads/Изображение Codex 1 сент. 2026 г., 02_25_27.png',
+    asset_sha256: '1bad626ae2e24623538b2696941611f87a0bd5485c70323f372106d18c1caee8',
+    asset_dimensions: { width: 1983, height: 793 },
+    visual_standard: 'dark graphite, cyan-blue and fire-orange accents',
+    safe_zone_standard: 'No important content in the top crop and no text or CTA under the lower-left avatar; wordmark placement follows the live VK safe-zone preview.',
+    accepted_headline: 'ПОВЕДЕНЧЕСКОЕ ПРОДВИЖЕНИЕ САЙТОВ В ЯНДЕКСЕ',
+    headline_reuse_policy: 'accepted visual, not a required reusable marketing-copy formula',
+    installation_evidence: 'owner_confirmed_published',
+    new_chat_handoff: {
+      completed: 'VK community cover published after owner confirmation',
+      open: ['community description', 'contacts without phone number', 'further community filling', 'pinned-post update'],
+      browser_automation: 'policy_blocked_not_owner_blocker',
+    },
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
   const update = command === 'oborot-editorial-integration' ? oborotEditorialIntegrationUpdate
     : command === 'oborot-internet-shop-publication' ? oborotInternetShopPublicationUpdate
-      : command === 'tenchat-internet-shop-publication' ? tenchatInternetShopPublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication'].includes(command)) {
-    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication> [databasePath]');
+      : command === 'tenchat-internet-shop-publication' ? tenchatInternetShopPublicationUpdate
+        : command === 'vk-community-cover-publication' ? vkCommunityCoverPublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }
