@@ -269,7 +269,9 @@ function editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy = nu
   if (!rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore)) return null;
   const source = taskBrief.editorialSemantics ?? {};
   const semanticContext = {
-    selected_cluster: nonEmptyText(source.selectedCluster),
+    selected_clusters: Array.isArray(source.selectedClusters)
+      ? source.selectedClusters.map(nonEmptyText).filter(Boolean) : null,
+    adjacent_cluster_rationale: nonEmptyText(source.adjacentClusterRationale),
     primary_target_query: nonEmptyText(source.primaryTargetQuery),
     secondary_target_queries: Array.isArray(source.secondaryTargetQueries)
       ? source.secondaryTargetQueries.map(nonEmptyText).filter(Boolean) : null,
@@ -278,7 +280,9 @@ function editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy = nu
     format: nonEmptyText(source.format),
     core_reference: SEMANTIC_CORE_REFERENCE_KEY,
   };
-  const missing = Object.entries(semanticContext).filter(([, value]) => !value).map(([key]) => `editorial_semantics.${key}`);
+  const missing = Object.entries(semanticContext)
+    .filter(([key, value]) => key !== 'adjacent_cluster_rationale' && !value)
+    .map(([key]) => `editorial_semantics.${key}`);
   if (missing.length) throw new Error(`execution card is incomplete: ${missing.join(', ')}`);
   if (!['article', 'social_post'].includes(semanticContext.format)) {
     throw new Error('execution card is incomplete: editorial_semantics.format');
@@ -286,16 +290,28 @@ function editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy = nu
   if (!Array.isArray(semanticContext.secondary_target_queries)) {
     throw new Error('execution card is incomplete: editorial_semantics.secondary_target_queries');
   }
-  const selectedClusterQueries = semanticCoreTaxonomy?.[semanticContext.selected_cluster];
-  if (!Array.isArray(selectedClusterQueries)) {
-    throw new Error('execution card is incomplete: editorial_semantics.selected_cluster_not_in_approved_core');
+  if (!Array.isArray(semanticContext.selected_clusters) || !semanticContext.selected_clusters.length) {
+    throw new Error('execution card is incomplete: editorial_semantics.selected_clusters');
+  }
+  if (new Set(semanticContext.selected_clusters).size !== semanticContext.selected_clusters.length) {
+    throw new Error('execution card is incomplete: editorial_semantics.duplicate_selected_cluster');
+  }
+  const selectedClusterQueries = semanticContext.selected_clusters.flatMap((cluster) => {
+    const queries = semanticCoreTaxonomy?.[cluster];
+    if (!Array.isArray(queries)) {
+      throw new Error('execution card is incomplete: editorial_semantics.selected_cluster_not_in_approved_core');
+    }
+    return queries;
+  });
+  if (semanticContext.selected_clusters.length > 1 && !semanticContext.adjacent_cluster_rationale) {
+    throw new Error('execution card is incomplete: editorial_semantics.adjacent_cluster_rationale');
   }
   const targetQueries = [semanticContext.primary_target_query, ...semanticContext.secondary_target_queries];
   if (new Set(targetQueries).size !== targetQueries.length) {
     throw new Error('execution card is incomplete: editorial_semantics.duplicate_target_query');
   }
   if (targetQueries.some((query) => !selectedClusterQueries.includes(query))) {
-    throw new Error('execution card is incomplete: editorial_semantics.target_query_not_in_selected_approved_core_cluster');
+    throw new Error('execution card is incomplete: editorial_semantics.target_query_not_in_selected_approved_core_clusters');
   }
   return semanticContext;
 }
@@ -322,15 +338,15 @@ function editorialQaRequirements(rules, editorialSemantics, editorialIndexation)
     && !keys.has(REQUIRED_EDITORIAL_RULES.article) && !keys.has(REQUIRED_EDITORIAL_RULES.tenchat)) return null;
   const checks = [];
   if (keys.has(REQUIRED_EDITORIAL_RULES.semanticCore)) {
-    checks.push({ id: 'semantic_cluster_selection', evidence_fields: ['selected_cluster', 'primary_target_query', 'secondary_target_queries', 'user_intent', 'platform', 'core_reference', 'non_navigational'] });
-    checks.push({ id: 'target_queries_approved_core', evidence_fields: ['core_reference', 'selected_cluster', 'primary_target_query', 'secondary_target_queries', 'target_queries_match_card', 'all_target_queries_approved', 'all_target_queries_same_cluster', 'duplicate_target_queries', 'keyword_stuffing'] });
+    checks.push({ id: 'semantic_cluster_selection', evidence_fields: ['selected_clusters', 'adjacent_cluster_rationale', 'primary_target_query', 'secondary_target_queries', 'user_intent', 'platform', 'core_reference', 'non_navigational'] });
+    checks.push({ id: 'target_queries_approved_core', evidence_fields: ['core_reference', 'selected_clusters', 'primary_target_query', 'secondary_target_queries', 'target_queries_match_card', 'all_target_queries_approved', 'all_target_queries_in_selected_clusters', 'duplicate_target_queries', 'keyword_stuffing'] });
     checks.push({ id: 'primary_query_prominence', evidence_fields: ['primary_target_query', 'platform', 'location', 'natural', 'keyword_stuffing'] });
-    checks.push({ id: 'single_cluster_intent', evidence_fields: ['selected_cluster', 'user_intent', 'content_serves_selected_intent', 'unrelated_clusters_mixed'] });
+    checks.push({ id: 'adjacent_clusters_one_intent', evidence_fields: ['selected_clusters', 'adjacent_cluster_rationale', 'user_intent', 'clusters_are_adjacent', 'content_serves_selected_intent', 'unrelated_clusters_mixed'] });
     checks.push({ id: 'geo_demand_verification', evidence_fields: ['geo_candidate', 'demand_verification_required', 'demand_verified', 'verification_reference'] });
   }
   if (keys.has(REQUIRED_EDITORIAL_RULES.vkPostWritingStandard)) {
     checks.push({ id: 'vk_body_character_count', evidence_fields: ['character_count', 'count_scope', 'length_band', 'rationale', 'not_extended_for_seo_only'] });
-    checks.push({ id: 'vk_semantic_structure', evidence_fields: ['primary_target_query', 'selected_cluster', 'user_intent', 'in_headline', 'in_opening_paragraph', 'natural_mentions_total', 'keyword_stuffing', 'all_sections_serve_selected_query', 'opening_answers_query', 'useful_subheads_or_checklist', 'concrete_practical_details', 'practical_conclusion', 'natural_cta', 'padding_or_repetition', 'unsupported_seo_claims'] });
+    checks.push({ id: 'vk_semantic_structure', evidence_fields: ['primary_target_query', 'selected_clusters', 'user_intent', 'in_headline', 'in_opening_paragraph', 'natural_mentions_total', 'keyword_stuffing', 'all_sections_serve_selected_query', 'opening_answers_query', 'useful_subheads_or_checklist', 'concrete_practical_details', 'practical_conclusion', 'natural_cta', 'padding_or_repetition', 'unsupported_seo_claims'] });
   }
   if (keys.has(REQUIRED_EDITORIAL_RULES.article)) {
     checks.push({ id: 'landing_link_distribution', evidence_fields: ['url', 'exact_count', 'positions', 'natural_anchors', 'link_spam'] });
@@ -416,7 +432,8 @@ function validateEditorialContentQa(specification, contentQa) {
   const semanticContext = specification.semantic_context;
   const selection = byId.get('semantic_cluster_selection');
   if (selection && (!semanticContext
-    || selection.selected_cluster !== semanticContext.selected_cluster
+    || canonical(selection.selected_clusters) !== canonical(semanticContext.selected_clusters)
+    || selection.adjacent_cluster_rationale !== semanticContext.adjacent_cluster_rationale
     || selection.primary_target_query !== semanticContext.primary_target_query
     || canonical(selection.secondary_target_queries) !== canonical(semanticContext.secondary_target_queries)
     || selection.user_intent !== semanticContext.user_intent
@@ -428,12 +445,12 @@ function validateEditorialContentQa(specification, contentQa) {
   const approvedTargets = byId.get('target_queries_approved_core');
   if (approvedTargets && (!semanticContext
     || approvedTargets.core_reference !== semanticContext.core_reference
-    || approvedTargets.selected_cluster !== semanticContext.selected_cluster
+    || canonical(approvedTargets.selected_clusters) !== canonical(semanticContext.selected_clusters)
     || approvedTargets.primary_target_query !== semanticContext.primary_target_query
     || canonical(approvedTargets.secondary_target_queries) !== canonical(semanticContext.secondary_target_queries)
     || approvedTargets.target_queries_match_card !== true
     || approvedTargets.all_target_queries_approved !== true
-    || approvedTargets.all_target_queries_same_cluster !== true
+    || approvedTargets.all_target_queries_in_selected_clusters !== true
     || approvedTargets.duplicate_target_queries !== false
     || approvedTargets.keyword_stuffing !== false)) {
     throw new Error('delivery validation failed: editorial_content_qa_failed:target_queries_approved_core');
@@ -447,13 +464,15 @@ function validateEditorialContentQa(specification, contentQa) {
     || prominence.natural !== true || prominence.keyword_stuffing !== false)) {
     throw new Error('delivery validation failed: editorial_content_qa_failed:primary_query_prominence');
   }
-  const singleCluster = byId.get('single_cluster_intent');
-  if (singleCluster && (!semanticContext
-    || singleCluster.selected_cluster !== semanticContext.selected_cluster
-    || singleCluster.user_intent !== semanticContext.user_intent
-    || singleCluster.content_serves_selected_intent !== true
-    || singleCluster.unrelated_clusters_mixed !== false)) {
-    throw new Error('delivery validation failed: editorial_content_qa_failed:single_cluster_intent');
+  const adjacentClusters = byId.get('adjacent_clusters_one_intent');
+  if (adjacentClusters && (!semanticContext
+    || canonical(adjacentClusters.selected_clusters) !== canonical(semanticContext.selected_clusters)
+    || adjacentClusters.adjacent_cluster_rationale !== semanticContext.adjacent_cluster_rationale
+    || adjacentClusters.user_intent !== semanticContext.user_intent
+    || adjacentClusters.clusters_are_adjacent !== true
+    || adjacentClusters.content_serves_selected_intent !== true
+    || adjacentClusters.unrelated_clusters_mixed !== false)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:adjacent_clusters_one_intent');
   }
   const geoDemand = byId.get('geo_demand_verification');
   if (geoDemand && (typeof geoDemand.geo_candidate !== 'boolean'
@@ -519,7 +538,7 @@ function validateEditorialContentQa(specification, contentQa) {
   const vkStructure = byId.get('vk_semantic_structure');
   if (vkStructure && (!semanticContext
     || vkStructure.primary_target_query !== semanticContext.primary_target_query
-    || vkStructure.selected_cluster !== semanticContext.selected_cluster
+    || canonical(vkStructure.selected_clusters) !== canonical(semanticContext.selected_clusters)
     || vkStructure.user_intent !== semanticContext.user_intent
     || vkStructure.in_headline !== true || vkStructure.in_opening_paragraph !== true
     || !Number.isInteger(vkStructure.natural_mentions_total) || vkStructure.natural_mentions_total < 2 || vkStructure.natural_mentions_total > 3

@@ -108,10 +108,11 @@ function referenceFixture() {
   const result = fixture();
   const projectDatabasePath = join(result.directory, 'project.sqlite');
   const project = new DatabaseSync(projectDatabasePath);
-  const keywords = Array.from({ length: 142 }, (_, index) => `keyword-${index + 1}`);
+  const keywords = Array.from({ length: 141 }, (_, index) => `keyword-${index + 1}`);
   const launchAndManagement = ['накрутка ПФ Яндекс', 'как запустить накрутку ПФ', 'настройка проекта ПФ'];
+  const segments = ['поведенческие факторы для интернет-магазина'];
   const content = 'Fixture semantic core with 145 approved non-navigation queries.';
-  const dataJson = JSON.stringify({ taxonomy: { fixture: keywords, launch_and_management: launchAndManagement }, keyword_count: keywords.length + launchAndManagement.length });
+  const dataJson = JSON.stringify({ taxonomy: { fixture: keywords, launch_and_management: launchAndManagement, segments }, keyword_count: keywords.length + launchAndManagement.length + segments.length });
   project.exec(`CREATE TABLE project_storage_metadata (
     singleton INTEGER PRIMARY KEY, project_id TEXT NOT NULL, storage_format INTEGER NOT NULL
   ); CREATE TABLE memory_candidates (
@@ -133,7 +134,7 @@ function referenceFixture() {
   control.prepare('UPDATE scoped_memory_records SET metadata_json=? WHERE semantic_key=?')
     .run(JSON.stringify(metadata), SEMANTIC_CORE_REFERENCE_KEY);
   control.close();
-  return { ...result, projectDatabasePath, keywords, launchAndManagement };
+  return { ...result, projectDatabasePath, keywords, launchAndManagement, segments };
 }
 
 function addPublicEditorialSemanticCorePolicy(databasePath) {
@@ -185,24 +186,24 @@ function publicEditorialSemanticQa(semantics) {
   return {
     checks: [
       { id: 'semantic_cluster_selection', performed: true, passed: true,
-        result: 'Selected one compact non-navigational semantic-core cluster.',
-        evidence: { selected_cluster: semantics.selectedCluster, primary_target_query: semantics.primaryTargetQuery,
+        result: 'Selected one or more documented adjacent non-navigational semantic-core clusters.',
+        evidence: { selected_clusters: semantics.selectedClusters, adjacent_cluster_rationale: semantics.adjacentClusterRationale ?? null, primary_target_query: semantics.primaryTargetQuery,
           secondary_target_queries: semantics.secondaryTargetQueries, user_intent: semantics.userIntent, platform: semantics.platform,
           core_reference: SEMANTIC_CORE_REFERENCE_KEY, non_navigational: true } },
       { id: 'target_queries_approved_core', performed: true, passed: true,
-        result: 'Every declared target query is verbatim in the selected approved semantic-core cluster.',
-        evidence: { core_reference: SEMANTIC_CORE_REFERENCE_KEY, selected_cluster: semantics.selectedCluster,
+        result: 'Every declared target query is verbatim in the selected approved semantic-core clusters.',
+        evidence: { core_reference: SEMANTIC_CORE_REFERENCE_KEY, selected_clusters: semantics.selectedClusters,
           primary_target_query: semantics.primaryTargetQuery, secondary_target_queries: semantics.secondaryTargetQueries,
-          target_queries_match_card: true, all_target_queries_approved: true, all_target_queries_same_cluster: true,
+          target_queries_match_card: true, all_target_queries_approved: true, all_target_queries_in_selected_clusters: true,
           duplicate_target_queries: false, keyword_stuffing: false } },
       { id: 'primary_query_prominence', performed: true, passed: true,
         result: 'Primary query is natural in the required prominent location.',
         evidence: { primary_target_query: semantics.primaryTargetQuery, platform: semantics.platform,
           location: semantics.format === 'article' ? 'h1' : 'headline', natural: true, keyword_stuffing: false } },
-      { id: 'single_cluster_intent', performed: true, passed: true,
-        result: 'The material serves one selected intent without unrelated clusters.',
-        evidence: { selected_cluster: semantics.selectedCluster, user_intent: semantics.userIntent,
-          content_serves_selected_intent: true, unrelated_clusters_mixed: false } },
+      { id: 'adjacent_clusters_one_intent', performed: true, passed: true,
+        result: 'The material serves one documented intent across the selected adjacent clusters.',
+        evidence: { selected_clusters: semantics.selectedClusters, adjacent_cluster_rationale: semantics.adjacentClusterRationale ?? null,
+          user_intent: semantics.userIntent, clusters_are_adjacent: true, content_serves_selected_intent: true, unrelated_clusters_mixed: false } },
       { id: 'geo_demand_verification', performed: true, passed: true,
         result: 'No geo candidate is used.',
         evidence: { geo_candidate: false, demand_verification_required: true, demand_verified: false, verification_reference: null } },
@@ -246,8 +247,8 @@ function vkPostQa(semantics, characterCount, lengthBand, rationale) {
       evidence: { character_count: characterCount, count_scope: 'russian_post_body_excluding_internal_metadata_and_urls',
         length_band: lengthBand, rationale, not_extended_for_seo_only: true } },
     { id: 'vk_semantic_structure', performed: true, passed: true,
-      result: 'One semantic cluster and one intent are naturally sustained from the headline through the CTA.',
-      evidence: { primary_target_query: semantics.primaryTargetQuery, selected_cluster: semantics.selectedCluster,
+      result: 'One intent is naturally sustained across the selected clusters from the headline through the CTA.',
+      evidence: { primary_target_query: semantics.primaryTargetQuery, selected_clusters: semantics.selectedClusters,
         user_intent: semantics.userIntent, in_headline: true, in_opening_paragraph: true, natural_mentions_total: 2,
         keyword_stuffing: false, all_sections_serve_selected_query: true, opening_answers_query: true,
         useful_subheads_or_checklist: true, concrete_practical_details: true, practical_conclusion: true,
@@ -499,7 +500,8 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
       forbiddenChanges: ['publication'],
     };
     const vkSemantics = {
-      selectedCluster: 'launch_and_management', primaryTargetQuery: 'накрутка ПФ Яндекс', secondaryTargetQueries: ['как запустить накрутку ПФ'],
+      selectedClusters: ['launch_and_management'], adjacentClusterRationale: null,
+      primaryTargetQuery: 'накрутка ПФ Яндекс', secondaryTargetQueries: ['как запустить накрутку ПФ'],
       userIntent: 'понять управляемый запуск ПФ', platform: 'VK', format: 'social_post',
     };
     const vkIndexation = {
@@ -507,7 +509,7 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
     };
     assert.throws(() => compileContextPack(databasePath, {
       text: 'Подготовь пост VK для MetricHit', projectDatabasePath, taskBrief: baseBrief,
-    }), /editorial_semantics\.selected_cluster/);
+    }), /editorial_semantics\.selected_clusters/);
     assert.throws(() => compileContextPack(databasePath, {
       text: 'Подготовь пост VK для MetricHit', projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: vkSemantics },
     }), /editorial_indexation\.seo_indexation_objective/);
@@ -518,7 +520,8 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
     assert.ok(vkCard.mandatory_rules.some((item) => item.semantic_key === 'content.public_editorial_semantic_core_policy'));
     assert.ok(vkCard.mandatory_rules.some((item) => item.semantic_key === 'content.public_editorial_yandex_indexation_pf_target_policy'));
     assert.deepEqual(vkCard.editorial_semantics, {
-      selected_cluster: vkSemantics.selectedCluster, primary_target_query: vkSemantics.primaryTargetQuery,
+      selected_clusters: vkSemantics.selectedClusters, adjacent_cluster_rationale: vkSemantics.adjacentClusterRationale,
+      primary_target_query: vkSemantics.primaryTargetQuery,
       secondary_target_queries: vkSemantics.secondaryTargetQueries, user_intent: vkSemantics.userIntent,
       platform: vkSemantics.platform, format: 'social_post', core_reference: SEMANTIC_CORE_REFERENCE_KEY,
     });
@@ -530,15 +533,28 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
         auto_authorized: false,
       },
     });
-    assert.deepEqual(vkCard.delivery_qa.checks.map((item) => item.id), ['semantic_cluster_selection', 'target_queries_approved_core', 'primary_query_prominence', 'single_cluster_intent', 'geo_demand_verification']);
+    assert.deepEqual(vkCard.delivery_qa.checks.map((item) => item.id), ['semantic_cluster_selection', 'target_queries_approved_core', 'primary_query_prominence', 'adjacent_clusters_one_intent', 'geo_demand_verification']);
     const baseDelivery = { result: 'Материал проверен', checks: [baseBrief.firstCheck],
       satisfiedAcceptance: baseBrief.acceptance, scopeCompliance: true, forbiddenChangesObserved: [] };
+    const adjacentSemantics = {
+      selectedClusters: ['launch_and_management', 'segments'],
+      adjacentClusterRationale: 'Оба кластера обслуживают один интент: планирование запуска ПФ для интернет-магазина.',
+      primaryTargetQuery: 'накрутка ПФ Яндекс', secondaryTargetQueries: ['поведенческие факторы для интернет-магазина'],
+      userIntent: 'понять управляемый запуск ПФ для интернет-магазина', platform: 'VK', format: 'social_post',
+    };
+    const adjacentCompiled = compileContextPack(databasePath, { text: 'Подготовь пост VK с несколькими смежными кластерами', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: adjacentSemantics, editorialIndexation: vkIndexation } });
+    assert.deepEqual(adjacentCompiled.pack.payload.execution_card.editorial_semantics.selected_clusters, adjacentSemantics.selectedClusters);
+    assert.equal(closeContextPack(databasePath, adjacentCompiled.pack.id, { ...baseDelivery, contentQa: publicEditorialQa(adjacentSemantics) }).status, 'closed');
+    assert.throws(() => compileContextPack(databasePath, { text: 'Подготовь пост VK с несколькими кластерами без обоснования', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: { ...adjacentSemantics, adjacentClusterRationale: null }, editorialIndexation: vkIndexation } }),
+    /editorial_semantics\.adjacent_cluster_rationale/);
     assert.throws(() => compileContextPack(databasePath, { text: 'Подготовь пост VK с неутверждённым ключом', projectDatabasePath,
       taskBrief: { ...baseBrief, editorialSemantics: { ...vkSemantics, primaryTargetQuery: 'придуманный LSI запрос' }, editorialIndexation: vkIndexation } }),
-    /target_query_not_in_selected_approved_core_cluster/);
+    /target_query_not_in_selected_approved_core_clusters/);
     assert.throws(() => compileContextPack(databasePath, { text: 'Подготовь пост VK со смешанным кластером', projectDatabasePath,
       taskBrief: { ...baseBrief, editorialSemantics: { ...vkSemantics, secondaryTargetQueries: ['keyword-1'] }, editorialIndexation: vkIndexation } }),
-    /target_query_not_in_selected_approved_core_cluster/);
+    /target_query_not_in_selected_approved_core_clusters/);
     assert.throws(() => compileContextPack(databasePath, { text: 'Подготовь пост VK без списка вторичных ключей', projectDatabasePath,
       taskBrief: { ...baseBrief, editorialSemantics: { ...vkSemantics, secondaryTargetQueries: undefined }, editorialIndexation: vkIndexation } }),
     /editorial_semantics\.secondary_target_queries/);
@@ -592,7 +608,8 @@ test('VK writing standard is isolated and validates target plus both justified e
       forbiddenChanges: ['publication'],
     };
     const semantics = {
-      selectedCluster: 'launch_and_management', primaryTargetQuery: 'накрутка ПФ Яндекс', secondaryTargetQueries: ['как запустить накрутку ПФ'],
+      selectedClusters: ['launch_and_management'], adjacentClusterRationale: null,
+      primaryTargetQuery: 'накрутка ПФ Яндекс', secondaryTargetQueries: ['как запустить накрутку ПФ'],
       userIntent: 'понять управляемый запуск ПФ', platform: 'VK', format: 'social_post',
     };
     const indexation = { seoIndexationObjective: 'Индексация Яндекса по выбранному запросу' };
