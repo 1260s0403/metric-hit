@@ -35,7 +35,7 @@ function section(database, heading, types) {
     ORDER BY semantic_key
   `).all(...types);
   const body = rows.length
-    ? rows.map(({ title, content }) => `- **${title}:** ${content}`).join('\n')
+    ? rows.map(({ title, content }) => `- **${title}:** ${content.replace(/[ \t]+$/gmu, '').trimEnd()}`).join('\n')
     : '- Нет утверждённых записей.';
   return `## ${heading}\n\n${body}`;
 }
