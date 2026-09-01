@@ -23,10 +23,13 @@ function assertPublicationUpdate(update) {
   const title = requiredText(update.title, 'title');
   const content = requiredText(update.content, 'content');
   const platform = requiredText(update.platform, 'platform');
-  const canonicalUrl = requiredText(update.canonicalUrl, 'canonicalUrl');
+  const canonicalUrl = update.canonicalUrl === null || update.canonicalUrl === undefined
+    ? null : requiredText(update.canonicalUrl, 'canonicalUrl');
   const publishedAt = requiredText(update.publishedAt, 'publishedAt');
   const reviewedAt = requiredText(update.reviewedAt, 'reviewedAt');
-  if (!URL.canParse(canonicalUrl) || !/^https?:\/\//u.test(canonicalUrl)) throw new Error('canonicalUrl must be an http(s) URL');
+  if (canonicalUrl !== null && (!URL.canParse(canonicalUrl) || !/^https?:\/\//u.test(canonicalUrl))) {
+    throw new Error('canonicalUrl must be an http(s) URL when provided');
+  }
   if (Number.isInteger(update.revision) === false || update.revision < 1) throw new Error('revision must be a positive integer');
   if (!Array.isArray(update.expectedPriorRevisions) || !update.expectedPriorRevisions.every(Number.isInteger)) {
     throw new Error('expectedPriorRevisions must be an integer array');
@@ -43,7 +46,9 @@ function assertPublicationUpdate(update) {
     ? 'direct_owner_request_with_public_readonly_verification' : requiredText(update.authority, 'authority');
   const verificationMethod = update.verificationMethod === undefined
     ? 'public_page_read_only' : requiredText(update.verificationMethod, 'verificationMethod');
-  return { ...update, semanticKey, title, content, platform, canonicalUrl, publishedAt, reviewedAt,
+  const publicUrlStatus = canonicalUrl === null
+    ? 'not_provided_by_owner' : 'owner_provided';
+  return { ...update, semanticKey, title, content, platform, canonicalUrl, publicUrlStatus, publishedAt, reviewedAt,
     publicationStatus, authority, verificationMethod };
 }
 
@@ -74,6 +79,7 @@ export function updatePublicationMemory(databasePath = defaultDatabasePath, inpu
     publication_status: update.publicationStatus,
     canonical_url: update.canonicalUrl,
     public_url: update.canonicalUrl,
+    public_url_status: update.publicUrlStatus,
     published_at: update.publishedAt,
     verified_facts: update.verifiedFacts,
     revision: update.revision,
@@ -240,16 +246,35 @@ export const vkPfYandexServiceUpdate = Object.freeze({
   },
 });
 
+export const vkYandexMapsServicePublicationUpdate = Object.freeze({
+  semanticKey: 'publication.vk_service_nakrutka_yandex_maps_2026_09_01', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Услуга MetricHit «Накрутка в Яндекс Картах» опубликована во VK',
+  content: 'Владелец подтвердил публикацию услуги MetricHit «Накрутка в Яндекс Картах» во VK 01.09.2026. Цена от 5 000 ₽. В карточке установлена вертикальная обложка с текстом «НАКРУТКА В ЯНДЕКС КАРТАХ». Опубликованное описание: «Накрутка в Яндекс Картах для бизнеса, которому важно усилить присутствие в локальной выдаче. Работаем с карточкой организации и спросом в нужном регионе. Перед стартом уточняем задачу, город и текущую ситуацию по карточке. Стоимость — от 5 000 ₽. Итоговый объём подбирается под вашу задачу. Напишите в сообщения сообщества, чтобы обсудить запуск.» Публичный URL владельцем не предоставлен; внешний адрес не указан. Внешнее действие в рамках этого обновления не выполнялось.',
+  platform: 'VK', canonicalUrl: null,
+  publishedAt: '2026-09-01T00:00:00+03:00', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_screenshot_confirmation', verificationMethod: 'owner_provided_screenshot',
+  verifiedFacts: {
+    published: true, confirmation_date: '2026-09-01',
+    service_title: 'Накрутка в Яндекс Картах', price_from_rub: 5000,
+    card_cover: 'vertical_cover', card_cover_text: 'НАКРУТКА В ЯНДЕКС КАРТАХ',
+    description: 'Накрутка в Яндекс Картах для бизнеса, которому важно усилить присутствие в локальной выдаче. Работаем с карточкой организации и спросом в нужном регионе. Перед стартом уточняем задачу, город и текущую ситуацию по карточке. Стоимость — от 5 000 ₽. Итоговый объём подбирается под вашу задачу. Напишите в сообщения сообщества, чтобы обсудить запуск.',
+    public_url: null, public_url_status: 'not_provided_by_owner',
+    external_action_performed_in_this_update: false,
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
   const update = command === 'oborot-editorial-integration' ? oborotEditorialIntegrationUpdate
     : command === 'oborot-internet-shop-publication' ? oborotInternetShopPublicationUpdate
       : command === 'tenchat-internet-shop-publication' ? tenchatInternetShopPublicationUpdate
-        : command === 'vk-community-cover-publication' ? vkCommunityCoverPublicationUpdate
-          : command === 'vk-pf-yandex-service' ? vkPfYandexServiceUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service'].includes(command)) {
-    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service> [databasePath]');
+          : command === 'vk-community-cover-publication' ? vkCommunityCoverPublicationUpdate
+          : command === 'vk-pf-yandex-service' ? vkPfYandexServiceUpdate
+            : command === 'vk-yandex-maps-service-publication' ? vkYandexMapsServicePublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }

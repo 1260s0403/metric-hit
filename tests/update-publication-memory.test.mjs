@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkCommunityCoverPublicationUpdate, vkPfYandexServiceUpdate } from '../scripts/update-publication-memory.mjs';
+import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkCommunityCoverPublicationUpdate, vkPfYandexServiceUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
 
 test('publication memory update supersedes the existing revision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-publication-update-'));
@@ -199,6 +199,37 @@ test('owner-confirmed VK service update records the exact public URL and display
     assert.equal(data.verified_facts.price_from_rub, 1000);
     assert.equal(data.verified_facts.card_cover, 'new_square_cover');
     assert.equal(data.verified_facts.description_visible, true);
+    assert.equal(data.verified_facts.external_action_performed_in_this_update, false);
+    readOnly.close();
+  } finally {
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
+    catch (error) { if (error?.code !== 'EBUSY') throw error; }
+  }
+});
+
+test('owner-confirmed VK Yandex Maps service records published state without inventing a public URL', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-vk-yandex-maps-service-publication-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    const first = updatePublicationMemory(databasePath, vkYandexMapsServicePublicationUpdate);
+    const second = updatePublicationMemory(databasePath, vkYandexMapsServicePublicationUpdate);
+    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    const readOnly = new DatabaseSync(databasePath, { readOnly: true });
+    const current = readOnly.prepare(`SELECT content,data_json,status FROM memory_candidates
+      WHERE semantic_key='publication.vk_service_nakrutka_yandex_maps_2026_09_01'`).get();
+    const data = JSON.parse(current.data_json);
+    assert.equal(current.status, 'approved');
+    assert.equal(data.publication_status, 'owner_confirmed_published');
+    assert.equal(data.canonical_url, null);
+    assert.equal(data.public_url, null);
+    assert.equal(data.public_url_status, 'not_provided_by_owner');
+    assert.equal(data.verified_facts.service_title, 'Накрутка в Яндекс Картах');
+    assert.equal(data.verified_facts.price_from_rub, 5000);
+    assert.equal(data.verified_facts.card_cover, 'vertical_cover');
+    assert.equal(data.verified_facts.card_cover_text, 'НАКРУТКА В ЯНДЕКС КАРТАХ');
+    assert.match(current.content, /Публичный URL владельцем не предоставлен/);
     assert.equal(data.verified_facts.external_action_performed_in_this_update, false);
     readOnly.close();
   } finally {
