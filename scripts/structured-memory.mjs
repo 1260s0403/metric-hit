@@ -166,7 +166,7 @@ export function resolveScopedMemory(database, scopeId, taskType, { includeHistor
 function inferTaskType(text, explicit) {
   if (explicit) return explicit;
   if (/(research|исследован|семантическ|ключев.{0,20}запрос)/iu.test(text)) return 'research';
-  if (/(стать|редак|контент|social|smm|публикац|tenchat|тенчат)/iu.test(text)) return 'editorial';
+  if (/(стать|редак|контент|social|smm|публикац|пост|tenchat|тенчат)/iu.test(text)) return 'editorial';
   if (/(интерфейс|\bui\b|css|html|e2e|operator panel)/iu.test(text)) return 'ui';
   if (/(памят|governance|policy|правил)/iu.test(text)) return 'governance';
   if (/(документ|документац|\bdocs?\b|readme)/iu.test(text)) return 'docs';
@@ -179,6 +179,7 @@ function hasTable(database, name) {
 }
 
 const REQUIRED_EDITORIAL_RULES = Object.freeze({
+  semanticCore: 'content.public_editorial_semantic_core_policy',
   article: 'content.editorial_article_preparation_policy',
   tenchat: 'editorial.tenchat_format_and_search_policy',
 });
@@ -241,10 +242,35 @@ export function resolveApprovedEditorialRequirements(database, route) {
   return requirements.sort((a, b) => a.semantic_key.localeCompare(b.semantic_key) || a.id.localeCompare(b.id));
 }
 
-function editorialQaRequirements(rules) {
+function editorialSemanticsFromBrief(taskBrief, rules) {
+  if (!rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore)) return null;
+  const source = taskBrief.editorialSemantics ?? {};
+  const semanticContext = {
+    selected_cluster: nonEmptyText(source.selectedCluster),
+    primary_target_query: nonEmptyText(source.primaryTargetQuery),
+    user_intent: nonEmptyText(source.userIntent),
+    platform: nonEmptyText(source.platform),
+    format: nonEmptyText(source.format),
+  };
+  const missing = Object.entries(semanticContext).filter(([, value]) => !value).map(([key]) => `editorial_semantics.${key}`);
+  if (missing.length) throw new Error(`execution card is incomplete: ${missing.join(', ')}`);
+  if (!['article', 'social_post'].includes(semanticContext.format)) {
+    throw new Error('execution card is incomplete: editorial_semantics.format');
+  }
+  return semanticContext;
+}
+
+function editorialQaRequirements(rules, editorialSemantics) {
   const keys = new Set(rules.map((rule) => rule.semantic_key));
-  if (!keys.has(REQUIRED_EDITORIAL_RULES.article) && !keys.has(REQUIRED_EDITORIAL_RULES.tenchat)) return null;
+  if (!keys.has(REQUIRED_EDITORIAL_RULES.semanticCore)
+    && !keys.has(REQUIRED_EDITORIAL_RULES.article) && !keys.has(REQUIRED_EDITORIAL_RULES.tenchat)) return null;
   const checks = [];
+  if (keys.has(REQUIRED_EDITORIAL_RULES.semanticCore)) {
+    checks.push({ id: 'semantic_cluster_selection', evidence_fields: ['selected_cluster', 'primary_target_query', 'user_intent', 'platform', 'core_reference', 'non_navigational'] });
+    checks.push({ id: 'primary_query_prominence', evidence_fields: ['primary_target_query', 'platform', 'location', 'natural', 'keyword_stuffing'] });
+    checks.push({ id: 'single_cluster_intent', evidence_fields: ['selected_cluster', 'user_intent', 'content_serves_selected_intent', 'unrelated_clusters_mixed'] });
+    checks.push({ id: 'geo_demand_verification', evidence_fields: ['geo_candidate', 'demand_verification_required', 'demand_verified', 'verification_reference'] });
+  }
   if (keys.has(REQUIRED_EDITORIAL_RULES.article)) {
     checks.push({ id: 'landing_link_distribution', evidence_fields: ['url', 'exact_count', 'positions', 'natural_anchors', 'link_spam'] });
     checks.push({ id: 'originality_source_overlap', evidence_fields: ['method', 'content_sha256', 'compared_sources', 'max_overlap_percent', 'template_match'] });
@@ -259,7 +285,7 @@ function editorialQaRequirements(rules) {
     checks.push({ id: 'link_count_and_spam', evidence_fields: ['link_count', 'minimum', 'maximum', 'link_spam'] });
   }
   return {
-    required: true, checks,
+    required: true, checks, semantic_context: editorialSemantics,
     external_detection: {
       plagiarism: 'unavailable_or_not_performed',
       ai_detection: 'unavailable_or_not_performed',
@@ -271,6 +297,7 @@ function buildExecutionCard(taskBrief, route, rules) {
   const scope = nonEmptyList(taskBrief.scope ?? taskBrief.allowedChanges);
   const acceptance = nonEmptyList(taskBrief.acceptance);
   const forbiddenChanges = nonEmptyList(taskBrief.forbiddenChanges);
+  const editorialSemantics = editorialSemanticsFromBrief(taskBrief, rules);
   const card = {
     result: nonEmptyText(taskBrief.result),
     scope,
@@ -281,7 +308,8 @@ function buildExecutionCard(taskBrief, route, rules) {
       ...rules.map((rule) => ({ semantic_key: rule.semantic_key, title: rule.title, content: rule.content,
         source: rule.source, effect: rule.effect ?? 'mandatory', authority: rule.authority ?? 'scoped_memory' })),
     ],
-    delivery_qa: editorialQaRequirements(rules),
+    editorial_semantics: editorialSemantics,
+    delivery_qa: editorialQaRequirements(rules, editorialSemantics),
     first_check: nonEmptyText(taskBrief.firstCheck),
     acceptance,
     forbidden_changes: forbiddenChanges,
@@ -322,6 +350,40 @@ function validateEditorialContentQa(specification, contentQa) {
       result: report.result.trim(), evidence: report.evidence });
   }
   const byId = new Map(exactReports.map((item) => [item.id, item.evidence]));
+  const semanticContext = specification.semantic_context;
+  const selection = byId.get('semantic_cluster_selection');
+  if (selection && (!semanticContext
+    || selection.selected_cluster !== semanticContext.selected_cluster
+    || selection.primary_target_query !== semanticContext.primary_target_query
+    || selection.user_intent !== semanticContext.user_intent
+    || selection.platform !== semanticContext.platform
+    || selection.core_reference !== SEMANTIC_CORE_REFERENCE_KEY
+    || selection.non_navigational !== true)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:semantic_cluster_selection');
+  }
+  const prominence = byId.get('primary_query_prominence');
+  const allowedProminentLocations = semanticContext?.format === 'article' ? ['h1'] : ['headline', 'opening_paragraph'];
+  if (prominence && (!semanticContext
+    || prominence.primary_target_query !== semanticContext.primary_target_query
+    || prominence.platform !== semanticContext.platform
+    || !allowedProminentLocations.includes(prominence.location)
+    || prominence.natural !== true || prominence.keyword_stuffing !== false)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:primary_query_prominence');
+  }
+  const singleCluster = byId.get('single_cluster_intent');
+  if (singleCluster && (!semanticContext
+    || singleCluster.selected_cluster !== semanticContext.selected_cluster
+    || singleCluster.user_intent !== semanticContext.user_intent
+    || singleCluster.content_serves_selected_intent !== true
+    || singleCluster.unrelated_clusters_mixed !== false)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:single_cluster_intent');
+  }
+  const geoDemand = byId.get('geo_demand_verification');
+  if (geoDemand && (typeof geoDemand.geo_candidate !== 'boolean'
+    || geoDemand.demand_verification_required !== true
+    || (geoDemand.geo_candidate === true && (geoDemand.demand_verified !== true || !nonEmptyText(geoDemand.verification_reference))))) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:geo_demand_verification');
+  }
   const links = byId.get('landing_link_distribution');
   if (links && (links.url !== 'https://go.mtrhit.ru/' || links.exact_count !== 4
     || canonical(links.positions) !== canonical(['beginning', 'body_1', 'body_2', 'final_cta'])
@@ -403,9 +465,11 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
   const inferredType = inferTaskType(normalized, taskType);
   const signals = [];
   if (['editorial', 'research'].includes(inferredType)
-    || /(стать|редак|контент|social|smm|публикац|research|исследован|семантическ|ключев.{0,20}запрос|tenchat|тенчат)/iu.test(normalized)) signals.push('editorial');
+    || /(стать|редак|контент|social|smm|публикац|пост|research|исследован|семантическ|ключев.{0,20}запрос|tenchat|тенчат)/iu.test(normalized)) signals.push('editorial');
   if (/(стать|article|лонгрид)/iu.test(normalized)) signals.push('article');
   if (/(tenchat|тенчат)/iu.test(normalized)) signals.push('tenchat');
+  if (/(telegram|телеграм|(?:^|[^\p{L}\p{N}])тг(?:$|[^\p{L}\p{N}]))/iu.test(normalized)) signals.push('telegram');
+  if (/(?:^|[^\p{L}\p{N}])(?:vk|вк)(?:$|[^\p{L}\p{N}])|вконтакте/iu.test(normalized)) signals.push('vk');
   if (/(?:^|[^\p{L}\p{N}])(?:пф|pf)(?:$|[^\p{L}\p{N}])|поведенческ|накрутк/iu.test(normalized)) signals.push('pf');
   if (/(бонус|1\s*000\s+клик)/iu.test(normalized)) signals.push('bonus');
   if (explicitScopeId) {

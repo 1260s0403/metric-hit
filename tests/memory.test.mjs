@@ -14,6 +14,7 @@ import { applyServerPrimaryWorkspace } from '../scripts/apply-server-primary-wor
 import { applyProductPositioningAndEditorialDirectness } from '../scripts/apply-product-positioning-and-editorial-directness.mjs';
 import { applyMetricHitPricing } from '../scripts/apply-metrichit-pricing.mjs';
 import { applyPublicPfPositiveFraming } from '../scripts/apply-public-pf-positive-framing.mjs';
+import { applyPublicEditorialSemanticCorePolicy } from '../scripts/apply-public-editorial-semantic-core-policy.mjs';
 import { applyEditorialPublicationPolicyAndTimewebDraft } from '../scripts/apply-editorial-publication-policy-and-timeweb-draft.mjs';
 import { applySostavNakrutkaPfPublication } from '../scripts/apply-sostav-nakrutka-pf-publication.mjs';
 import { applyPublicationLinksSostavOborot } from '../scripts/apply-publication-links-sostav-oborot-2026-08-29.mjs';
@@ -995,6 +996,30 @@ test('public PF positive framing rule is repeatable and preserves internal produ
   assert.deepEqual(JSON.parse(rule.data_json).required_positive_focus, ['query_selection', 'landing_page_preparation', 'region', 'daily_limits', 'budget', 'completed_volume_control', 'dynamics_evaluation', 'campaign_scaling']);
   assert.match(positioning.content, /не является гарантией роста позиций/);
   assert.match(readMemory('rules', '', databasePath), /Позитивная подача ПФ/);
+});
+
+test('public editorial semantic-core policy is repeatable approved memory', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  initializeDatabase(databasePath);
+
+  const first = applyPublicEditorialSemanticCorePolicy(databasePath);
+  const second = applyPublicEditorialSemanticCorePolicy(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const policy = database.prepare("SELECT status, reviewed_by, reviewed_at, content, data_json FROM memory_candidates WHERE semantic_key='content.public_editorial_semantic_core_policy'").get();
+  database.close();
+  assert.equal(policy.status, 'approved');
+  assert.equal(policy.reviewed_by, 'owner');
+  assert.equal(policy.reviewed_at, '2026-09-01T00:00:00.000Z');
+  assert.match(policy.content, /VK, Telegram, TenChat/);
+  assert.deepEqual(JSON.parse(policy.data_json).platforms, ['vk', 'telegram', 'tenchat', 'article_platforms', 'future_public_editorial_channels']);
+  assert.deepEqual(JSON.parse(policy.data_json).execution_card, ['selected_cluster', 'primary_target_query', 'user_intent', 'platform']);
+  const exported = exportCurrentContext(databasePath, outputPath, '2026-09-01T00:00:00.000Z').content;
+  assert.match(exported, /Семантическое ядро для всех новых публичных постов и статей/);
 });
 
 test('editorial article policy and Timeweb draft are repeatable approved records', (t) => {

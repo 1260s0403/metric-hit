@@ -135,6 +135,48 @@ function referenceFixture() {
   return { ...result, projectDatabasePath, keywords };
 }
 
+function addPublicEditorialSemanticCorePolicy(databasePath) {
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.prepare(`INSERT INTO memory_candidates
+      (id,type,semantic_key,title,content,data_json,status,source_id,author,created_at,updated_at,version)
+      VALUES (?,'editorial_rule','content.public_editorial_semantic_core_policy',?,?,?,'pending',?,'owner',?,?,1)`).run(
+      '10000000-0000-4000-a000-000000000007', 'Семантическое ядро для всех новых публичных постов и статей',
+      'Каждый новый публичный пост или статья начинается с выбора одного компактного не-навигационного кластера.',
+      JSON.stringify({ platforms: ['vk', 'telegram', 'tenchat', 'article_platforms', 'future_public_editorial_channels'] }),
+      '10000000-0000-4000-a000-000000000001', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z');
+    database.prepare("UPDATE memory_candidates SET status='approved', reviewed_by='owner', reviewed_at='2026-09-01T00:00:00.000Z' WHERE id=?")
+      .run('10000000-0000-4000-a000-000000000007');
+  } finally { database.close(); }
+}
+
+function publicEditorialSemanticQa(semantics) {
+  return {
+    checks: [
+      { id: 'semantic_cluster_selection', performed: true, passed: true,
+        result: 'Selected one compact non-navigational semantic-core cluster.',
+        evidence: { selected_cluster: semantics.selectedCluster, primary_target_query: semantics.primaryTargetQuery,
+          user_intent: semantics.userIntent, platform: semantics.platform,
+          core_reference: SEMANTIC_CORE_REFERENCE_KEY, non_navigational: true } },
+      { id: 'primary_query_prominence', performed: true, passed: true,
+        result: 'Primary query is natural in the required prominent location.',
+        evidence: { primary_target_query: semantics.primaryTargetQuery, platform: semantics.platform,
+          location: semantics.format === 'article' ? 'h1' : 'headline', natural: true, keyword_stuffing: false } },
+      { id: 'single_cluster_intent', performed: true, passed: true,
+        result: 'The material serves one selected intent without unrelated clusters.',
+        evidence: { selected_cluster: semantics.selectedCluster, user_intent: semantics.userIntent,
+          content_serves_selected_intent: true, unrelated_clusters_mixed: false } },
+      { id: 'geo_demand_verification', performed: true, passed: true,
+        result: 'No geo candidate is used.',
+        evidence: { geo_candidate: false, demand_verification_required: true, demand_verified: false, verification_reference: null } },
+    ],
+    external_checks: {
+      plagiarism: { status: 'not_performed', result: 'No third-party plagiarism service was used; no external plagiarism claim is made.' },
+      ai_detection: { status: 'unavailable', result: 'No external AI detector result is available; no AI-authorship claim is made.' },
+    },
+  };
+}
+
 test('P0/P1: canonical contract, passports and fail-closed ownership are present', () => {
   const { directory, databasePath } = fixture();
   try {
@@ -363,6 +405,60 @@ test('editorial TenChat gate includes approved unscoped requirements and require
     } });
     assert.equal(unrelated.pack.payload.execution_card.mandatory_rules
       .some((item) => item.semantic_key === 'content.editorial_article_preparation_policy'), false);
+    assert.equal(unrelated.pack.payload.execution_card.delivery_qa, null);
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('public editorial semantic-core policy applies to VK and Telegram, fails closed, and does not leak to UI', () => {
+  const { directory, databasePath } = referenceFixture();
+  try {
+    addPublicEditorialSemanticCorePolicy(databasePath);
+    const baseBrief = {
+      result: 'Проверенный публичный материал', scope: ['work/social'],
+      firstCheck: 'node --test tests/structured-memory.test.mjs', acceptance: ['semantic_ready'],
+      forbiddenChanges: ['publication'],
+    };
+    const vkSemantics = {
+      selectedCluster: 'запуск и управление', primaryTargetQuery: 'накрутка ПФ',
+      userIntent: 'понять управляемый запуск ПФ', platform: 'VK', format: 'social_post',
+    };
+    const telegramSemantics = { ...vkSemantics, platform: 'Telegram' };
+    assert.throws(() => compileContextPack(databasePath, {
+      text: 'Подготовь пост VK для MetricHit', taskBrief: baseBrief,
+    }), /editorial_semantics\.selected_cluster/);
+
+    for (const [text, editorialSemantics] of [
+      ['Подготовь пост VK для MetricHit', vkSemantics],
+      ['Подготовь пост Telegram для MetricHit', telegramSemantics],
+    ]) {
+      const compiled = compileContextPack(databasePath, { text, taskBrief: { ...baseBrief, editorialSemantics } });
+      const card = compiled.pack.payload.execution_card;
+      assert.equal(compiled.route.taskType, 'editorial');
+      assert.ok(card.mandatory_rules.some((item) => item.semantic_key === 'content.public_editorial_semantic_core_policy'));
+      assert.deepEqual(card.editorial_semantics, {
+        selected_cluster: editorialSemantics.selectedCluster, primary_target_query: editorialSemantics.primaryTargetQuery,
+        user_intent: editorialSemantics.userIntent, platform: editorialSemantics.platform, format: 'social_post',
+      });
+      assert.deepEqual(card.delivery_qa.checks.map((item) => item.id), [
+        'semantic_cluster_selection', 'primary_query_prominence', 'single_cluster_intent', 'geo_demand_verification',
+      ]);
+      const baseDelivery = { result: 'Материал проверен', checks: [baseBrief.firstCheck],
+        satisfiedAcceptance: baseBrief.acceptance, scopeCompliance: true, forbiddenChangesObserved: [] };
+      assert.throws(() => closeContextPack(databasePath, compiled.pack.id, { ...baseDelivery, contentQa: { ...publicEditorialSemanticQa(editorialSemantics), checks: [] } }),
+        /editorial_content_qa_incomplete:semantic_cluster_selection/);
+      const invalidProminence = publicEditorialSemanticQa(editorialSemantics);
+      invalidProminence.checks.find((item) => item.id === 'primary_query_prominence').evidence.location = 'h1';
+      assert.throws(() => closeContextPack(databasePath, compiled.pack.id, { ...baseDelivery, contentQa: invalidProminence }),
+        /editorial_content_qa_failed:primary_query_prominence/);
+      assert.equal(closeContextPack(databasePath, compiled.pack.id, { ...baseDelivery, contentQa: publicEditorialSemanticQa(editorialSemantics) }).status, 'closed');
+    }
+
+    const unrelated = compileContextPack(databasePath, { text: 'Исправь UI operator panel MetricHit', taskBrief: {
+      result: 'UI', scope: ['operator-panel'], firstCheck: 'ui-check', acceptance: ['visible'], forbiddenChanges: ['editorial'],
+    } });
+    assert.equal(unrelated.pack.payload.execution_card.mandatory_rules
+      .some((item) => item.semantic_key === 'content.public_editorial_semantic_core_policy'), false);
+    assert.equal(unrelated.pack.payload.execution_card.editorial_semantics, null);
     assert.equal(unrelated.pack.payload.execution_card.delivery_qa, null);
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
