@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkCommunityCoverPublicationUpdate, vkPfYandexServiceUpdate, vkWebsiteCreationServicePublicationUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
+import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkAugust16PfServicesIncidentPublicationUpdate, vkCommunityCoverPublicationUpdate, vkMetricHitPfProductOverviewPublicationUpdate, vkPfYandexServiceUpdate, vkPrelaunchPfChecklistPublicationUpdate, vkWebsiteCreationServicePublicationUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
 
 test('publication memory update supersedes the existing revision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-publication-update-'));
@@ -264,6 +264,47 @@ test('owner-confirmed VK website creation service records the selected visual va
     assert.match(data.verified_facts.description, /Стоимость — от 10 000 ₽/);
     assert.match(current.content, /Публичный URL владельцем не предоставлен/);
     assert.equal(data.verified_facts.external_action_performed_in_this_update, false);
+    readOnly.close();
+  } finally {
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
+    catch (error) { if (error?.code !== 'EBUSY') throw error; }
+  }
+});
+
+test('owner-confirmed VK posts record dates without a URL and preserve the absent welcome-post correction', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-vk-post-publications-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    const updates = [vkPrelaunchPfChecklistPublicationUpdate, vkAugust16PfServicesIncidentPublicationUpdate, vkMetricHitPfProductOverviewPublicationUpdate];
+    for (const update of updates) {
+      const first = updatePublicationMemory(databasePath, update);
+      const second = updatePublicationMemory(databasePath, update);
+      assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+      assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    }
+    const readOnly = new DatabaseSync(databasePath, { readOnly: true });
+    const records = readOnly.prepare(`SELECT semantic_key,data_json,status FROM memory_candidates
+      WHERE semantic_key IN ('publication.vk_prelaunch_pf_checklist','publication.vk_august_16_pf_services_incident','publication.vk_metrichit_pf_product_overview')`).all();
+    assert.equal(records.length, 3);
+    const dataByKey = Object.fromEntries(records.map((row) => [row.semantic_key, JSON.parse(row.data_json)]));
+    for (const row of records) {
+      assert.equal(row.status, 'approved');
+      assert.equal(dataByKey[row.semantic_key].platform, 'VK');
+      assert.equal(dataByKey[row.semantic_key].canonical_url, null);
+      assert.equal(dataByKey[row.semantic_key].public_url, null);
+      assert.equal(dataByKey[row.semantic_key].public_url_status, 'not_provided_by_owner');
+    }
+    assert.equal(dataByKey['publication.vk_prelaunch_pf_checklist'].published_at, '2026-08-12T00:00:00.000Z');
+    assert.equal(dataByKey['publication.vk_prelaunch_pf_checklist'].verified_facts.is_pinned, false);
+    assert.equal(dataByKey['publication.vk_august_16_pf_services_incident'].published_at, '2026-08-17T00:00:00.000Z');
+    assert.equal(dataByKey['publication.vk_august_16_pf_services_incident'].verified_facts.yandex_antifraud_update_public_confirmation, false);
+    assert.equal(dataByKey['publication.vk_august_16_pf_services_incident'].verified_facts.compensation_clicks_to_affected_clients, 300);
+    assert.equal(dataByKey['publication.vk_august_16_pf_services_incident'].verified_facts.is_pinned, false);
+    assert.equal(dataByKey['publication.vk_metrichit_pf_product_overview'].published_at, '2026-08-12T00:00:00.000Z');
+    assert.equal(dataByKey['publication.vk_metrichit_pf_product_overview'].verified_facts.is_welcome_post, false);
+    assert.equal(dataByKey['publication.vk_metrichit_pf_product_overview'].verified_facts.is_pinned, false);
+    assert.equal(readOnly.prepare("SELECT count(*) AS count FROM memory_candidates WHERE semantic_key='publication.vk_welcome_post'").get().count, 0);
     readOnly.close();
   } finally {
     try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }

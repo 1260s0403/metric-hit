@@ -282,6 +282,66 @@ export const vkWebsiteCreationServicePublicationUpdate = Object.freeze({
   },
 });
 
+export const vkPrelaunchPfChecklistPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.vk_prelaunch_pf_checklist', revision: 2, expectedPriorRevisions: [1],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: '7 вещей, которые нужно проверить на сайте до запуска ПФ',
+  content: 'Владелец подтвердил публикацию во VK 12.08.2026 поста «7 вещей, которые нужно проверить на сайте до запуска ПФ». В нём приведён чек-лист из семи пунктов: техническая доступность и ошибки, соответствие запроса посадочной странице, скорость и мобильная версия, доступные контакты, элементы доверия, старт с запросов в зоне видимости, Яндекс Метрика и цели ключевых действий. ПФ усиливают подготовленные страницы, но не заменяют SEO и не исправляют слабый сайт. Публичный URL владельцем не предоставлен; пост не закреплён. Внешнее действие в рамках этого обновления не выполнялось.',
+  platform: 'VK', canonicalUrl: null,
+  publishedAt: '2026-08-12T00:00:00.000Z', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: {
+    published: true, publication_date: '2026-08-12',
+    post_title: '7 вещей, которые нужно проверить на сайте до запуска ПФ',
+    checklist: ['technical_availability_and_errors', 'query_to_landing_page_relevance', 'page_speed_and_mobile', 'accessible_contacts', 'trust_elements', 'start_with_queries_in_visibility_zone', 'yandex_metrica_and_key_action_goals'],
+    pf_do_not_replace_seo_or_fix_weak_sites: true,
+    public_url: null, public_url_status: 'not_provided_by_owner', is_pinned: false,
+    external_action_performed_in_this_update: false,
+  },
+});
+
+export const vkAugust16PfServicesIncidentPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.vk_august_16_pf_services_incident', revision: 2, expectedPriorRevisions: [1],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Почему 16 августа не работали многие ПФ-сервисы',
+  content: 'Владелец подтвердил публикацию во VK 17.08.2026 поста «Почему 16 августа не работали многие ПФ-сервисы». В сообщении об инциденте за 16 августа указано: панель оставалась доступна, выполнение кликов было временно приостановлено; предварительно наиболее вероятной причиной названы региональные ограничения мобильного интернета. Версия о масштабном обновлении антифрода Яндекса проверялась, но публичных подтверждений не обнаружено. Работа сервиса была восстановлена в ночь на 17 августа; за невыполненные клики деньги не списывались, затронутым клиентам начислялись по 300 компенсационных кликов. Публичный URL владельцем не предоставлен; пост не закреплён. Внешнее действие в рамках этого обновления не выполнялось.',
+  platform: 'VK', canonicalUrl: null,
+  publishedAt: '2026-08-17T00:00:00.000Z', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: {
+    published: true, publication_date: '2026-08-17',
+    post_title: 'Почему 16 августа не работали многие ПФ-сервисы',
+    incident_date: '2026-08-16', panel_accessible: true, click_execution: 'temporarily_paused',
+    preliminary_likely_cause: 'regional_mobile_internet_restrictions',
+    yandex_antifraud_update_public_confirmation: false,
+    service_restored: 'during_night_to_2026-08-17', incomplete_clicks_charged: false,
+    compensation_clicks_to_affected_clients: 300,
+    public_url: null, public_url_status: 'not_provided_by_owner', is_pinned: false,
+    external_action_performed_in_this_update: false,
+  },
+});
+
+export const vkMetricHitPfProductOverviewPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.vk_metrichit_pf_product_overview', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'MetricHit — продвижение сайтов в Яндексе с помощью поведенческих факторов',
+  content: 'Владелец подтвердил публикацию во VK 12.08.2026 поста «MetricHit — продвижение сайтов в Яндексе с помощью поведенческих факторов». Это действующий продуктовый пост, а не приветственный и не закреплённый: он описывает настройку сайта, региона, запросов, лимитов кликов и расписания, отслеживание позиций, статистики и расходов, оплату только за выполненные клики без фиксированной абонентской платы, а также 1 000 тестовых кликов после регистрации и обращения в поддержку. В посте отдельно указано, что ПФ не заменяют SEO и не исправляют слабый сайт. Публичный URL владельцем не предоставлен. Внешнее действие в рамках этого обновления не выполнялось.',
+  platform: 'VK', canonicalUrl: null,
+  publishedAt: '2026-08-12T00:00:00.000Z', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: {
+    published: true, publication_date: '2026-08-12',
+    post_title: 'MetricHit — продвижение сайтов в Яндексе с помощью поведенческих факторов',
+    product_capabilities: ['site', 'region', 'queries', 'click_limits', 'schedule', 'positions', 'statistics', 'spend'],
+    charges_only_for_completed_clicks: true, fixed_subscription_fee: false,
+    test_clicks_after_registration_and_support_contact: 1000,
+    pf_do_not_replace_seo_or_fix_weak_sites: true,
+    post_role: 'existing_product_presentation', is_welcome_post: false, is_pinned: false,
+    public_url: null, public_url_status: 'not_provided_by_owner',
+    external_action_performed_in_this_update: false,
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
@@ -291,9 +351,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
           : command === 'vk-community-cover-publication' ? vkCommunityCoverPublicationUpdate
           : command === 'vk-pf-yandex-service' ? vkPfYandexServiceUpdate
             : command === 'vk-yandex-maps-service-publication' ? vkYandexMapsServicePublicationUpdate
-              : command === 'vk-website-creation-service-publication' ? vkWebsiteCreationServicePublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication'].includes(command)) {
-    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication> [databasePath]');
+              : command === 'vk-website-creation-service-publication' ? vkWebsiteCreationServicePublicationUpdate
+                : command === 'vk-prelaunch-pf-checklist-publication' ? vkPrelaunchPfChecklistPublicationUpdate
+                  : command === 'vk-august-16-pf-services-incident-publication' ? vkAugust16PfServicesIncidentPublicationUpdate
+                    : command === 'vk-metrichit-pf-product-overview-publication' ? vkMetricHitPfProductOverviewPublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication|vk-prelaunch-pf-checklist-publication|vk-august-16-pf-services-incident-publication|vk-metrichit-pf-product-overview-publication> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }
