@@ -16,6 +16,7 @@ import { applyMetricHitPricing } from '../scripts/apply-metrichit-pricing.mjs';
 import { applyPublicPfPositiveFraming } from '../scripts/apply-public-pf-positive-framing.mjs';
 import { applyPublicEditorialSemanticCorePolicy } from '../scripts/apply-public-editorial-semantic-core-policy.mjs';
 import { applyPublicEditorialIndexationPfPolicy } from '../scripts/apply-public-editorial-indexation-pf-policy.mjs';
+import { applyPublicEditorialSemanticsIndexationCorrection } from '../scripts/apply-public-editorial-semantics-indexation-correction.mjs';
 import { applyEditorialPublicationPolicyAndTimewebDraft } from '../scripts/apply-editorial-publication-policy-and-timeweb-draft.mjs';
 import { applySostavNakrutkaPfPublication } from '../scripts/apply-sostav-nakrutka-pf-publication.mjs';
 import { applyPublicationLinksSostavOborot } from '../scripts/apply-publication-links-sostav-oborot-2026-08-29.mjs';
@@ -1049,6 +1050,37 @@ test('public editorial Yandex indexation/PF-target policy is repeatable and pres
   assert.deepEqual(data.post_indexation_pf_target.separate_owner_approval_required_fields, ['material_or_url', 'budget', 'scope']);
   const exported = exportCurrentContext(databasePath, outputPath, '2026-09-01T00:00:00.000Z').content;
   assert.match(exported, /Индексация Яндекса и post-indexation PF-target/);
+});
+
+test('public editorial semantics/indexation correction supersedes prior rules without retroactive changes', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  initializeDatabase(databasePath);
+  applyPublicEditorialSemanticCorePolicy(databasePath);
+  applyPublicEditorialIndexationPfPolicy(databasePath);
+
+  const first = applyPublicEditorialSemanticsIndexationCorrection(databasePath);
+  const second = applyPublicEditorialSemanticsIndexationCorrection(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 2 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const semantic = database.prepare("SELECT content,data_json FROM memory_candidates WHERE semantic_key='content.public_editorial_semantic_core_policy' ORDER BY json_extract(data_json, '$.revision') DESC LIMIT 1").get();
+  const indexation = database.prepare("SELECT content,data_json FROM memory_candidates WHERE semantic_key='content.public_editorial_yandex_indexation_pf_target_policy' ORDER BY json_extract(data_json, '$.revision') DESC LIMIT 1").get();
+  database.close();
+  const semanticData = JSON.parse(semantic.data_json);
+  const indexationData = JSON.parse(indexation.data_json);
+  assert.equal(semanticData.revision, 2);
+  assert.deepEqual(semanticData.excluded_platforms, ['telegram']);
+  assert.match(semantic.content, /Telegram полностью исключён/);
+  assert.equal(indexationData.revision, 2);
+  assert.deepEqual(indexationData.execution_card, ['seo_indexation_objective']);
+  assert.deepEqual(indexationData.prohibited_pre_delivery_checks, ['indexability', 'retrievability', 'target_url_status', 'indexation_status', 'indexation_evidence']);
+  assert.equal(indexationData.post_indexation_pf_target.campaign_automatic_authorization, false);
+  assert.deepEqual(indexationData.post_indexation_pf_target.separate_owner_approval_required_fields, ['material_or_url', 'budget', 'scope']);
+  const exported = exportCurrentContext(databasePath, outputPath, '2026-09-01T00:00:00.000Z').content;
+  assert.match(exported, /Telegram полностью исключён/);
 });
 
 test('editorial article policy and Timeweb draft are repeatable approved records', (t) => {

@@ -191,9 +191,11 @@ function editorialRequirementApplies(candidate, signals) {
   const data = parseJson(candidate.data_json, {});
   const isTenChat = signals.includes('tenchat');
   const isArticle = signals.includes('article') || isTenChat;
+  const isTelegram = signals.includes('telegram');
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.article) return isArticle;
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.tenchat) return isTenChat;
-  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.indexationPfTarget) return !signals.includes('telegram');
+  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore) return !isTelegram;
+  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.indexationPfTarget) return !isTelegram;
   if (data.channel) return signals.includes(String(data.channel).toLocaleLowerCase('ru-RU'));
   if (data.platform) return signals.includes(String(data.platform).toLocaleLowerCase('ru-RU'));
   if (candidate.semantic_key === 'content.test_bonus_messaging') return signals.includes('bonus');
@@ -209,9 +211,17 @@ export function resolveApprovedEditorialRequirements(database, route) {
   const signals = Array.isArray(route.signals) ? route.signals : [];
   const approved = database.prepare(`SELECT id,type,semantic_key,title,content,data_json,source_id
     FROM memory_candidates WHERE status='approved' ORDER BY semantic_key,id`).all();
-  const directness = approved.find((row) => row.semantic_key === 'content.editorial_directness_policy');
+  const currentBySemanticKey = new Map();
+  for (const row of approved) {
+    const current = currentBySemanticKey.get(row.semantic_key);
+    const revision = Number(parseJson(row.data_json, {}).revision ?? 0);
+    const currentRevision = Number(parseJson(current?.data_json, {}).revision ?? 0);
+    if (!current || revision > currentRevision || (revision === currentRevision && row.id.localeCompare(current.id) > 0)) currentBySemanticKey.set(row.semantic_key, row);
+  }
+  const currentApproved = [...currentBySemanticKey.values()];
+  const directness = currentApproved.find((row) => row.semantic_key === 'content.editorial_directness_policy');
   const superseded = new Set(parseJson(directness?.data_json, {}).supersedes_editorial_rules ?? []);
-  const requirements = approved.filter((row) => row.type === 'editorial_rule'
+  const requirements = currentApproved.filter((row) => row.type === 'editorial_rule'
       && !superseded.has(row.semantic_key) && editorialRequirementApplies(row, signals))
     .map((row) => ({
       id: row.id, semantic_key: row.semantic_key, scope_id: SCOPE_IDS.editorial,
@@ -267,27 +277,14 @@ function editorialIndexationFromBrief(taskBrief, rules) {
   const source = taskBrief.editorialIndexation ?? {};
   const indexationContext = {
     seo_indexation_objective: nonEmptyText(source.seoIndexationObjective),
-    indexability_retrievability_checks: nonEmptyList(source.indexabilityRetrievabilityChecks),
-    target_url_status: nonEmptyText(source.targetUrlStatus),
-    post_indexation_evidence_status: nonEmptyText(source.postIndexationEvidenceStatus),
-    pf_target_eligibility: nonEmptyText(source.pfTargetEligibility),
-    pf_campaign_owner_approval_required: true,
-    pf_campaign_auto_authorized: false,
+    future_pf_campaign: {
+      requires_independently_verified_yandex_indexation_after_publication: true,
+      separate_owner_approval_required: true,
+      auto_authorized: false,
+    },
   };
-  const missing = Object.entries(indexationContext)
-    .filter(([key, value]) => ['pf_campaign_owner_approval_required', 'pf_campaign_auto_authorized'].includes(key) ? false : !value)
-    .map(([key]) => `editorial_indexation.${key}`);
+  const missing = !indexationContext.seo_indexation_objective ? ['editorial_indexation.seo_indexation_objective'] : [];
   if (missing.length) throw new Error(`execution card is incomplete: ${missing.join(', ')}`);
-  const statuses = {
-    not_published: { evidence: 'not_applicable_until_published', eligibility: 'ineligible_until_verified_indexation' },
-    published_url_known_unverified: { evidence: 'pending_indexation_verification', eligibility: 'ineligible_until_verified_indexation' },
-    verified_indexed: { evidence: 'verified_indexation', eligibility: 'eligible_after_verified_indexation' },
-  };
-  const expected = statuses[indexationContext.target_url_status];
-  if (!expected || indexationContext.post_indexation_evidence_status !== expected.evidence
-    || indexationContext.pf_target_eligibility !== expected.eligibility) {
-    throw new Error('execution card is incomplete: editorial_indexation.post_indexation_status');
-  }
   return indexationContext;
 }
 
@@ -301,10 +298,6 @@ function editorialQaRequirements(rules, editorialSemantics, editorialIndexation)
     checks.push({ id: 'primary_query_prominence', evidence_fields: ['primary_target_query', 'platform', 'location', 'natural', 'keyword_stuffing'] });
     checks.push({ id: 'single_cluster_intent', evidence_fields: ['selected_cluster', 'user_intent', 'content_serves_selected_intent', 'unrelated_clusters_mixed'] });
     checks.push({ id: 'geo_demand_verification', evidence_fields: ['geo_candidate', 'demand_verification_required', 'demand_verified', 'verification_reference'] });
-  }
-  if (keys.has(REQUIRED_EDITORIAL_RULES.indexationPfTarget)) {
-    checks.push({ id: 'format_specific_indexation_readiness', evidence_fields: ['platform', 'format', 'seo_indexation_objective', 'indexability_retrievability_checks', 'passed'] });
-    checks.push({ id: 'post_indexation_pf_target_status', evidence_fields: ['target_url_status', 'post_indexation_evidence_status', 'indexation_verified', 'indexation_evidence', 'eligible_for_later_pf_campaign', 'eligible_only_after_verified_indexation', 'pf_campaign_owner_approval_required', 'pf_campaign_auto_authorized'] });
   }
   if (keys.has(REQUIRED_EDITORIAL_RULES.article)) {
     checks.push({ id: 'landing_link_distribution', evidence_fields: ['url', 'exact_count', 'positions', 'natural_anchors', 'link_spam'] });
@@ -420,31 +413,6 @@ function validateEditorialContentQa(specification, contentQa) {
     || geoDemand.demand_verification_required !== true
     || (geoDemand.geo_candidate === true && (geoDemand.demand_verified !== true || !nonEmptyText(geoDemand.verification_reference))))) {
     throw new Error('delivery validation failed: editorial_content_qa_failed:geo_demand_verification');
-  }
-  const indexationReadiness = byId.get('format_specific_indexation_readiness');
-  const indexationContext = specification.indexation_context;
-  if (indexationReadiness && (!indexationContext || !semanticContext
-    || indexationReadiness.platform !== semanticContext.platform
-    || indexationReadiness.format !== semanticContext.format
-    || indexationReadiness.seo_indexation_objective !== indexationContext.seo_indexation_objective
-    || canonical(indexationReadiness.indexability_retrievability_checks) !== canonical(indexationContext.indexability_retrievability_checks)
-    || indexationReadiness.passed !== true)) {
-    throw new Error('delivery validation failed: editorial_content_qa_failed:format_specific_indexation_readiness');
-  }
-  const pfTargetStatus = byId.get('post_indexation_pf_target_status');
-  if (pfTargetStatus && (!indexationContext
-    || pfTargetStatus.target_url_status !== indexationContext.target_url_status
-    || pfTargetStatus.post_indexation_evidence_status !== indexationContext.post_indexation_evidence_status
-    || pfTargetStatus.eligible_only_after_verified_indexation !== true
-    || pfTargetStatus.pf_campaign_owner_approval_required !== true
-    || pfTargetStatus.pf_campaign_auto_authorized !== false
-    || (indexationContext.target_url_status === 'verified_indexed'
-      && (pfTargetStatus.indexation_verified !== true || !nonEmptyText(pfTargetStatus.indexation_evidence)
-        || pfTargetStatus.eligible_for_later_pf_campaign !== true))
-    || (indexationContext.target_url_status !== 'verified_indexed'
-      && (pfTargetStatus.indexation_verified !== false || pfTargetStatus.indexation_evidence !== null
-        || pfTargetStatus.eligible_for_later_pf_campaign !== false)))) {
-    throw new Error('delivery validation failed: editorial_content_qa_failed:post_indexation_pf_target_status');
   }
   const links = byId.get('landing_link_distribution');
   if (links && (links.url !== 'https://go.mtrhit.ru/' || links.exact_count !== 4
