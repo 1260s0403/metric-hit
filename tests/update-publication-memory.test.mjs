@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkCommunityCoverPublicationUpdate, vkPfYandexServiceUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
+import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkCommunityCoverPublicationUpdate, vkPfYandexServiceUpdate, vkWebsiteCreationServicePublicationUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
 
 test('publication memory update supersedes the existing revision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-publication-update-'));
@@ -229,6 +229,39 @@ test('owner-confirmed VK Yandex Maps service records published state without inv
     assert.equal(data.verified_facts.price_from_rub, 5000);
     assert.equal(data.verified_facts.card_cover, 'vertical_cover');
     assert.equal(data.verified_facts.card_cover_text, 'НАКРУТКА В ЯНДЕКС КАРТАХ');
+    assert.match(current.content, /Публичный URL владельцем не предоставлен/);
+    assert.equal(data.verified_facts.external_action_performed_in_this_update, false);
+    readOnly.close();
+  } finally {
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
+    catch (error) { if (error?.code !== 'EBUSY') throw error; }
+  }
+});
+
+test('owner-confirmed VK website creation service records the selected visual variant without inventing a file or URL', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-vk-website-creation-service-publication-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    const first = updatePublicationMemory(databasePath, vkWebsiteCreationServicePublicationUpdate);
+    const second = updatePublicationMemory(databasePath, vkWebsiteCreationServicePublicationUpdate);
+    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    const readOnly = new DatabaseSync(databasePath, { readOnly: true });
+    const current = readOnly.prepare(`SELECT content,data_json,status FROM memory_candidates
+      WHERE semantic_key='publication.vk_service_website_creation_2026_09_01'`).get();
+    const data = JSON.parse(current.data_json);
+    assert.equal(current.status, 'approved');
+    assert.equal(data.publication_status, 'owner_confirmed_published');
+    assert.equal(data.canonical_url, null);
+    assert.equal(data.public_url, null);
+    assert.equal(data.public_url_status, 'not_provided_by_owner');
+    assert.equal(data.verified_facts.service_title, 'Создание сайтов');
+    assert.equal(data.verified_facts.price_from_rub, 10000);
+    assert.equal(data.verified_facts.card_cover, 'owner_selected_second_visual_variant');
+    assert.equal('card_cover_file' in data.verified_facts, false);
+    assert.match(data.verified_facts.description, /Создание сайтов для бизнеса/);
+    assert.match(data.verified_facts.description, /Стоимость — от 10 000 ₽/);
     assert.match(current.content, /Публичный URL владельцем не предоставлен/);
     assert.equal(data.verified_facts.external_action_performed_in_this_update, false);
     readOnly.close();

@@ -264,6 +264,24 @@ export const vkYandexMapsServicePublicationUpdate = Object.freeze({
   },
 });
 
+export const vkWebsiteCreationServicePublicationUpdate = Object.freeze({
+  semanticKey: 'publication.vk_service_website_creation_2026_09_01', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Услуга MetricHit «Создание сайтов» опубликована во VK',
+  content: 'Владелец подтвердил публикацию услуги MetricHit «Создание сайтов» во VK 01.09.2026. Цена от 10 000 ₽. Для карточки выбран второй визуальный вариант; имя локального файла не зафиксировано. Опубликованное описание: «Создание сайтов для бизнеса: лендинги, корпоративные сайты, каталоги и интернет-магазины. Разрабатываем структуру, дизайн и адаптивную версию под мобильные устройства. Настраиваем формы заявок, базовую SEO-подготовку, аналитику и интеграции, необходимые для работы сайта. Перед стартом уточняем задачи бизнеса, целевую аудиторию, услуги и желаемый результат. Подбираем подходящий формат сайта и согласовываем состав работ. Стоимость — от 10 000 ₽. Итоговая цена зависит от типа сайта, количества страниц, функционала и готовности материалов. Напишите в сообщения сообщества — обсудим задачу и подготовим предложение.» Публичный URL владельцем не предоставлен; внешний адрес не указан. Внешнее действие в рамках этого обновления не выполнялось.',
+  platform: 'VK', canonicalUrl: null,
+  publishedAt: '2026-09-01T00:00:00+03:00', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: {
+    published: true, confirmation_date: '2026-09-01',
+    service_title: 'Создание сайтов', price_from_rub: 10000,
+    card_cover: 'owner_selected_second_visual_variant',
+    description: 'Создание сайтов для бизнеса: лендинги, корпоративные сайты, каталоги и интернет-магазины.\n\nРазрабатываем структуру, дизайн и адаптивную версию под мобильные устройства. Настраиваем формы заявок, базовую SEO-подготовку, аналитику и интеграции, необходимые для работы сайта.\n\nПеред стартом уточняем задачи бизнеса, целевую аудиторию, услуги и желаемый результат. Подбираем подходящий формат сайта и согласовываем состав работ.\n\nСтоимость — от 10 000 ₽. Итоговая цена зависит от типа сайта, количества страниц, функционала и готовности материалов.\n\nНапишите в сообщения сообщества — обсудим задачу и подготовим предложение.',
+    public_url: null, public_url_status: 'not_provided_by_owner',
+    external_action_performed_in_this_update: false,
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
@@ -272,9 +290,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
       : command === 'tenchat-internet-shop-publication' ? tenchatInternetShopPublicationUpdate
           : command === 'vk-community-cover-publication' ? vkCommunityCoverPublicationUpdate
           : command === 'vk-pf-yandex-service' ? vkPfYandexServiceUpdate
-            : command === 'vk-yandex-maps-service-publication' ? vkYandexMapsServicePublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication'].includes(command)) {
-    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication> [databasePath]');
+            : command === 'vk-yandex-maps-service-publication' ? vkYandexMapsServicePublicationUpdate
+              : command === 'vk-website-creation-service-publication' ? vkWebsiteCreationServicePublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }
