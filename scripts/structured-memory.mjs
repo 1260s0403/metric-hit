@@ -16,6 +16,12 @@ export const SCOPE_IDS = Object.freeze({
   core: 'scope:core', metrichit: 'scope:project:metrichit',
   editorial: 'scope:subproject:editorial', panel: 'scope:subproject:panel',
 });
+const TARGET_QUERY_VOLUME_LADDER = Object.freeze([
+  { minimumCharacters: 1800, maximumCharacters: 2800, minimumQueries: 8, maximumQueries: 12 },
+  { minimumCharacters: 2801, maximumCharacters: 5000, minimumQueries: 10, maximumQueries: 16 },
+  { minimumCharacters: 5001, maximumCharacters: 7000, minimumQueries: 14, maximumQueries: 20 },
+  { minimumCharacters: 7001, maximumCharacters: 9000, minimumQueries: 18, maximumQueries: 26 },
+]);
 
 function now() { return new Date().toISOString(); }
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
@@ -31,6 +37,9 @@ function nonEmptyText(value) { return typeof value === 'string' && value.trim() 
 function nonEmptyList(value) {
   if (!Array.isArray(value)) return [];
   return value.map(nonEmptyText).filter(Boolean);
+}
+function targetQueryVolumeBand(characterCount) {
+  return TARGET_QUERY_VOLUME_LADDER.find((band) => characterCount >= band.minimumCharacters && characterCount <= band.maximumCharacters) ?? null;
 }
 
 export function scopeChain(database, scopeId) {
@@ -180,6 +189,7 @@ function hasTable(database, name) {
 
 const REQUIRED_EDITORIAL_RULES = Object.freeze({
   semanticCore: 'content.public_editorial_semantic_core_policy',
+  targetQueryVolumeLadder: 'content.public_editorial_target_query_volume_ladder_policy',
   indexationPfTarget: 'content.public_editorial_yandex_indexation_pf_target_policy',
   vkPostWritingStandard: 'editorial.vk_post_writing_standard',
   article: 'content.editorial_article_preparation_policy',
@@ -196,6 +206,7 @@ function editorialRequirementApplies(candidate, signals) {
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.article) return isArticle;
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.tenchat) return isTenChat;
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore) return !isTelegram;
+  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.targetQueryVolumeLadder) return !isTelegram;
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.indexationPfTarget) return !isTelegram;
   if (data.channel) return signals.includes(String(data.channel).toLocaleLowerCase('ru-RU'));
   if (data.platform) return signals.includes(String(data.platform).toLocaleLowerCase('ru-RU'));
@@ -344,6 +355,9 @@ function editorialQaRequirements(rules, editorialSemantics, editorialIndexation)
     checks.push({ id: 'adjacent_clusters_one_intent', evidence_fields: ['selected_clusters', 'adjacent_cluster_rationale', 'user_intent', 'clusters_are_adjacent', 'content_serves_selected_intent', 'unrelated_clusters_mixed'] });
     checks.push({ id: 'geo_demand_verification', evidence_fields: ['geo_candidate', 'demand_verification_required', 'demand_verified', 'verification_reference'] });
   }
+  if (keys.has(REQUIRED_EDITORIAL_RULES.targetQueryVolumeLadder)) {
+    checks.push({ id: 'target_query_volume_ladder', evidence_fields: ['character_count', 'count_scope', 'primary_target_query', 'secondary_target_queries', 'unique_target_query_count', 'required_minimum', 'required_maximum', 'count_rationale', 'all_secondary_target_queries_natural_in_body', 'keyword_stuffing'] });
+  }
   if (keys.has(REQUIRED_EDITORIAL_RULES.vkPostWritingStandard)) {
     checks.push({ id: 'vk_body_character_count', evidence_fields: ['character_count', 'count_scope', 'length_band', 'rationale', 'not_extended_for_seo_only'] });
     checks.push({ id: 'vk_semantic_structure', evidence_fields: ['primary_target_query', 'selected_clusters', 'user_intent', 'in_headline', 'in_opening_paragraph', 'natural_mentions_total', 'keyword_stuffing', 'all_sections_serve_selected_query', 'opening_answers_query', 'useful_subheads_or_checklist', 'concrete_practical_details', 'practical_conclusion', 'natural_cta', 'padding_or_repetition', 'unsupported_seo_claims'] });
@@ -454,6 +468,26 @@ function validateEditorialContentQa(specification, contentQa) {
     || approvedTargets.duplicate_target_queries !== false
     || approvedTargets.keyword_stuffing !== false)) {
     throw new Error('delivery validation failed: editorial_content_qa_failed:target_queries_approved_core');
+  }
+  const targetQueryVolume = byId.get('target_query_volume_ladder');
+  if (targetQueryVolume) {
+    const targetQueries = semanticContext ? [semanticContext.primary_target_query, ...semanticContext.secondary_target_queries] : [];
+    const expectedBand = targetQueryVolumeBand(targetQueryVolume.character_count);
+    const matchingBand = expectedBand
+      && targetQueryVolume.required_minimum === expectedBand.minimumQueries
+      && targetQueryVolume.required_maximum === expectedBand.maximumQueries;
+    if (!semanticContext || !Number.isInteger(targetQueryVolume.character_count) || targetQueryVolume.character_count < 0
+      || targetQueryVolume.count_scope !== 'russian_body_excluding_internal_metadata_and_urls'
+      || targetQueryVolume.primary_target_query !== semanticContext.primary_target_query
+      || canonical(targetQueryVolume.secondary_target_queries) !== canonical(semanticContext.secondary_target_queries)
+      || targetQueryVolume.unique_target_query_count !== targetQueries.length
+      || new Set(targetQueries).size !== targetQueries.length
+      || targetQueryVolume.all_secondary_target_queries_natural_in_body !== true
+      || targetQueryVolume.keyword_stuffing !== false
+      || (expectedBand && (!matchingBand || targetQueryVolume.unique_target_query_count < expectedBand.minimumQueries || targetQueryVolume.unique_target_query_count > expectedBand.maximumQueries || targetQueryVolume.count_rationale !== null))
+      || (!expectedBand && (targetQueryVolume.required_minimum !== null || targetQueryVolume.required_maximum !== null || !nonEmptyText(targetQueryVolume.count_rationale)))) {
+      throw new Error('delivery validation failed: editorial_content_qa_failed:target_query_volume_ladder');
+    }
   }
   const prominence = byId.get('primary_query_prominence');
   const allowedProminentLocations = semanticContext?.format === 'article' ? ['h1'] : ['headline', 'opening_paragraph'];

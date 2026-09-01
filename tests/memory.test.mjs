@@ -18,7 +18,9 @@ import { applyPublicEditorialSemanticCorePolicy } from '../scripts/apply-public-
 import { applyPublicEditorialIndexationPfPolicy } from '../scripts/apply-public-editorial-indexation-pf-policy.mjs';
 import { applyPublicEditorialSemanticsIndexationCorrection } from '../scripts/apply-public-editorial-semantics-indexation-correction.mjs';
 import { applyPublicEditorialApprovedCoreTargetQueries } from '../scripts/apply-public-editorial-approved-core-target-queries.mjs';
+import { applyPublicEditorialTargetQueryVolumeLadder } from '../scripts/apply-public-editorial-target-query-volume-ladder.mjs';
 import { applyVkPostWritingStandard } from '../scripts/apply-vk-post-writing-standard.mjs';
+import { applyVkPostWritingStandardVolumeLadderAlignment } from '../scripts/apply-vk-post-writing-standard-volume-ladder-alignment.mjs';
 import { applyEditorialPublicationPolicyAndTimewebDraft } from '../scripts/apply-editorial-publication-policy-and-timeweb-draft.mjs';
 import { applySostavNakrutkaPfPublication } from '../scripts/apply-sostav-nakrutka-pf-publication.mjs';
 import { applyPublicationLinksSostavOborot } from '../scripts/apply-publication-links-sostav-oborot-2026-08-29.mjs';
@@ -1140,6 +1142,47 @@ test('VK post writing standard is repeatable approved memory and current context
   assert.deepEqual(data.delivery_validation, ['vk_body_character_count', 'vk_semantic_structure']);
   const exported = exportCurrentContext(databasePath, outputPath, '2026-09-01T00:00:00.000Z').content;
   assert.match(exported, /Стандарт объёма и SEO-структуры новых VK-постов/);
+});
+
+test('public editorial target-query volume ladder is repeatable and aligns the VK exception', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  initializeDatabase(databasePath);
+  applyVkPostWritingStandard(databasePath);
+
+  const firstLadder = applyPublicEditorialTargetQueryVolumeLadder(databasePath);
+  const secondLadder = applyPublicEditorialTargetQueryVolumeLadder(databasePath);
+  const firstVkAlignment = applyVkPostWritingStandardVolumeLadderAlignment(databasePath);
+  const secondVkAlignment = applyVkPostWritingStandardVolumeLadderAlignment(databasePath);
+  assert.deepEqual(firstLadder.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+  assert.deepEqual(secondLadder.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+  assert.deepEqual(firstVkAlignment.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+  assert.deepEqual(secondVkAlignment.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const ladder = database.prepare("SELECT status,reviewed_by,reviewed_at,content,data_json FROM memory_candidates WHERE semantic_key='content.public_editorial_target_query_volume_ladder_policy'").get();
+  const vk = database.prepare("SELECT content,data_json FROM memory_candidates WHERE semantic_key='editorial.vk_post_writing_standard' ORDER BY coalesce(json_extract(data_json, '$.revision'), 0) DESC LIMIT 1").get();
+  database.close();
+  const ladderData = JSON.parse(ladder.data_json);
+  const vkData = JSON.parse(vk.data_json);
+  assert.equal(ladder.status, 'approved');
+  assert.equal(ladder.reviewed_by, 'owner');
+  assert.equal(ladder.reviewed_at, '2026-09-01T00:00:00.000Z');
+  assert.deepEqual(ladderData.excluded_platforms, ['telegram']);
+  assert.deepEqual(ladderData.target_query_count.required_by_body_character_count, [
+    { minimum_characters: 1800, maximum_characters: 2800, minimum_queries: 8, maximum_queries: 12 },
+    { minimum_characters: 2801, maximum_characters: 5000, minimum_queries: 10, maximum_queries: 16 },
+    { minimum_characters: 5001, maximum_characters: 7000, minimum_queries: 14, maximum_queries: 20 },
+    { minimum_characters: 7001, maximum_characters: 9000, minimum_queries: 18, maximum_queries: 26 },
+  ]);
+  assert.match(ladder.content, /вторичный естественно присутствует/);
+  assert.equal(vkData.revision, 2);
+  assert.equal(vkData.semantic_structure.one_or_documented_adjacent_clusters, true);
+  assert.deepEqual(vkData.target_query_volume.target_band, { minimum_queries: 8, maximum_queries: 12, primary_included: true });
+  const exported = exportCurrentContext(databasePath, outputPath, '2026-09-01T00:00:00.000Z').content;
+  assert.match(exported, /Количество целевых запросов по объёму публичного материала вне Telegram/);
+  assert.match(exported, /несколько документированно смежных кластеров/);
 });
 
 test('editorial article policy and Timeweb draft are repeatable approved records', (t) => {

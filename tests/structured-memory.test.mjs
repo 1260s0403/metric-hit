@@ -167,6 +167,21 @@ function addPublicEditorialIndexationPfTargetPolicy(databasePath) {
   } finally { database.close(); }
 }
 
+function addPublicEditorialTargetQueryVolumeLadderPolicy(databasePath) {
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.prepare(`INSERT INTO memory_candidates
+      (id,type,semantic_key,title,content,data_json,status,source_id,author,created_at,updated_at,version)
+      VALUES (?,'editorial_rule','content.public_editorial_target_query_volume_ladder_policy',?,?,?,'pending',?,'owner',?,?,1)`).run(
+      '10000000-0000-4000-a000-000000000010', 'Количество целевых запросов по объёму публичного материала вне Telegram',
+      'Вне Telegram число уникальных точных запросов зависит от объёма текста; Telegram исключён.',
+      JSON.stringify({ excluded_platforms: ['telegram'], target_query_count: { unique_only: true, primary_included: true } }),
+      '10000000-0000-4000-a000-000000000001', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z');
+    database.prepare("UPDATE memory_candidates SET status='approved', reviewed_by='owner', reviewed_at='2026-09-01T00:00:00.000Z' WHERE id=?")
+      .run('10000000-0000-4000-a000-000000000010');
+  } finally { database.close(); }
+}
+
 function addVkPostWritingStandard(databasePath) {
   const database = new DatabaseSync(databasePath);
   try {
@@ -213,6 +228,24 @@ function publicEditorialSemanticQa(semantics) {
       ai_detection: { status: 'unavailable', result: 'No external AI detector result is available; no AI-authorship claim is made.' },
     },
   };
+}
+
+function publicEditorialSemanticQaWithVolumeLadder(semantics, characterCount, countRationale = null) {
+  const contentQa = publicEditorialSemanticQa(semantics);
+  const targetQueries = [semantics.primaryTargetQuery, ...semantics.secondaryTargetQueries];
+  const band = [
+    [1800, 2800, 8, 12], [2801, 5000, 10, 16], [5001, 7000, 14, 20], [7001, 9000, 18, 26],
+  ].find(([minimum, maximum]) => characterCount >= minimum && characterCount <= maximum) ?? null;
+  contentQa.checks.push({ id: 'target_query_volume_ladder', performed: true, passed: true,
+    result: 'The unique exact target-query count matches the applicable body-length band.',
+    evidence: {
+      character_count: characterCount, count_scope: 'russian_body_excluding_internal_metadata_and_urls',
+      primary_target_query: semantics.primaryTargetQuery, secondary_target_queries: semantics.secondaryTargetQueries,
+      unique_target_query_count: targetQueries.length, required_minimum: band?.[2] ?? null,
+      required_maximum: band?.[3] ?? null, count_rationale: countRationale,
+      all_secondary_target_queries_natural_in_body: true, keyword_stuffing: false,
+    } });
+  return contentQa;
 }
 
 function publicEditorialIndexationQa(indexation) {
@@ -635,6 +668,57 @@ test('VK writing standard is isolated and validates target plus both justified e
     assert.equal(telegram.pack.payload.execution_card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'), false);
     const tenchat = compileContextPack(databasePath, { text: 'Подготовь статью TenChat', projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: { ...semantics, platform: 'TenChat', format: 'article' }, editorialIndexation: indexation } });
     assert.equal(tenchat.pack.payload.execution_card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'), false);
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('non-Telegram target-query volume ladder is fail-closed and Telegram remains exempt', () => {
+  const { directory, databasePath, projectDatabasePath } = referenceFixture();
+  try {
+    addPublicEditorialSemanticCorePolicy(databasePath);
+    addPublicEditorialIndexationPfTargetPolicy(databasePath);
+    addPublicEditorialTargetQueryVolumeLadderPolicy(databasePath);
+    const baseBrief = {
+      result: 'Проверенный нетелеграмный материал', scope: ['work/social/vk'],
+      firstCheck: 'node --test tests/structured-memory.test.mjs', acceptance: ['volume_ladder_ready'],
+      forbiddenChanges: ['publication'],
+    };
+    const semantics = {
+      selectedClusters: ['launch_and_management', 'segments', 'fixture'],
+      adjacentClusterRationale: 'Кластеры смежны для одного интента: управляемый запуск продвижения товарной категории.',
+      primaryTargetQuery: 'накрутка ПФ Яндекс',
+      secondaryTargetQueries: ['как запустить накрутку ПФ', 'настройка проекта ПФ', 'поведенческие факторы для интернет-магазина', 'keyword-1', 'keyword-2', 'keyword-3', 'keyword-4'],
+      userIntent: 'спланировать запуск продвижения товарной категории', platform: 'VK', format: 'social_post',
+    };
+    const indexation = { seoIndexationObjective: 'Индексация Яндекса по выбранным запросам' };
+    const delivery = { result: 'Материал проверен', checks: [baseBrief.firstCheck],
+      satisfiedAcceptance: baseBrief.acceptance, scopeCompliance: true, forbiddenChangesObserved: [] };
+    const compiled = compileContextPack(databasePath, { text: 'Подготовь пост VK с семантикой по объёму', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+    const card = compiled.pack.payload.execution_card;
+    assert.ok(card.mandatory_rules.some((item) => item.semantic_key === 'content.public_editorial_target_query_volume_ladder_policy'));
+    assert.ok(card.delivery_qa.checks.some((item) => item.id === 'target_query_volume_ladder'));
+    assert.equal(closeContextPack(databasePath, compiled.pack.id, { ...delivery,
+      contentQa: publicEditorialSemanticQaWithVolumeLadder(semantics, 2200) }).status, 'closed');
+
+    const missingRationale = compileContextPack(databasePath, { text: 'Подготовь короткий пост VK с семантикой по объёму', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+    assert.throws(() => closeContextPack(databasePath, missingRationale.pack.id, { ...delivery,
+      contentQa: publicEditorialSemanticQaWithVolumeLadder(semantics, 1600) }), /target_query_volume_ladder/);
+
+    const shortWithRationale = compileContextPack(databasePath, { text: 'Подготовь короткий пост VK с обоснованием семантики', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+    assert.equal(closeContextPack(databasePath, shortWithRationale.pack.id, { ...delivery,
+      contentQa: publicEditorialSemanticQaWithVolumeLadder(semantics, 1600, 'Короткий формат полностью решает один интент; число точных запросов сохранено для связанной темы.') }).status, 'closed');
+
+    const tooFewQueries = { ...semantics, secondaryTargetQueries: semantics.secondaryTargetQueries.slice(0, 4) };
+    const badCount = compileContextPack(databasePath, { text: 'Подготовь пост VK с недостаточным числом точных запросов', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: tooFewQueries, editorialIndexation: indexation } });
+    assert.throws(() => closeContextPack(databasePath, badCount.pack.id, { ...delivery,
+      contentQa: publicEditorialSemanticQaWithVolumeLadder(tooFewQueries, 2200) }), /target_query_volume_ladder/);
+
+    const telegram = compileContextPack(databasePath, { text: 'Подготовь пост Telegram', projectDatabasePath, taskBrief: baseBrief });
+    assert.equal(telegram.pack.payload.execution_card.mandatory_rules
+      .some((item) => item.semantic_key === 'content.public_editorial_target_query_volume_ladder_policy'), false);
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 
