@@ -131,10 +131,88 @@
   }
 
   const operations = { listBlocks, readSelection, setCollapsedCaret, prepareInlineImage, verifyInlineImage };
+
+  function displayValue(value) {
+    return JSON.stringify(value, null, 2);
+  }
+
+  function mountControlPanel() {
+    if (typeof document.createElement !== 'function' || document.getElementById?.('oborot-caret-adapter-panel')) return;
+    const panel = document.createElement('section');
+    panel.id = 'oborot-caret-adapter-panel';
+    panel.setAttribute('aria-label', 'Проверка позиции курсора Oborot');
+    panel.style.cssText = [
+      'position:fixed', 'right:16px', 'bottom:16px', 'z-index:2147483647', 'width:360px',
+      'padding:12px', 'border:1px solid #385170', 'border-radius:8px', 'background:#fff',
+      'color:#152536', 'box-shadow:0 6px 24px rgba(0,0,0,.25)', 'font:14px/1.4 Arial,sans-serif',
+    ].join(';');
+    const title = document.createElement('strong');
+    title.textContent = 'Курсор в тексте';
+    const hint = document.createElement('p');
+    hint.textContent = 'Выберите один блок и его границу. Панель только ставит и проверяет текстовый курсор.';
+    const refresh = document.createElement('button');
+    refresh.type = 'button'; refresh.id = 'oborot-caret-refresh-blocks'; refresh.textContent = 'Обновить блоки';
+    const blockLabel = document.createElement('label');
+    blockLabel.htmlFor = 'oborot-caret-block'; blockLabel.textContent = 'Блок';
+    const blockSelect = document.createElement('select');
+    blockSelect.id = 'oborot-caret-block'; blockSelect.setAttribute('aria-label', 'Блок текста');
+    blockSelect.style.cssText = 'display:block;width:100%;margin:4px 0 10px';
+    const edgeLabel = document.createElement('label');
+    edgeLabel.htmlFor = 'oborot-caret-edge'; edgeLabel.textContent = 'Граница';
+    const edgeSelect = document.createElement('select');
+    edgeSelect.id = 'oborot-caret-edge'; edgeSelect.setAttribute('aria-label', 'Граница блока');
+    edgeSelect.style.cssText = 'display:block;width:100%;margin:4px 0 10px';
+    for (const [value, label] of [['start', 'Начало'], ['end', 'Конец'], ['empty', 'Пустой блок']]) {
+      const option = document.createElement('option'); option.value = value; option.textContent = label; edgeSelect.append(option);
+    }
+    const prove = document.createElement('button');
+    prove.type = 'button'; prove.id = 'oborot-caret-set-and-prove'; prove.textContent = 'Поставить и проверить курсор';
+    const result = document.createElement('pre');
+    result.id = 'oborot-caret-selection-proof'; result.setAttribute('aria-live', 'polite');
+    result.style.cssText = 'white-space:pre-wrap;overflow-wrap:anywhere;margin:10px 0 0;padding:8px;background:#f4f7fa';
+    panel.append(title, hint, refresh, blockLabel, blockSelect, edgeLabel, edgeSelect, prove, result);
+
+    let listedBlocks = [];
+    const selectedBlock = () => listedBlocks.find((item) => item.blockId === blockSelect.value) ?? null;
+    const updateEmptyEdge = () => {
+      const empty = edgeSelect.querySelector('option[value="empty"]');
+      if (!empty) return;
+      empty.disabled = !selectedBlock()?.empty;
+      if (empty.disabled && edgeSelect.value === 'empty') edgeSelect.value = 'start';
+    };
+    const renderResult = (value) => { result.textContent = displayValue(value); };
+    const loadBlocks = () => {
+      const listed = listBlocks();
+      blockSelect.replaceChildren();
+      if (listed.error) { listedBlocks = []; prove.disabled = true; renderResult(listed); return; }
+      listedBlocks = listed;
+      for (const item of listedBlocks) {
+        const option = document.createElement('option');
+        option.value = item.blockId;
+        option.textContent = `${item.tagName} · ${item.empty ? 'пустой' : item.text.slice(0, 90)}`;
+        blockSelect.append(option);
+      }
+      prove.disabled = listedBlocks.length !== 1 && !blockSelect.value;
+      updateEmptyEdge();
+      renderResult({ blocks: listedBlocks.map(({ blockId, tagName, empty }) => ({ blockId, tagName, empty })) });
+    };
+    refresh.addEventListener('click', loadBlocks);
+    blockSelect.addEventListener('change', updateEmptyEdge);
+    prove.addEventListener('click', () => {
+      const block = selectedBlock();
+      if (!block) { renderResult(error('target_not_found')); return; }
+      const proof = setCollapsedCaret({ blockId: block.blockId, edge: edgeSelect.value });
+      renderResult(proof);
+    });
+    loadBlocks();
+    (document.body ?? document.documentElement).append(panel);
+  }
+
   document.addEventListener(REQUEST, (event) => {
     const request = event.detail ?? {};
     const operation = operations[request.operation];
     const result = operation ? operation(request.target ?? request.sessionId) : error('unsupported_operation');
     document.dispatchEvent(new CustomEvent(RESPONSE, { detail: { id: request.id ?? null, result } }));
   });
+  mountControlPanel();
 })();

@@ -66,6 +66,20 @@ test('adapter uses the editable iframe Range and Selection APIs and has no uploa
   assert.doesNotMatch(source, /preview/i);
 });
 
+test('adapter exposes a standard DOM control panel wired only to block listing and caret proof', () => {
+  const source = readFileSync(adapterPath, 'utf8');
+  assert.match(source, /function mountControlPanel\(\)/);
+  assert.match(source, /oborot-caret-block/);
+  assert.match(source, /oborot-caret-edge/);
+  assert.match(source, /oborot-caret-set-and-prove/);
+  assert.match(source, /const listed = listBlocks\(\)/);
+  assert.match(source, /const proof = setCollapsedCaret\(\{/);
+  assert.match(source, /renderResult\(proof\)/);
+  assert.doesNotMatch(source, /createElement\(['"]input['"]\)/);
+  assert.doesNotMatch(source, /fetch\s*\(/);
+  assert.doesNotMatch(source, /chrome\.runtime|browser\.runtime/);
+});
+
 test('inline verification is only exposed after a proof-session preparation operation', () => {
   const source = readFileSync(adapterPath, 'utf8');
   assert.match(source, /function prepareInlineImage\(target\)/);

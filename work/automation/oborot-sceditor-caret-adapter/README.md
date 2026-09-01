@@ -6,11 +6,12 @@ This is local extension source only. It is not installed, enabled, injected into
 
 - Runs only on `https://oborot.ru/my/blog/*` when an owner later installs and explicitly enables it.
 - Refuses unless exactly one editable `iframe.sceditor-iframe` is present.
-- Lists direct editor-body blocks with deterministic IDs; a future operator chooses one explicit ID and an edge: `start`, `end`, or `empty`.
+- Shows a small, standard DOM control panel in the lower right of the allowed Oborot draft page. It lists only direct editor-body blocks with deterministic IDs. The operator chooses exactly one block and an edge: `start`, `end`, or `empty`.
 - Uses the iframe document's `Range` and `Selection` APIs to set a collapsed caret and returns a proof that the selection is inside the chosen block.
+- The panel's **«Поставить и проверить курсор»** button displays the resulting `SelectionProof`: `collapsed`, selected `targetBlockId`, and confirmation that both selection ends are inside the editable document. It refuses an ambiguous editor or target.
 - Creates a one-time proof session before a manual SCEditor image command. After that command, it verifies exactly one new direct `IMG` at the chosen boundary.
 
-It does not upload a file, operate the SCEditor toolbar, alter preview covers, submit a draft, publish, read credentials, or persist draft content.
+It does not upload a file, operate the SCEditor toolbar, alter post-card artwork, submit a draft, publish, read credentials, persist draft content, make network requests, or use a background worker.
 
 ## Later installation requires a separate owner confirmation
 
@@ -29,3 +30,5 @@ document.dispatchEvent(new CustomEvent('oborot-caret-adapter:request', {
 ```
 
 Allowed operations: `listBlocks`, `readSelection`, `setCollapsedCaret`, `prepareInlineImage`, and `verifyInlineImage`. Preview-cover operations, uploads, clicks, submission, and publication are intentionally unsupported.
+
+The panel calls the same local `listBlocks` and `setCollapsedCaret` functions; it does not inject code into the page, invoke toolbar commands, or open a file chooser.
