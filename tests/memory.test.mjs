@@ -1005,13 +1005,14 @@ test('editorial article policy and Timeweb draft are repeatable approved records
 
   const first = applyEditorialPublicationPolicyAndTimewebDraft(databasePath);
   const second = applyEditorialPublicationPolicyAndTimewebDraft(databasePath);
-  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 6 });
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 7 });
   assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
 
   const database = new DatabaseSync(databasePath, { readOnly: true });
   const policy = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='content.editorial_article_preparation_policy'").get();
   const botMechanics = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='content.article_prohibit_bot_mechanics'").get();
   const noGuarantees = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='content.article_prohibit_no_guarantees'").get();
+  const publicNoGuarantees = database.prepare("SELECT status, reviewed_at, content, data_json FROM memory_candidates WHERE semantic_key='content.public_prohibit_no_guarantees'").get();
   const draft = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='publication.timeweb_cloud_draft_2026_08_29'").get();
   const registry = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='editorial.registry_current_state'").get();
   const contour = database.prepare("SELECT status, content, data_json FROM memory_candidates WHERE semantic_key='editorial.metrichit_contour_and_research_mvp' ORDER BY coalesce(json_extract(data_json, '$.revision'), 0) DESC").get();
@@ -1025,6 +1026,17 @@ test('editorial article policy and Timeweb draft are repeatable approved records
   assert.equal(noGuarantees.status, 'approved');
   assert.match(noGuarantees.content, /Никогда не писать об отсутствии гарантий/);
   assert.deepEqual(JSON.parse(noGuarantees.data_json).platforms, ['all']);
+  assert.equal(publicNoGuarantees.status, 'approved');
+  assert.equal(publicNoGuarantees.reviewed_at, '2026-09-01T00:00:00.000Z');
+  assert.match(publicNoGuarantees.content, /«позиции не гарантируются»/);
+  assert.deepEqual(JSON.parse(publicNoGuarantees.data_json), {
+    applies_to: ['new_public_materials'],
+    platforms: ['article', 'tenchat', 'vk', 'telegram', 'other_public_channels'],
+    prohibited_exact_phrase: 'позиции не гарантируются',
+    prohibited_semantic_variants: ['absence_of_result_guarantees', 'absence_of_position_guarantees', 'absence_of_traffic_guarantees', 'absence_of_lead_guarantees'],
+    exceptions: ['internal_product_facts', 'mandatory_legal_disclosures', 'no_retroactive_rewrite_of_existing_published_materials'],
+    evidence: { path: 'knowledge/decisions/editorial-publication-policy-and-timeweb-draft-2026-08-29.md', owner_clarification_date: '2026-09-01' },
+  });
   assert.equal(draft.status, 'approved');
   assert.match(draft.content, /draft\/unpublished/);
   assert.deepEqual(JSON.parse(draft.data_json), {
@@ -1040,6 +1052,7 @@ test('editorial article policy and Timeweb draft are repeatable approved records
   assert.deepEqual(JSON.parse(contour.data_json).content_registry, { articles_materials: 1, articles_drafts: 1, articles_publications: 0, articles_results: 0 });
   const exported = exportCurrentContext(databasePath, outputPath, '2026-08-29T16:00:00.000Z').content;
   assert.match(exported, /Правила подготовки статей MetricHit/);
+  assert.match(exported, /Публичные материалы MetricHit: не упоминать отсутствие гарантий/);
   assert.match(exported, /Черновик Timeweb Cloud/);
   assert.match(exported, /публичный URL отсутствует/);
   assert.match(exported, /один article-материал для Timeweb Cloud со статусом draft/);
