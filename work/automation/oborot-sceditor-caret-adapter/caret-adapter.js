@@ -138,6 +138,10 @@
 
   function mountControlPanel() {
     if (typeof document.createElement !== 'function' || document.getElementById?.('oborot-caret-adapter-panel')) return;
+    // Oborot embeds its editor in an outer frame, which in turn owns the
+    // SCEditor iframe. The script is deliberately present in every allowed
+    // frame, but only this outer editor frame is allowed to render controls.
+    if (editableFrame().error) return;
     const panel = document.createElement('section');
     panel.id = 'oborot-caret-adapter-panel';
     panel.setAttribute('aria-label', 'Проверка позиции курсора Oborot');

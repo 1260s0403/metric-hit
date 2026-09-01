@@ -4,9 +4,9 @@ This is local extension source only. It is not installed, enabled, injected into
 
 ## What it does
 
-- Runs only on `https://oborot.ru/my/blog/*` when an owner later installs and explicitly enables it.
-- Refuses unless exactly one editable `iframe.sceditor-iframe` is present.
-- Shows a small, standard DOM control panel in the lower right of the allowed Oborot draft page. It lists only direct editor-body blocks with deterministic IDs. The operator chooses exactly one block and an edge: `start`, `end`, or `empty`.
+- Runs only on `https://oborot.ru/my/blog/*` when an owner later installs and explicitly enables it. The manifest runs in nested frames because Oborot places its editor inside an outer frame.
+- Refuses unless the current frame contains exactly one editable `iframe.sceditor-iframe`.
+- Shows its small, standard DOM control panel only in that outer editor frame, never in the top-level drafts page or the inner editable document. It lists only direct editor-body blocks with deterministic IDs. The operator chooses exactly one block and an edge: `start`, `end`, or `empty`.
 - Uses the iframe document's `Range` and `Selection` APIs to set a collapsed caret and returns a proof that the selection is inside the chosen block.
 - The panel's **«Поставить и проверить курсор»** button displays the resulting `SelectionProof`: `collapsed`, selected `targetBlockId`, and confirmation that both selection ends are inside the editable document. It refuses an ambiguous editor or target.
 - Creates a one-time proof session before a manual SCEditor image command. After that command, it verifies exactly one new direct `IMG` at the chosen boundary.

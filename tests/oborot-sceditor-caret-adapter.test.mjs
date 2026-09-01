@@ -46,6 +46,7 @@ function adapterHarness(frameCount = 1) {
 test('manifest is local and constrained to Oborot draft URLs', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   assert.deepEqual(manifest.content_scripts[0].matches, ['https://oborot.ru/my/blog/*']);
+  assert.equal(manifest.content_scripts[0].all_frames, true);
   assert.equal('permissions' in manifest, false);
   assert.equal('host_permissions' in manifest, false);
   assert.equal('background' in manifest, false);
@@ -69,6 +70,7 @@ test('adapter uses the editable iframe Range and Selection APIs and has no uploa
 test('adapter exposes a standard DOM control panel wired only to block listing and caret proof', () => {
   const source = readFileSync(adapterPath, 'utf8');
   assert.match(source, /function mountControlPanel\(\)/);
+  assert.match(source, /if \(editableFrame\(\)\.error\) return;/);
   assert.match(source, /oborot-caret-block/);
   assert.match(source, /oborot-caret-edge/);
   assert.match(source, /oborot-caret-set-and-prove/);
