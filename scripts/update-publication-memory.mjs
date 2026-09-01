@@ -1,0 +1,138 @@
+import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+
+const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
+
+function stableUuid(key) {
+  const hex = createHash('sha256').update(`metrichit-publication-memory-update:${key}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+function json(value) { return JSON.stringify(value); }
+function requiredText(value, field) {
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`${field} is required`);
+  return value.trim();
+}
+
+function assertPublicationUpdate(update) {
+  const semanticKey = requiredText(update.semanticKey, 'semanticKey');
+  const title = requiredText(update.title, 'title');
+  const content = requiredText(update.content, 'content');
+  const platform = requiredText(update.platform, 'platform');
+  const canonicalUrl = requiredText(update.canonicalUrl, 'canonicalUrl');
+  const publishedAt = requiredText(update.publishedAt, 'publishedAt');
+  const reviewedAt = requiredText(update.reviewedAt, 'reviewedAt');
+  if (!URL.canParse(canonicalUrl) || !/^https?:\/\//u.test(canonicalUrl)) throw new Error('canonicalUrl must be an http(s) URL');
+  if (Number.isInteger(update.revision) === false || update.revision < 1) throw new Error('revision must be a positive integer');
+  if (!Array.isArray(update.expectedPriorRevisions) || !update.expectedPriorRevisions.every(Number.isInteger)) {
+    throw new Error('expectedPriorRevisions must be an integer array');
+  }
+  if (!update.verifiedFacts || typeof update.verifiedFacts !== 'object' || Array.isArray(update.verifiedFacts)) {
+    throw new Error('verifiedFacts must be an object');
+  }
+  return { ...update, semanticKey, title, content, platform, canonicalUrl, publishedAt, reviewedAt };
+}
+
+function assertFields(row, expected, label) {
+  if (!row) throw new Error(`Missing ${label}`);
+  for (const [field, value] of Object.entries(expected)) {
+    if (row[field] !== value) throw new Error(`${label}.${field} differs`);
+  }
+}
+
+export function updatePublicationMemory(databasePath = defaultDatabasePath, input) {
+  const update = assertPublicationUpdate(input);
+  if (!existsSync(databasePath)) throw new Error(`Database does not exist: ${databasePath}`);
+  const sourceData = {
+    authority: 'direct_owner_request_with_public_readonly_verification',
+    canonical_url: update.canonicalUrl,
+    verification_method: 'public_page_read_only',
+    verified_at: update.reviewedAt,
+    verified_facts: update.verifiedFacts,
+  };
+  const sourceContent = json(sourceData);
+  const sourceId = stableUuid(`source:${update.semanticKey}:revision:${update.revision}`);
+  const documentId = stableUuid(`document:${update.semanticKey}:revision:${update.revision}`);
+  const versionId = stableUuid(`document-version:${update.semanticKey}:revision:${update.revision}`);
+  const candidateId = stableUuid(`candidate:${update.semanticKey}:revision:${update.revision}`);
+  const data = json({
+    platform: update.platform,
+    publication_status: 'independently_verified',
+    canonical_url: update.canonicalUrl,
+    public_url: update.canonicalUrl,
+    published_at: update.publishedAt,
+    verified_facts: update.verifiedFacts,
+    revision: update.revision,
+    supersedes_semantic_revisions: update.expectedPriorRevisions,
+    evidence: { source_id: sourceId, verification_method: 'public_page_read_only' },
+  });
+  const database = new DatabaseSync(resolve(databasePath));
+  const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
+  database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
+  try {
+    const existing = database.prepare(`SELECT id,coalesce(json_extract(data_json, '$.revision'), 0) AS revision
+      FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?`)
+      .all(update.semanticKey, candidateId);
+    const revisions = existing.map((row) => Number(row.revision)).sort((left, right) => left - right);
+    if (revisions.some((revision) => !update.expectedPriorRevisions.includes(revision))) {
+      throw new Error(`Unexpected semantic revision blocks ${update.semanticKey}: ${revisions.join(',')}`);
+    }
+    if (!revisions.length) throw new Error(`Existing publication record is required for ${update.semanticKey}`);
+    created.sources += Number(database.prepare(`INSERT OR IGNORE INTO sources
+      (id,type,title,content,data_json,status,author,valid_at,access_level)
+      VALUES (?,'owner_decision',?,?,?,'active','owner',?,'internal')`)
+      .run(sourceId, `Обновление публикации: ${update.title}`, sourceContent, sourceContent, update.publishedAt).changes);
+    created.documents += Number(database.prepare(`INSERT OR IGNORE INTO documents
+      (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version)
+      VALUES (?,'owner_decision',?,?,?,'active',?,'owner',?,'internal',1)`)
+      .run(documentId, `Обновление публикации: ${update.title}`, sourceContent, sourceContent, sourceId, update.publishedAt).changes);
+    created.versions += Number(database.prepare(`INSERT OR IGNORE INTO document_versions
+      (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version)
+      VALUES (?,?,'owner_decision',?,?,?,'active',?,'owner',?,'internal',1)`)
+      .run(versionId, documentId, `Обновление публикации: ${update.title}`, sourceContent, sourceContent, sourceId, update.publishedAt).changes);
+    created.candidates += Number(database.prepare(`INSERT OR IGNORE INTO memory_candidates
+      (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version)
+      VALUES (?,'publication_state',?,?,?,?, 'pending',?,'owner',?,'internal',1)`)
+      .run(candidateId, update.semanticKey, update.title, update.content, data, sourceId, update.publishedAt).changes);
+    const candidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
+    if (candidate?.status === 'pending') {
+      database.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by='owner',reviewed_at=?,
+        review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(
+        update.reviewedAt, 'Одобрено прямым поручением владельца; факты проверены только публичным read-only просмотром.',
+        update.reviewedAt, candidateId,
+      );
+    }
+    assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), {
+      type: 'publication_state', semantic_key: update.semanticKey, title: update.title, content: update.content,
+      data_json: data, status: 'approved', source_id: sourceId, reviewed_by: 'owner', reviewed_at: update.reviewedAt,
+    }, `${update.semanticKey} candidate`);
+    database.exec('COMMIT');
+    return { databasePath: resolve(databasePath), created, candidateId, sourceId, documentId, versionId };
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  } finally {
+    database.close();
+  }
+}
+
+export const sostavFirstArticleUpdate = Object.freeze({
+  semanticKey: 'publication.sostav_first_article', revision: 1, expectedPriorRevisions: [0],
+  title: 'Первая статья MetricHit опубликована в Sostav',
+  content: 'Статья «SEO вывело сайт в ТОП, а продажи не выросли: где ломается воронка» опубликована в блоге MetricHit на Sostav / SBlogs. Публичная страница: https://www.sostav.ru/blogs/293151/101025. На странице подтверждены заголовок, блог MetricHit, дата и время публикации 12.08.2026 17:51:40, canonical URL и разрешение index, follow.',
+  platform: 'Sostav / SBlogs', canonicalUrl: 'https://www.sostav.ru/blogs/293151/101025',
+  publishedAt: '2026-08-12T17:51:40+03:00', reviewedAt: '2026-08-31T23:59:00.000Z',
+  verifiedFacts: {
+    page_title: 'SEO вывело сайт в ТОП, а продажи не выросли: где ломается воронка',
+    blog_name: 'MetricHit', published_timestamp_display: '12.08.2026 17:51:40',
+    canonical_url_matches_public_url: true, robots: 'index,follow', page_accessible: true,
+  },
+});
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  console.log(JSON.stringify(updatePublicationMemory(process.argv[2] ? resolve(process.argv[2]) : defaultDatabasePath, sostavFirstArticleUpdate)));
+}
