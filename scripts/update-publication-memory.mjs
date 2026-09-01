@@ -222,15 +222,34 @@ export const vkCommunityCoverPublicationUpdate = Object.freeze({
   },
 });
 
+export const vkPfYandexServiceUpdate = Object.freeze({
+  semanticKey: 'publication.vk_service_nakrutka_pf_yandex_2026_09_01', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_updated',
+  title: 'Услуга MetricHit «Накрутка ПФ в Яндекс» обновлена во VK',
+  content: 'Владелец подтвердил актуальное состояние услуги MetricHit «Накрутка ПФ в Яндекс» во VK 01.09.2026. Публичная страница: https://vk.ru/market/product/prodvizhenie-saytov-v-yandekse-240809922-13528771?ref=community_showcase&ref_source=link. Указана цена от 1 000 ₽; в карточке установлена новая квадратная обложка и отображается описание услуги. Внешнее действие в рамках этого обновления не выполнялось.',
+  platform: 'VK',
+  canonicalUrl: 'https://vk.ru/market/product/prodvizhenie-saytov-v-yandekse-240809922-13528771?ref=community_showcase&ref_source=link',
+  publishedAt: '2026-09-01T00:00:00+03:00', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_confirmation_with_owner_provided_public_url_and_screenshot',
+  verificationMethod: 'owner_provided_public_url_and_screenshot',
+  verifiedFacts: {
+    updated: true, confirmation_date: '2026-09-01',
+    service_title: 'Накрутка ПФ в Яндекс', price_from_rub: 1000,
+    card_cover: 'new_square_cover', description_visible: true,
+    external_action_performed_in_this_update: false,
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
   const update = command === 'oborot-editorial-integration' ? oborotEditorialIntegrationUpdate
     : command === 'oborot-internet-shop-publication' ? oborotInternetShopPublicationUpdate
       : command === 'tenchat-internet-shop-publication' ? tenchatInternetShopPublicationUpdate
-        : command === 'vk-community-cover-publication' ? vkCommunityCoverPublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication'].includes(command)) {
-    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication> [databasePath]');
+        : command === 'vk-community-cover-publication' ? vkCommunityCoverPublicationUpdate
+          : command === 'vk-pf-yandex-service' ? vkPfYandexServiceUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }
