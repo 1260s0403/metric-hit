@@ -255,20 +255,47 @@ export function resolveApprovedEditorialRequirements(database, route) {
   return requirements.sort((a, b) => a.semantic_key.localeCompare(b.semantic_key) || a.id.localeCompare(b.id));
 }
 
-function editorialSemanticsFromBrief(taskBrief, rules) {
+function approvedSemanticCoreTaxonomy(projectDatabasePath, references) {
+  const reference = loadReferencedMemory(projectDatabasePath, references, 'editorial')
+    .find((item) => item.semantic_key === SEMANTIC_CORE_REFERENCE_KEY);
+  const taxonomy = reference?.data?.taxonomy;
+  if (!taxonomy || typeof taxonomy !== 'object' || !Object.values(taxonomy).every(Array.isArray)) {
+    throw new Error('approved semantic core taxonomy is unavailable');
+  }
+  return taxonomy;
+}
+
+function editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy = null) {
   if (!rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore)) return null;
   const source = taskBrief.editorialSemantics ?? {};
   const semanticContext = {
     selected_cluster: nonEmptyText(source.selectedCluster),
     primary_target_query: nonEmptyText(source.primaryTargetQuery),
+    secondary_target_queries: Array.isArray(source.secondaryTargetQueries)
+      ? source.secondaryTargetQueries.map(nonEmptyText).filter(Boolean) : null,
     user_intent: nonEmptyText(source.userIntent),
     platform: nonEmptyText(source.platform),
     format: nonEmptyText(source.format),
+    core_reference: SEMANTIC_CORE_REFERENCE_KEY,
   };
   const missing = Object.entries(semanticContext).filter(([, value]) => !value).map(([key]) => `editorial_semantics.${key}`);
   if (missing.length) throw new Error(`execution card is incomplete: ${missing.join(', ')}`);
   if (!['article', 'social_post'].includes(semanticContext.format)) {
     throw new Error('execution card is incomplete: editorial_semantics.format');
+  }
+  if (!Array.isArray(semanticContext.secondary_target_queries)) {
+    throw new Error('execution card is incomplete: editorial_semantics.secondary_target_queries');
+  }
+  const selectedClusterQueries = semanticCoreTaxonomy?.[semanticContext.selected_cluster];
+  if (!Array.isArray(selectedClusterQueries)) {
+    throw new Error('execution card is incomplete: editorial_semantics.selected_cluster_not_in_approved_core');
+  }
+  const targetQueries = [semanticContext.primary_target_query, ...semanticContext.secondary_target_queries];
+  if (new Set(targetQueries).size !== targetQueries.length) {
+    throw new Error('execution card is incomplete: editorial_semantics.duplicate_target_query');
+  }
+  if (targetQueries.some((query) => !selectedClusterQueries.includes(query))) {
+    throw new Error('execution card is incomplete: editorial_semantics.target_query_not_in_selected_approved_core_cluster');
   }
   return semanticContext;
 }
@@ -295,7 +322,8 @@ function editorialQaRequirements(rules, editorialSemantics, editorialIndexation)
     && !keys.has(REQUIRED_EDITORIAL_RULES.article) && !keys.has(REQUIRED_EDITORIAL_RULES.tenchat)) return null;
   const checks = [];
   if (keys.has(REQUIRED_EDITORIAL_RULES.semanticCore)) {
-    checks.push({ id: 'semantic_cluster_selection', evidence_fields: ['selected_cluster', 'primary_target_query', 'user_intent', 'platform', 'core_reference', 'non_navigational'] });
+    checks.push({ id: 'semantic_cluster_selection', evidence_fields: ['selected_cluster', 'primary_target_query', 'secondary_target_queries', 'user_intent', 'platform', 'core_reference', 'non_navigational'] });
+    checks.push({ id: 'target_queries_approved_core', evidence_fields: ['core_reference', 'selected_cluster', 'primary_target_query', 'secondary_target_queries', 'target_queries_match_card', 'all_target_queries_approved', 'all_target_queries_same_cluster', 'duplicate_target_queries', 'keyword_stuffing'] });
     checks.push({ id: 'primary_query_prominence', evidence_fields: ['primary_target_query', 'platform', 'location', 'natural', 'keyword_stuffing'] });
     checks.push({ id: 'single_cluster_intent', evidence_fields: ['selected_cluster', 'user_intent', 'content_serves_selected_intent', 'unrelated_clusters_mixed'] });
     checks.push({ id: 'geo_demand_verification', evidence_fields: ['geo_candidate', 'demand_verification_required', 'demand_verified', 'verification_reference'] });
@@ -326,11 +354,11 @@ function editorialQaRequirements(rules, editorialSemantics, editorialIndexation)
   };
 }
 
-function buildExecutionCard(taskBrief, route, rules) {
+function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy) {
   const scope = nonEmptyList(taskBrief.scope ?? taskBrief.allowedChanges);
   const acceptance = nonEmptyList(taskBrief.acceptance);
   const forbiddenChanges = nonEmptyList(taskBrief.forbiddenChanges);
-  const editorialSemantics = editorialSemanticsFromBrief(taskBrief, rules);
+  const editorialSemantics = editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy);
   const editorialIndexation = editorialIndexationFromBrief(taskBrief, rules);
   const card = {
     result: nonEmptyText(taskBrief.result),
@@ -390,11 +418,25 @@ function validateEditorialContentQa(specification, contentQa) {
   if (selection && (!semanticContext
     || selection.selected_cluster !== semanticContext.selected_cluster
     || selection.primary_target_query !== semanticContext.primary_target_query
+    || canonical(selection.secondary_target_queries) !== canonical(semanticContext.secondary_target_queries)
     || selection.user_intent !== semanticContext.user_intent
     || selection.platform !== semanticContext.platform
-    || selection.core_reference !== SEMANTIC_CORE_REFERENCE_KEY
+    || selection.core_reference !== semanticContext.core_reference
     || selection.non_navigational !== true)) {
     throw new Error('delivery validation failed: editorial_content_qa_failed:semantic_cluster_selection');
+  }
+  const approvedTargets = byId.get('target_queries_approved_core');
+  if (approvedTargets && (!semanticContext
+    || approvedTargets.core_reference !== semanticContext.core_reference
+    || approvedTargets.selected_cluster !== semanticContext.selected_cluster
+    || approvedTargets.primary_target_query !== semanticContext.primary_target_query
+    || canonical(approvedTargets.secondary_target_queries) !== canonical(semanticContext.secondary_target_queries)
+    || approvedTargets.target_queries_match_card !== true
+    || approvedTargets.all_target_queries_approved !== true
+    || approvedTargets.all_target_queries_same_cluster !== true
+    || approvedTargets.duplicate_target_queries !== false
+    || approvedTargets.keyword_stuffing !== false)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:target_queries_approved_core');
   }
   const prominence = byId.get('primary_query_prominence');
   const allowedProminentLocations = semanticContext?.format === 'article' ? ['h1'] : ['headline', 'opening_paragraph'];
@@ -577,7 +619,9 @@ export function compileDeterministicContext(database, {
   const approvedEditorialRequirements = resolveApprovedEditorialRequirements(database, resolvedRoute);
   const rules = [...new Map([...records.filter((item) => item.type === 'rule'), ...approvedEditorialRequirements]
     .map((item) => [item.semantic_key, item])).values()];
-  const executionCard = buildExecutionCard(taskBrief, resolvedRoute, rules);
+  const semanticCoreTaxonomy = rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore)
+    ? approvedSemanticCoreTaxonomy(projectDatabasePath, referenceRecords) : null;
+  const executionCard = buildExecutionCard(taskBrief, resolvedRoute, rules, semanticCoreTaxonomy);
   const payload = {
     schema_version: 4,
     compiler_version: COMPILER_VERSION,

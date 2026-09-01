@@ -108,9 +108,10 @@ function referenceFixture() {
   const result = fixture();
   const projectDatabasePath = join(result.directory, 'project.sqlite');
   const project = new DatabaseSync(projectDatabasePath);
-  const keywords = Array.from({ length: 145 }, (_, index) => `keyword-${index + 1}`);
+  const keywords = Array.from({ length: 142 }, (_, index) => `keyword-${index + 1}`);
+  const launchAndManagement = ['накрутка ПФ Яндекс', 'как запустить накрутку ПФ', 'настройка проекта ПФ'];
   const content = 'Fixture semantic core with 145 approved non-navigation queries.';
-  const dataJson = JSON.stringify({ taxonomy: { fixture: keywords }, keyword_count: keywords.length });
+  const dataJson = JSON.stringify({ taxonomy: { fixture: keywords, launch_and_management: launchAndManagement }, keyword_count: keywords.length + launchAndManagement.length });
   project.exec(`CREATE TABLE project_storage_metadata (
     singleton INTEGER PRIMARY KEY, project_id TEXT NOT NULL, storage_format INTEGER NOT NULL
   ); CREATE TABLE memory_candidates (
@@ -132,7 +133,7 @@ function referenceFixture() {
   control.prepare('UPDATE scoped_memory_records SET metadata_json=? WHERE semantic_key=?')
     .run(JSON.stringify(metadata), SEMANTIC_CORE_REFERENCE_KEY);
   control.close();
-  return { ...result, projectDatabasePath, keywords };
+  return { ...result, projectDatabasePath, keywords, launchAndManagement };
 }
 
 function addPublicEditorialSemanticCorePolicy(databasePath) {
@@ -186,8 +187,14 @@ function publicEditorialSemanticQa(semantics) {
       { id: 'semantic_cluster_selection', performed: true, passed: true,
         result: 'Selected one compact non-navigational semantic-core cluster.',
         evidence: { selected_cluster: semantics.selectedCluster, primary_target_query: semantics.primaryTargetQuery,
-          user_intent: semantics.userIntent, platform: semantics.platform,
+          secondary_target_queries: semantics.secondaryTargetQueries, user_intent: semantics.userIntent, platform: semantics.platform,
           core_reference: SEMANTIC_CORE_REFERENCE_KEY, non_navigational: true } },
+      { id: 'target_queries_approved_core', performed: true, passed: true,
+        result: 'Every declared target query is verbatim in the selected approved semantic-core cluster.',
+        evidence: { core_reference: SEMANTIC_CORE_REFERENCE_KEY, selected_cluster: semantics.selectedCluster,
+          primary_target_query: semantics.primaryTargetQuery, secondary_target_queries: semantics.secondaryTargetQueries,
+          target_queries_match_card: true, all_target_queries_approved: true, all_target_queries_same_cluster: true,
+          duplicate_target_queries: false, keyword_stuffing: false } },
       { id: 'primary_query_prominence', performed: true, passed: true,
         result: 'Primary query is natural in the required prominent location.',
         evidence: { primary_target_query: semantics.primaryTargetQuery, platform: semantics.platform,
@@ -482,7 +489,7 @@ test('editorial TenChat gate includes approved unscoped requirements and require
 });
 
 test('Telegram is exempt while non-Telegram routes require semantic context and only an indexation objective', () => {
-  const { directory, databasePath } = referenceFixture();
+  const { directory, databasePath, projectDatabasePath } = referenceFixture();
   try {
     addPublicEditorialSemanticCorePolicy(databasePath);
     addPublicEditorialIndexationPfTargetPolicy(databasePath);
@@ -492,27 +499,28 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
       forbiddenChanges: ['publication'],
     };
     const vkSemantics = {
-      selectedCluster: 'запуск и управление', primaryTargetQuery: 'накрутка ПФ',
+      selectedCluster: 'launch_and_management', primaryTargetQuery: 'накрутка ПФ Яндекс', secondaryTargetQueries: ['как запустить накрутку ПФ'],
       userIntent: 'понять управляемый запуск ПФ', platform: 'VK', format: 'social_post',
     };
     const vkIndexation = {
       seoIndexationObjective: 'Индексация Яндекса по выбранному запросу',
     };
     assert.throws(() => compileContextPack(databasePath, {
-      text: 'Подготовь пост VK для MetricHit', taskBrief: baseBrief,
+      text: 'Подготовь пост VK для MetricHit', projectDatabasePath, taskBrief: baseBrief,
     }), /editorial_semantics\.selected_cluster/);
     assert.throws(() => compileContextPack(databasePath, {
-      text: 'Подготовь пост VK для MetricHit', taskBrief: { ...baseBrief, editorialSemantics: vkSemantics },
+      text: 'Подготовь пост VK для MetricHit', projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: vkSemantics },
     }), /editorial_indexation\.seo_indexation_objective/);
 
-    const vkCompiled = compileContextPack(databasePath, { text: 'Подготовь пост VK для MetricHit', taskBrief: { ...baseBrief, editorialSemantics: vkSemantics, editorialIndexation: vkIndexation } });
+    const vkCompiled = compileContextPack(databasePath, { text: 'Подготовь пост VK для MetricHit', projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: vkSemantics, editorialIndexation: vkIndexation } });
     const vkCard = vkCompiled.pack.payload.execution_card;
     assert.equal(vkCompiled.route.taskType, 'editorial');
     assert.ok(vkCard.mandatory_rules.some((item) => item.semantic_key === 'content.public_editorial_semantic_core_policy'));
     assert.ok(vkCard.mandatory_rules.some((item) => item.semantic_key === 'content.public_editorial_yandex_indexation_pf_target_policy'));
     assert.deepEqual(vkCard.editorial_semantics, {
       selected_cluster: vkSemantics.selectedCluster, primary_target_query: vkSemantics.primaryTargetQuery,
-      user_intent: vkSemantics.userIntent, platform: vkSemantics.platform, format: 'social_post',
+      secondary_target_queries: vkSemantics.secondaryTargetQueries, user_intent: vkSemantics.userIntent,
+      platform: vkSemantics.platform, format: 'social_post', core_reference: SEMANTIC_CORE_REFERENCE_KEY,
     });
     assert.deepEqual(vkCard.editorial_indexation, {
       seo_indexation_objective: vkIndexation.seoIndexationObjective,
@@ -522,12 +530,25 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
         auto_authorized: false,
       },
     });
-    assert.deepEqual(vkCard.delivery_qa.checks.map((item) => item.id), ['semantic_cluster_selection', 'primary_query_prominence', 'single_cluster_intent', 'geo_demand_verification']);
+    assert.deepEqual(vkCard.delivery_qa.checks.map((item) => item.id), ['semantic_cluster_selection', 'target_queries_approved_core', 'primary_query_prominence', 'single_cluster_intent', 'geo_demand_verification']);
     const baseDelivery = { result: 'Материал проверен', checks: [baseBrief.firstCheck],
       satisfiedAcceptance: baseBrief.acceptance, scopeCompliance: true, forbiddenChangesObserved: [] };
+    assert.throws(() => compileContextPack(databasePath, { text: 'Подготовь пост VK с неутверждённым ключом', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: { ...vkSemantics, primaryTargetQuery: 'придуманный LSI запрос' }, editorialIndexation: vkIndexation } }),
+    /target_query_not_in_selected_approved_core_cluster/);
+    assert.throws(() => compileContextPack(databasePath, { text: 'Подготовь пост VK со смешанным кластером', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: { ...vkSemantics, secondaryTargetQueries: ['keyword-1'] }, editorialIndexation: vkIndexation } }),
+    /target_query_not_in_selected_approved_core_cluster/);
+    assert.throws(() => compileContextPack(databasePath, { text: 'Подготовь пост VK без списка вторичных ключей', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: { ...vkSemantics, secondaryTargetQueries: undefined }, editorialIndexation: vkIndexation } }),
+    /editorial_semantics\.secondary_target_queries/);
+    const invalidQa = publicEditorialQa(vkSemantics);
+    invalidQa.checks.find((item) => item.id === 'target_queries_approved_core').evidence.secondary_target_queries = ['keyword-1'];
+    assert.throws(() => closeContextPack(databasePath, vkCompiled.pack.id, { ...baseDelivery, contentQa: invalidQa }),
+      /target_queries_approved_core/);
     assert.equal(closeContextPack(databasePath, vkCompiled.pack.id, { ...baseDelivery, contentQa: publicEditorialQa(vkSemantics) }).status, 'closed');
 
-    const telegramCompiled = compileContextPack(databasePath, { text: 'Подготовь пост Telegram для MetricHit', taskBrief: baseBrief });
+    const telegramCompiled = compileContextPack(databasePath, { text: 'Подготовь пост Telegram для MetricHit', projectDatabasePath, taskBrief: baseBrief });
     const telegramCard = telegramCompiled.pack.payload.execution_card;
     assert.equal(telegramCard.mandatory_rules.some((item) => item.semantic_key === 'content.public_editorial_semantic_core_policy'), false);
     assert.equal(telegramCard.mandatory_rules.some((item) => item.semantic_key === 'content.public_editorial_yandex_indexation_pf_target_policy'), false);
@@ -540,15 +561,15 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
       ['Подготовь статью TenChat для MetricHit', { ...vkSemantics, platform: 'TenChat', format: 'article' }, vkIndexation],
       ['Подготовь статью для article platform MetricHit', { ...vkSemantics, platform: 'Article platform', format: 'article' }, vkIndexation],
     ]) {
-      assert.throws(() => compileContextPack(databasePath, { text, taskBrief: { ...baseBrief, editorialSemantics: semantics } }),
+      assert.throws(() => compileContextPack(databasePath, { text, projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: semantics } }),
         /editorial_indexation\.seo_indexation_objective/);
-      const compiled = compileContextPack(databasePath, { text, taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+      const compiled = compileContextPack(databasePath, { text, projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
       const keys = compiled.pack.payload.execution_card.mandatory_rules.map((item) => item.semantic_key);
       assert.ok(keys.includes('content.public_editorial_semantic_core_policy'));
       assert.ok(keys.includes('content.public_editorial_yandex_indexation_pf_target_policy'));
     }
 
-    const unrelated = compileContextPack(databasePath, { text: 'Исправь UI operator panel MetricHit', taskBrief: {
+    const unrelated = compileContextPack(databasePath, { text: 'Исправь UI operator panel MetricHit', projectDatabasePath, taskBrief: {
       result: 'UI', scope: ['operator-panel'], firstCheck: 'ui-check', acceptance: ['visible'], forbiddenChanges: ['editorial'],
     } });
     assert.equal(unrelated.pack.payload.execution_card.mandatory_rules
@@ -560,7 +581,7 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
 });
 
 test('VK writing standard is isolated and validates target plus both justified exception length bands', () => {
-  const { directory, databasePath } = referenceFixture();
+  const { directory, databasePath, projectDatabasePath } = referenceFixture();
   try {
     addPublicEditorialSemanticCorePolicy(databasePath);
     addPublicEditorialIndexationPfTargetPolicy(databasePath);
@@ -571,7 +592,7 @@ test('VK writing standard is isolated and validates target plus both justified e
       forbiddenChanges: ['publication'],
     };
     const semantics = {
-      selectedCluster: 'запуск и управление', primaryTargetQuery: 'накрутка ПФ',
+      selectedCluster: 'launch_and_management', primaryTargetQuery: 'накрутка ПФ Яндекс', secondaryTargetQueries: ['как запустить накрутку ПФ'],
       userIntent: 'понять управляемый запуск ПФ', platform: 'VK', format: 'social_post',
     };
     const indexation = { seoIndexationObjective: 'Индексация Яндекса по выбранному запросу' };
@@ -582,7 +603,7 @@ test('VK writing standard is isolated and validates target plus both justified e
       ['Подготовь узкий новостной пост для VK в формате чек-листа', 1500, 'narrow_news_or_checklist', 'Узкий чек-лист полностью решает один заявленный интент.'],
       ['Подготовь подробный практический пост для VK', 3400, 'detailed_practical_breakdown', 'Тема требует подробного практического разбора с конкретными действиями.'],
     ]) {
-      const compiled = compileContextPack(databasePath, { text, taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+      const compiled = compileContextPack(databasePath, { text, projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
       const card = compiled.pack.payload.execution_card;
       assert.deepEqual(compiled.route.signals, ['editorial', 'vk']);
       assert.ok(card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'));
@@ -590,12 +611,12 @@ test('VK writing standard is isolated and validates target plus both justified e
       assert.ok(card.delivery_qa.checks.some((item) => item.id === 'vk_semantic_structure'));
       assert.equal(closeContextPack(databasePath, compiled.pack.id, { ...delivery, contentQa: vkPostQa(semantics, count, band, rationale) }).status, 'closed');
     }
-    const missingRationale = compileContextPack(databasePath, { text: 'Подготовь короткий пост для VK без причины', taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+    const missingRationale = compileContextPack(databasePath, { text: 'Подготовь короткий пост для VK без причины', projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
     assert.throws(() => closeContextPack(databasePath, missingRationale.pack.id, { ...delivery, contentQa: vkPostQa(semantics, 1500, 'narrow_news_or_checklist', null) }), /vk_body_character_count/);
 
-    const telegram = compileContextPack(databasePath, { text: 'Подготовь пост Telegram', taskBrief: baseBrief });
+    const telegram = compileContextPack(databasePath, { text: 'Подготовь пост Telegram', projectDatabasePath, taskBrief: baseBrief });
     assert.equal(telegram.pack.payload.execution_card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'), false);
-    const tenchat = compileContextPack(databasePath, { text: 'Подготовь статью TenChat', taskBrief: { ...baseBrief, editorialSemantics: { ...semantics, platform: 'TenChat', format: 'article' }, editorialIndexation: indexation } });
+    const tenchat = compileContextPack(databasePath, { text: 'Подготовь статью TenChat', projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: { ...semantics, platform: 'TenChat', format: 'article' }, editorialIndexation: indexation } });
     assert.equal(tenchat.pack.payload.execution_card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'), false);
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });

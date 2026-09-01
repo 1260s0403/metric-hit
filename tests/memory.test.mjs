@@ -17,6 +17,7 @@ import { applyPublicPfPositiveFraming } from '../scripts/apply-public-pf-positiv
 import { applyPublicEditorialSemanticCorePolicy } from '../scripts/apply-public-editorial-semantic-core-policy.mjs';
 import { applyPublicEditorialIndexationPfPolicy } from '../scripts/apply-public-editorial-indexation-pf-policy.mjs';
 import { applyPublicEditorialSemanticsIndexationCorrection } from '../scripts/apply-public-editorial-semantics-indexation-correction.mjs';
+import { applyPublicEditorialApprovedCoreTargetQueries } from '../scripts/apply-public-editorial-approved-core-target-queries.mjs';
 import { applyVkPostWritingStandard } from '../scripts/apply-vk-post-writing-standard.mjs';
 import { applyEditorialPublicationPolicyAndTimewebDraft } from '../scripts/apply-editorial-publication-policy-and-timeweb-draft.mjs';
 import { applySostavNakrutkaPfPublication } from '../scripts/apply-sostav-nakrutka-pf-publication.mjs';
@@ -1082,6 +1083,36 @@ test('public editorial semantics/indexation correction supersedes prior rules wi
   assert.deepEqual(indexationData.post_indexation_pf_target.separate_owner_approval_required_fields, ['material_or_url', 'budget', 'scope']);
   const exported = exportCurrentContext(databasePath, outputPath, '2026-09-01T00:00:00.000Z').content;
   assert.match(exported, /Telegram полностью исключён/);
+});
+
+test('approved-core target-query policy supersedes semantic revision two and is repeatable', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  const outputPath = join(dirname(databasePath), 'current-context.md');
+  t.after(remove);
+  initializeDatabase(databasePath);
+  applyPublicEditorialSemanticCorePolicy(databasePath);
+  applyPublicEditorialIndexationPfPolicy(databasePath);
+  applyPublicEditorialSemanticsIndexationCorrection(databasePath);
+
+  const first = applyPublicEditorialApprovedCoreTargetQueries(databasePath);
+  const second = applyPublicEditorialApprovedCoreTargetQueries(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const policy = database.prepare("SELECT status,reviewed_by,reviewed_at,content,data_json FROM memory_candidates WHERE semantic_key='content.public_editorial_semantic_core_policy' ORDER BY json_extract(data_json, '$.revision') DESC LIMIT 1").get();
+  database.close();
+  const data = JSON.parse(policy.data_json);
+  assert.equal(policy.status, 'approved');
+  assert.equal(policy.reviewed_by, 'owner');
+  assert.equal(policy.reviewed_at, '2026-09-01T00:00:00.000Z');
+  assert.equal(data.revision, 3);
+  assert.equal(data.semantic_core.target_queries_must_be_verbatim_approved_core_entries, true);
+  assert.equal(data.semantic_core.invented_synonyms_lsi_geo_variants_and_target_terms_prohibited, true);
+  assert.deepEqual(data.execution_card, ['selected_cluster', 'primary_target_query', 'secondary_target_queries', 'user_intent', 'platform', 'format', 'core_reference']);
+  assert.match(policy.content, /вторичных целевых запросов/);
+  const exported = exportCurrentContext(databasePath, outputPath, '2026-09-01T00:00:00.000Z').content;
+  assert.match(exported, /Целевые запросы публичных материалов только из утверждённого ядра/);
 });
 
 test('VK post writing standard is repeatable approved memory and current context', (t) => {
