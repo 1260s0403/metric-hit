@@ -1,0 +1,13 @@
+{
+  "manifest_version": 3,
+  "name": "Oborot SCEditor Caret Adapter",
+  "version": "0.1.0",
+  "description": "Local-only proof of a precise SCEditor caret before a manual inline-image action.",
+  "content_scripts": [
+    {
+      "matches": ["https://oborot.ru/my/blog/*"],
+      "js": ["caret-adapter.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
