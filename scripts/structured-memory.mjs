@@ -9,7 +9,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
-export const COMPILER_VERSION = 4;
+export const COMPILER_VERSION = 5;
 export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
 export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
 export const SCOPE_IDS = Object.freeze({
@@ -180,6 +180,7 @@ function hasTable(database, name) {
 
 const REQUIRED_EDITORIAL_RULES = Object.freeze({
   semanticCore: 'content.public_editorial_semantic_core_policy',
+  indexationPfTarget: 'content.public_editorial_yandex_indexation_pf_target_policy',
   article: 'content.editorial_article_preparation_policy',
   tenchat: 'editorial.tenchat_format_and_search_policy',
 });
@@ -192,6 +193,7 @@ function editorialRequirementApplies(candidate, signals) {
   const isArticle = signals.includes('article') || isTenChat;
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.article) return isArticle;
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.tenchat) return isTenChat;
+  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.indexationPfTarget) return !signals.includes('telegram');
   if (data.channel) return signals.includes(String(data.channel).toLocaleLowerCase('ru-RU'));
   if (data.platform) return signals.includes(String(data.platform).toLocaleLowerCase('ru-RU'));
   if (candidate.semantic_key === 'content.test_bonus_messaging') return signals.includes('bonus');
@@ -260,7 +262,36 @@ function editorialSemanticsFromBrief(taskBrief, rules) {
   return semanticContext;
 }
 
-function editorialQaRequirements(rules, editorialSemantics) {
+function editorialIndexationFromBrief(taskBrief, rules) {
+  if (!rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.indexationPfTarget)) return null;
+  const source = taskBrief.editorialIndexation ?? {};
+  const indexationContext = {
+    seo_indexation_objective: nonEmptyText(source.seoIndexationObjective),
+    indexability_retrievability_checks: nonEmptyList(source.indexabilityRetrievabilityChecks),
+    target_url_status: nonEmptyText(source.targetUrlStatus),
+    post_indexation_evidence_status: nonEmptyText(source.postIndexationEvidenceStatus),
+    pf_target_eligibility: nonEmptyText(source.pfTargetEligibility),
+    pf_campaign_owner_approval_required: true,
+    pf_campaign_auto_authorized: false,
+  };
+  const missing = Object.entries(indexationContext)
+    .filter(([key, value]) => ['pf_campaign_owner_approval_required', 'pf_campaign_auto_authorized'].includes(key) ? false : !value)
+    .map(([key]) => `editorial_indexation.${key}`);
+  if (missing.length) throw new Error(`execution card is incomplete: ${missing.join(', ')}`);
+  const statuses = {
+    not_published: { evidence: 'not_applicable_until_published', eligibility: 'ineligible_until_verified_indexation' },
+    published_url_known_unverified: { evidence: 'pending_indexation_verification', eligibility: 'ineligible_until_verified_indexation' },
+    verified_indexed: { evidence: 'verified_indexation', eligibility: 'eligible_after_verified_indexation' },
+  };
+  const expected = statuses[indexationContext.target_url_status];
+  if (!expected || indexationContext.post_indexation_evidence_status !== expected.evidence
+    || indexationContext.pf_target_eligibility !== expected.eligibility) {
+    throw new Error('execution card is incomplete: editorial_indexation.post_indexation_status');
+  }
+  return indexationContext;
+}
+
+function editorialQaRequirements(rules, editorialSemantics, editorialIndexation) {
   const keys = new Set(rules.map((rule) => rule.semantic_key));
   if (!keys.has(REQUIRED_EDITORIAL_RULES.semanticCore)
     && !keys.has(REQUIRED_EDITORIAL_RULES.article) && !keys.has(REQUIRED_EDITORIAL_RULES.tenchat)) return null;
@@ -270,6 +301,10 @@ function editorialQaRequirements(rules, editorialSemantics) {
     checks.push({ id: 'primary_query_prominence', evidence_fields: ['primary_target_query', 'platform', 'location', 'natural', 'keyword_stuffing'] });
     checks.push({ id: 'single_cluster_intent', evidence_fields: ['selected_cluster', 'user_intent', 'content_serves_selected_intent', 'unrelated_clusters_mixed'] });
     checks.push({ id: 'geo_demand_verification', evidence_fields: ['geo_candidate', 'demand_verification_required', 'demand_verified', 'verification_reference'] });
+  }
+  if (keys.has(REQUIRED_EDITORIAL_RULES.indexationPfTarget)) {
+    checks.push({ id: 'format_specific_indexation_readiness', evidence_fields: ['platform', 'format', 'seo_indexation_objective', 'indexability_retrievability_checks', 'passed'] });
+    checks.push({ id: 'post_indexation_pf_target_status', evidence_fields: ['target_url_status', 'post_indexation_evidence_status', 'indexation_verified', 'indexation_evidence', 'eligible_for_later_pf_campaign', 'eligible_only_after_verified_indexation', 'pf_campaign_owner_approval_required', 'pf_campaign_auto_authorized'] });
   }
   if (keys.has(REQUIRED_EDITORIAL_RULES.article)) {
     checks.push({ id: 'landing_link_distribution', evidence_fields: ['url', 'exact_count', 'positions', 'natural_anchors', 'link_spam'] });
@@ -285,7 +320,7 @@ function editorialQaRequirements(rules, editorialSemantics) {
     checks.push({ id: 'link_count_and_spam', evidence_fields: ['link_count', 'minimum', 'maximum', 'link_spam'] });
   }
   return {
-    required: true, checks, semantic_context: editorialSemantics,
+    required: true, checks, semantic_context: editorialSemantics, indexation_context: editorialIndexation,
     external_detection: {
       plagiarism: 'unavailable_or_not_performed',
       ai_detection: 'unavailable_or_not_performed',
@@ -298,6 +333,7 @@ function buildExecutionCard(taskBrief, route, rules) {
   const acceptance = nonEmptyList(taskBrief.acceptance);
   const forbiddenChanges = nonEmptyList(taskBrief.forbiddenChanges);
   const editorialSemantics = editorialSemanticsFromBrief(taskBrief, rules);
+  const editorialIndexation = editorialIndexationFromBrief(taskBrief, rules);
   const card = {
     result: nonEmptyText(taskBrief.result),
     scope,
@@ -309,7 +345,8 @@ function buildExecutionCard(taskBrief, route, rules) {
         source: rule.source, effect: rule.effect ?? 'mandatory', authority: rule.authority ?? 'scoped_memory' })),
     ],
     editorial_semantics: editorialSemantics,
-    delivery_qa: editorialQaRequirements(rules, editorialSemantics),
+    editorial_indexation: editorialIndexation,
+    delivery_qa: editorialQaRequirements(rules, editorialSemantics, editorialIndexation),
     first_check: nonEmptyText(taskBrief.firstCheck),
     acceptance,
     forbidden_changes: forbiddenChanges,
@@ -383,6 +420,31 @@ function validateEditorialContentQa(specification, contentQa) {
     || geoDemand.demand_verification_required !== true
     || (geoDemand.geo_candidate === true && (geoDemand.demand_verified !== true || !nonEmptyText(geoDemand.verification_reference))))) {
     throw new Error('delivery validation failed: editorial_content_qa_failed:geo_demand_verification');
+  }
+  const indexationReadiness = byId.get('format_specific_indexation_readiness');
+  const indexationContext = specification.indexation_context;
+  if (indexationReadiness && (!indexationContext || !semanticContext
+    || indexationReadiness.platform !== semanticContext.platform
+    || indexationReadiness.format !== semanticContext.format
+    || indexationReadiness.seo_indexation_objective !== indexationContext.seo_indexation_objective
+    || canonical(indexationReadiness.indexability_retrievability_checks) !== canonical(indexationContext.indexability_retrievability_checks)
+    || indexationReadiness.passed !== true)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:format_specific_indexation_readiness');
+  }
+  const pfTargetStatus = byId.get('post_indexation_pf_target_status');
+  if (pfTargetStatus && (!indexationContext
+    || pfTargetStatus.target_url_status !== indexationContext.target_url_status
+    || pfTargetStatus.post_indexation_evidence_status !== indexationContext.post_indexation_evidence_status
+    || pfTargetStatus.eligible_only_after_verified_indexation !== true
+    || pfTargetStatus.pf_campaign_owner_approval_required !== true
+    || pfTargetStatus.pf_campaign_auto_authorized !== false
+    || (indexationContext.target_url_status === 'verified_indexed'
+      && (pfTargetStatus.indexation_verified !== true || !nonEmptyText(pfTargetStatus.indexation_evidence)
+        || pfTargetStatus.eligible_for_later_pf_campaign !== true))
+    || (indexationContext.target_url_status !== 'verified_indexed'
+      && (pfTargetStatus.indexation_verified !== false || pfTargetStatus.indexation_evidence !== null
+        || pfTargetStatus.eligible_for_later_pf_campaign !== false)))) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:post_indexation_pf_target_status');
   }
   const links = byId.get('landing_link_distribution');
   if (links && (links.url !== 'https://go.mtrhit.ru/' || links.exact_count !== 4
