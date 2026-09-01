@@ -181,6 +181,7 @@ function hasTable(database, name) {
 const REQUIRED_EDITORIAL_RULES = Object.freeze({
   semanticCore: 'content.public_editorial_semantic_core_policy',
   indexationPfTarget: 'content.public_editorial_yandex_indexation_pf_target_policy',
+  vkPostWritingStandard: 'editorial.vk_post_writing_standard',
   article: 'content.editorial_article_preparation_policy',
   tenchat: 'editorial.tenchat_format_and_search_policy',
 });
@@ -298,6 +299,10 @@ function editorialQaRequirements(rules, editorialSemantics, editorialIndexation)
     checks.push({ id: 'primary_query_prominence', evidence_fields: ['primary_target_query', 'platform', 'location', 'natural', 'keyword_stuffing'] });
     checks.push({ id: 'single_cluster_intent', evidence_fields: ['selected_cluster', 'user_intent', 'content_serves_selected_intent', 'unrelated_clusters_mixed'] });
     checks.push({ id: 'geo_demand_verification', evidence_fields: ['geo_candidate', 'demand_verification_required', 'demand_verified', 'verification_reference'] });
+  }
+  if (keys.has(REQUIRED_EDITORIAL_RULES.vkPostWritingStandard)) {
+    checks.push({ id: 'vk_body_character_count', evidence_fields: ['character_count', 'count_scope', 'length_band', 'rationale', 'not_extended_for_seo_only'] });
+    checks.push({ id: 'vk_semantic_structure', evidence_fields: ['primary_target_query', 'selected_cluster', 'user_intent', 'in_headline', 'in_opening_paragraph', 'natural_mentions_total', 'keyword_stuffing', 'all_sections_serve_selected_query', 'opening_answers_query', 'useful_subheads_or_checklist', 'concrete_practical_details', 'practical_conclusion', 'natural_cta', 'padding_or_repetition', 'unsupported_seo_claims'] });
   }
   if (keys.has(REQUIRED_EDITORIAL_RULES.article)) {
     checks.push({ id: 'landing_link_distribution', evidence_fields: ['url', 'exact_count', 'positions', 'natural_anchors', 'link_spam'] });
@@ -458,6 +463,30 @@ function validateEditorialContentQa(specification, contentQa) {
   if (linkSpam && (!Number.isInteger(linkSpam.link_count) || linkSpam.minimum !== 2 || linkSpam.maximum !== 4
     || linkSpam.link_count < 2 || linkSpam.link_count > 4 || linkSpam.link_spam !== false)) {
     throw new Error('delivery validation failed: editorial_content_qa_failed:link_count_and_spam');
+  }
+  const vkLength = byId.get('vk_body_character_count');
+  if (vkLength && (!Number.isInteger(vkLength.character_count) || vkLength.character_count < 1200 || vkLength.character_count > 4000
+    || vkLength.count_scope !== 'russian_post_body_excluding_internal_metadata_and_urls'
+    || !['target', 'narrow_news_or_checklist', 'detailed_practical_breakdown'].includes(vkLength.length_band)
+    || vkLength.not_extended_for_seo_only !== true
+    || (vkLength.length_band === 'target' && (vkLength.character_count < 1800 || vkLength.character_count > 2800 || vkLength.rationale !== null))
+    || (vkLength.length_band === 'narrow_news_or_checklist' && (vkLength.character_count < 1200 || vkLength.character_count > 1799 || !nonEmptyText(vkLength.rationale)))
+    || (vkLength.length_band === 'detailed_practical_breakdown' && (vkLength.character_count < 3000 || vkLength.character_count > 4000 || !nonEmptyText(vkLength.rationale))))) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:vk_body_character_count');
+  }
+  const vkStructure = byId.get('vk_semantic_structure');
+  if (vkStructure && (!semanticContext
+    || vkStructure.primary_target_query !== semanticContext.primary_target_query
+    || vkStructure.selected_cluster !== semanticContext.selected_cluster
+    || vkStructure.user_intent !== semanticContext.user_intent
+    || vkStructure.in_headline !== true || vkStructure.in_opening_paragraph !== true
+    || !Number.isInteger(vkStructure.natural_mentions_total) || vkStructure.natural_mentions_total < 2 || vkStructure.natural_mentions_total > 3
+    || vkStructure.keyword_stuffing !== false || vkStructure.all_sections_serve_selected_query !== true
+    || vkStructure.opening_answers_query !== true || vkStructure.useful_subheads_or_checklist !== true
+    || vkStructure.concrete_practical_details !== true || vkStructure.practical_conclusion !== true
+    || vkStructure.natural_cta !== true || vkStructure.padding_or_repetition !== false
+    || vkStructure.unsupported_seo_claims !== false)) {
+    throw new Error('delivery validation failed: editorial_content_qa_failed:vk_semantic_structure');
   }
   const external = contentQa.external_checks;
   for (const id of ['plagiarism', 'ai_detection']) {

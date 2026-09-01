@@ -165,6 +165,21 @@ function addPublicEditorialIndexationPfTargetPolicy(databasePath) {
   } finally { database.close(); }
 }
 
+function addVkPostWritingStandard(databasePath) {
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.prepare(`INSERT INTO memory_candidates
+      (id,type,semantic_key,title,content,data_json,status,source_id,author,created_at,updated_at,version)
+      VALUES (?,'editorial_rule','editorial.vk_post_writing_standard',?,?,?,'pending',?,'owner',?,?,1)`).run(
+      '10000000-0000-4000-a000-000000000009', 'Стандарт объёма и SEO-структуры новых VK-постов',
+      'VK-пост: 1 800–2 800 знаков, с узкими исключениями и QA-обоснованием; ключ в заголовке и начале, один интент и практическая структура.',
+      JSON.stringify({ platform: 'VK', body_character_count: { target: { minimum: 1800, maximum: 2800 } }, delivery_validation: ['vk_body_character_count', 'vk_semantic_structure'] }),
+      '10000000-0000-4000-a000-000000000001', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z');
+    database.prepare("UPDATE memory_candidates SET status='approved', reviewed_by='owner', reviewed_at='2026-09-01T00:00:00.000Z' WHERE id=?")
+      .run('10000000-0000-4000-a000-000000000009');
+  } finally { database.close(); }
+}
+
 function publicEditorialSemanticQa(semantics) {
   return {
     checks: [
@@ -213,6 +228,24 @@ function publicEditorialIndexationQa(indexation) {
 function publicEditorialQa(semantics, indexation = null) {
   const qa = publicEditorialSemanticQa(semantics);
   if (indexation) qa.checks.push(...publicEditorialIndexationQa(indexation));
+  return qa;
+}
+
+function vkPostQa(semantics, characterCount, lengthBand, rationale) {
+  const qa = publicEditorialQa(semantics);
+  qa.checks.push(
+    { id: 'vk_body_character_count', performed: true, passed: true,
+      result: `VK post body contains ${characterCount} Russian characters excluding metadata and URLs.`,
+      evidence: { character_count: characterCount, count_scope: 'russian_post_body_excluding_internal_metadata_and_urls',
+        length_band: lengthBand, rationale, not_extended_for_seo_only: true } },
+    { id: 'vk_semantic_structure', performed: true, passed: true,
+      result: 'One semantic cluster and one intent are naturally sustained from the headline through the CTA.',
+      evidence: { primary_target_query: semantics.primaryTargetQuery, selected_cluster: semantics.selectedCluster,
+        user_intent: semantics.userIntent, in_headline: true, in_opening_paragraph: true, natural_mentions_total: 2,
+        keyword_stuffing: false, all_sections_serve_selected_query: true, opening_answers_query: true,
+        useful_subheads_or_checklist: true, concrete_practical_details: true, practical_conclusion: true,
+        natural_cta: true, padding_or_repetition: false, unsupported_seo_claims: false } },
+  );
   return qa;
 }
 
@@ -523,6 +556,47 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
     assert.equal(unrelated.pack.payload.execution_card.editorial_semantics, null);
     assert.equal(unrelated.pack.payload.execution_card.editorial_indexation, null);
     assert.equal(unrelated.pack.payload.execution_card.delivery_qa, null);
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('VK writing standard is isolated and validates target plus both justified exception length bands', () => {
+  const { directory, databasePath } = referenceFixture();
+  try {
+    addPublicEditorialSemanticCorePolicy(databasePath);
+    addPublicEditorialIndexationPfTargetPolicy(databasePath);
+    addVkPostWritingStandard(databasePath);
+    const baseBrief = {
+      result: 'Проверенный VK-пост', scope: ['work/social/vk'],
+      firstCheck: 'node --test tests/structured-memory.test.mjs', acceptance: ['vk_standard_ready'],
+      forbiddenChanges: ['publication'],
+    };
+    const semantics = {
+      selectedCluster: 'запуск и управление', primaryTargetQuery: 'накрутка ПФ',
+      userIntent: 'понять управляемый запуск ПФ', platform: 'VK', format: 'social_post',
+    };
+    const indexation = { seoIndexationObjective: 'Индексация Яндекса по выбранному запросу' };
+    const delivery = { result: 'VK-пост проверен', checks: [baseBrief.firstCheck],
+      satisfiedAcceptance: baseBrief.acceptance, scopeCompliance: true, forbiddenChangesObserved: [] };
+    for (const [text, count, band, rationale] of [
+      ['Подготовь пост для VK в целевом объёме', 2200, 'target', null],
+      ['Подготовь узкий новостной пост для VK в формате чек-листа', 1500, 'narrow_news_or_checklist', 'Узкий чек-лист полностью решает один заявленный интент.'],
+      ['Подготовь подробный практический пост для VK', 3400, 'detailed_practical_breakdown', 'Тема требует подробного практического разбора с конкретными действиями.'],
+    ]) {
+      const compiled = compileContextPack(databasePath, { text, taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+      const card = compiled.pack.payload.execution_card;
+      assert.deepEqual(compiled.route.signals, ['editorial', 'vk']);
+      assert.ok(card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'));
+      assert.ok(card.delivery_qa.checks.some((item) => item.id === 'vk_body_character_count'));
+      assert.ok(card.delivery_qa.checks.some((item) => item.id === 'vk_semantic_structure'));
+      assert.equal(closeContextPack(databasePath, compiled.pack.id, { ...delivery, contentQa: vkPostQa(semantics, count, band, rationale) }).status, 'closed');
+    }
+    const missingRationale = compileContextPack(databasePath, { text: 'Подготовь короткий пост для VK без причины', taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+    assert.throws(() => closeContextPack(databasePath, missingRationale.pack.id, { ...delivery, contentQa: vkPostQa(semantics, 1500, 'narrow_news_or_checklist', null) }), /vk_body_character_count/);
+
+    const telegram = compileContextPack(databasePath, { text: 'Подготовь пост Telegram', taskBrief: baseBrief });
+    assert.equal(telegram.pack.payload.execution_card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'), false);
+    const tenchat = compileContextPack(databasePath, { text: 'Подготовь статью TenChat', taskBrief: { ...baseBrief, editorialSemantics: { ...semantics, platform: 'TenChat', format: 'article' }, editorialIndexation: indexation } });
+    assert.equal(tenchat.pack.payload.execution_card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'), false);
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 
