@@ -342,6 +342,40 @@ export const vkMetricHitPfProductOverviewPublicationUpdate = Object.freeze({
   },
 });
 
+export const vkInternetShopCategoryFirstLaunchPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.vk_internet_shop_category_first_launch_2026_09_01', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Накрутка ПФ интернет-магазина: как подготовить первый запуск для категории',
+  content: 'Владелец подтвердил публикацию во VK 01.09.2026 поста «Накрутка ПФ интернет-магазина: как подготовить первый запуск для категории». Публичный URL не предоставлен. Финальная обложка — owner-confirmed asset без логотипа, текста и стрелок; отдельное внешнее действие в рамках этого обновления не выполнялось.',
+  platform: 'VK', canonicalUrl: null,
+  publishedAt: '2026-09-01T00:00:00+03:00', reviewedAt: '2026-09-01T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: {
+    published: true, publication_date: '2026-09-01',
+    post_title: 'Накрутка ПФ интернет-магазина: как подготовить первый запуск для категории',
+    local_post_path: 'work/social/vk/drafts/2026-09-01-oborot-internet-shop-category-launch.md',
+    publication_status: 'owner_confirmed_published',
+    public_url: null, public_url_status: 'not_provided_by_owner', is_pinned: false,
+    target_queries: [
+      'накрутка ПФ интернет-магазина',
+      'поведенческие факторы для интернет-магазина',
+      'продвижение категорий интернет-магазина в Яндексе',
+      'как выбрать запросы для накрутки ПФ',
+      'какие запросы продвигать ПФ',
+      'как распределить запросы по страницам',
+      'один запрос — одна страница SEO',
+      'релевантная страница для запроса',
+      'настройка проекта ПФ',
+      'дневной лимит кликов ПФ',
+    ],
+    cover_asset_path: 'work/social/vk/assets/2026-09-01-online-store-category-first-launch-cover-owner-confirmed-published.png',
+    cover_asset_sha256: '2f84159434661e353827ca06a2208a8e486b89cf6459251c508c9e728a9ed314',
+    cover_asset_dimensions: { width: 1122, height: 1402 },
+    cover_visual_characteristics: ['deep_graphite', 'glass_panels', 'cyan_blue_accents', 'warm_orange_accents', 'no_logo', 'no_text', 'no_arrow'],
+    external_action_performed_in_this_update: false,
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
@@ -354,9 +388,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
               : command === 'vk-website-creation-service-publication' ? vkWebsiteCreationServicePublicationUpdate
                 : command === 'vk-prelaunch-pf-checklist-publication' ? vkPrelaunchPfChecklistPublicationUpdate
                   : command === 'vk-august-16-pf-services-incident-publication' ? vkAugust16PfServicesIncidentPublicationUpdate
-                    : command === 'vk-metrichit-pf-product-overview-publication' ? vkMetricHitPfProductOverviewPublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication'].includes(command)) {
-    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication|vk-prelaunch-pf-checklist-publication|vk-august-16-pf-services-incident-publication|vk-metrichit-pf-product-overview-publication> [databasePath]');
+                    : command === 'vk-metrichit-pf-product-overview-publication' ? vkMetricHitPfProductOverviewPublicationUpdate
+                      : command === 'vk-internet-shop-category-first-launch-publication' ? vkInternetShopCategoryFirstLaunchPublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication', 'vk-internet-shop-category-first-launch-publication'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication|vk-prelaunch-pf-checklist-publication|vk-august-16-pf-services-incident-publication|vk-metrichit-pf-product-overview-publication|vk-internet-shop-category-first-launch-publication> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }
