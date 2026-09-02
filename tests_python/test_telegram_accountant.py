@@ -78,7 +78,14 @@ def test_polling_handles_text_and_skips_non_text_updates(tmp_path):
     bot = TelegramAccountantBot(store(tmp_path), transport=transport)
     assert bot.poll_once(timeout=1) == 1
     assert transport.calls[0] == ("getUpdates", {"timeout": 1})
-    assert transport.calls[1] == ("sendMessage", {"chat_id": 9, "text": "Доход добавлен: 7.00 ₽ — Test."})
+    assert transport.calls[1] == (
+        "sendMessage",
+        {
+            "chat_id": 9,
+            "text": "Доход добавлен: 7.00 ₽ — Test.",
+            "reply_markup": TelegramAccountantBot.reply_keyboard(),
+        },
+    )
     assert bot.offset == 6
 
 
@@ -86,3 +93,44 @@ def test_bot_requires_token_without_injected_transport(tmp_path, monkeypatch):
     monkeypatch.delenv("TELEGRAM_ACCOUNTANT_BOT_TOKEN", raising=False)
     with pytest.raises(ValueError, match="TELEGRAM_ACCOUNTANT_BOT_TOKEN"):
         TelegramAccountantBot(store(tmp_path))
+
+
+def test_income_button_flow_saves_client_date_and_top_up_type(tmp_path):
+    transport = FakeTransport([
+        {"update_id": 1, "message": {"chat": {"id": 9}, "text": "Доход"}},
+        {"update_id": 2, "message": {"chat": {"id": 9}, "text": "@client"}},
+        {"update_id": 3, "message": {"chat": {"id": 9}, "text": "1250.50"}},
+        {"update_id": 4, "message": {"chat": {"id": 9}, "text": "2026-08-31"}},
+        {"update_id": 5, "message": {"chat": {"id": 9}, "text": "Перевод"}},
+        {"update_id": 6, "message": {"chat": {"id": 9}, "text": "Отчёты"}},
+    ])
+    accounting_store = store(tmp_path)
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    assert bot.poll_once(timeout=1) == 6
+    assert transport.calls[-2][1]["text"] == "Доход добавлен: 1 250.50 ₽ — @client (Перевод), дата 2026-08-31."
+    assert transport.calls[-1][1] == {
+        "chat_id": 9,
+        "text": "Отчёт за всё время:\nДоходы: 1 250.50 ₽\nРасходы: 0.00 ₽\nИтог: 1 250.50 ₽",
+        "reply_markup": TelegramAccountantBot.reply_keyboard(),
+    }
+    assert accounting_store.breakdown(9, "income", "2026-08-31", "2026-08-31") == [("@client", 125050)]
+    with accounting_store._connect() as connection:
+        assert connection.execute("SELECT details FROM accountant_transactions").fetchone()["details"] == "Перевод"
+
+
+def test_expense_flow_is_isolated_between_chats(tmp_path):
+    transport = FakeTransport([
+        {"update_id": 1, "message": {"chat": {"id": 1}, "text": "Расход"}},
+        {"update_id": 2, "message": {"chat": {"id": 2}, "text": "Расход"}},
+        {"update_id": 3, "message": {"chat": {"id": 1}, "text": "Реклама"}},
+        {"update_id": 4, "message": {"chat": {"id": 2}, "text": "Сервисы"}},
+        {"update_id": 5, "message": {"chat": {"id": 1}, "text": "300"}},
+        {"update_id": 6, "message": {"chat": {"id": 2}, "text": "50"}},
+        {"update_id": 7, "message": {"chat": {"id": 1}, "text": "2026-09-01"}},
+        {"update_id": 8, "message": {"chat": {"id": 2}, "text": "2026-09-02"}},
+    ])
+    accounting_store = store(tmp_path)
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    assert bot.poll_once(timeout=1) == 8
+    assert accounting_store.breakdown(1, "expense") == [("Реклама", 30000)]
+    assert accounting_store.breakdown(2, "expense") == [("Сервисы", 5000)]

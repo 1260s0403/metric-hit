@@ -30,6 +30,7 @@ class Transaction:
     amount_cents: int
     label: str
     occurred_at: str
+    details: str = ""
 
 
 class AccountantStore:
@@ -57,26 +58,47 @@ class AccountantStore:
                     occurred_at TEXT NOT NULL
                 )"""
             )
+            columns = {
+                str(row["name"])
+                for row in connection.execute("PRAGMA table_info(accountant_transactions)")
+            }
+            if "details" not in columns:
+                connection.execute(
+                    "ALTER TABLE accountant_transactions ADD COLUMN details TEXT NOT NULL DEFAULT ''"
+                )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_accountant_chat_date "
                 "ON accountant_transactions(chat_id, occurred_at)"
             )
 
-    def add(self, chat_id: int, kind: str, amount: str, label: str) -> Transaction:
+    def add(
+        self,
+        chat_id: int,
+        kind: str,
+        amount: str,
+        label: str,
+        occurred_date: str | None = None,
+        details: str = "",
+    ) -> Transaction:
         if kind not in {"income", "expense"}:
             raise ValueError("kind must be income or expense")
         cleaned_label = label.strip()
         if not cleaned_label:
             raise ValueError("source or category is required")
         cents = parse_amount(amount)
-        occurred_at = self._now().astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        if occurred_date:
+            validate_date(occurred_date)
+            occurred_at = f"{occurred_date}T00:00:00Z"
+        else:
+            occurred_at = self._now().astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        cleaned_details = details.strip()
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO accountant_transactions(chat_id, kind, amount_cents, label, occurred_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (chat_id, kind, cents, cleaned_label, occurred_at),
+                "INSERT INTO accountant_transactions(chat_id, kind, amount_cents, label, occurred_at, details) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (chat_id, kind, cents, cleaned_label, occurred_at, cleaned_details),
             )
-        return Transaction(chat_id, kind, cents, cleaned_label, occurred_at)
+        return Transaction(chat_id, kind, cents, cleaned_label, occurred_at, cleaned_details)
 
     def balance_cents(self, chat_id: int) -> int:
         with self._connect() as connection:
@@ -246,6 +268,80 @@ class TelegramAccountantBot:
         self.transport = transport or UrllibTelegramTransport(actual_token or "")
         self.commands = AccountantCommands(store)
         self.offset: int | None = None
+        self._flows: dict[int, dict[str, str]] = {}
+
+    @staticmethod
+    def reply_keyboard() -> dict[str, object]:
+        return {
+            "keyboard": [[{"text": "Доход"}, {"text": "Расход"}, {"text": "Отчёты"}]],
+            "resize_keyboard": True,
+        }
+
+    def _handle_message(self, chat_id: int, text: str) -> str:
+        if text == "Доход":
+            self._flows[chat_id] = {"kind": "income", "step": "label"}
+            return "Введите ник клиента."
+        if text == "Расход":
+            self._flows[chat_id] = {"kind": "expense", "step": "label"}
+            return "Введите, куда ушли деньги."
+        if text == "Отчёты":
+            return self.commands.handle(chat_id, "/report")
+        if text.startswith("/"):
+            self._flows.pop(chat_id, None)
+            return self.commands.handle(chat_id, text)
+        flow = self._flows.get(chat_id)
+        if flow is None:
+            return self.commands.handle(chat_id, text)
+        return self._continue_flow(chat_id, text, flow)
+
+    def _continue_flow(self, chat_id: int, text: str, flow: dict[str, str]) -> str:
+        value = text.strip()
+        kind = flow["kind"]
+        step = flow["step"]
+        if step == "label":
+            if not value:
+                return "Поле не может быть пустым. Введите значение ещё раз."
+            flow["label"] = value
+            flow["step"] = "amount"
+            return "Введите сумму."
+        if step == "amount":
+            try:
+                parse_amount(value)
+            except ValueError:
+                return "Введите корректную сумму больше нуля."
+            flow["amount"] = value
+            flow["step"] = "date"
+            return "Введите дату в формате YYYY-MM-DD."
+        if step == "date":
+            try:
+                validate_date(value)
+            except ValueError:
+                return "Введите дату в формате YYYY-MM-DD."
+            flow["date"] = value
+            if kind == "income":
+                flow["step"] = "details"
+                return "Введите вид пополнения."
+            return self._save_flow(chat_id, flow)
+        if step == "details":
+            if not value:
+                return "Поле не может быть пустым. Введите вид пополнения."
+            flow["details"] = value
+            return self._save_flow(chat_id, flow)
+        raise RuntimeError("unknown accountant flow step")
+
+    def _save_flow(self, chat_id: int, flow: dict[str, str]) -> str:
+        item = self.commands.store.add(
+            chat_id,
+            flow["kind"],
+            flow["amount"],
+            flow["label"],
+            occurred_date=flow["date"],
+            details=flow.get("details", ""),
+        )
+        self._flows.pop(chat_id, None)
+        action = "Доход добавлен" if item.kind == "income" else "Расход добавлен"
+        suffix = f" ({item.details})" if item.details else ""
+        return f"{action}: {format_money(item.amount_cents)} — {item.label}{suffix}, дата {flow['date']}."
 
     def poll_once(self, timeout: int = 25) -> int:
         payload: dict[str, object] = {"timeout": timeout}
@@ -268,8 +364,11 @@ class TelegramAccountantBot:
             chat = message.get("chat")
             if not isinstance(chat, dict) or not isinstance(chat.get("id"), int):
                 continue
-            reply = self.commands.handle(chat["id"], message["text"])
-            self.transport.call("sendMessage", {"chat_id": chat["id"], "text": reply})
+            reply = self._handle_message(chat["id"], message["text"])
+            self.transport.call(
+                "sendMessage",
+                {"chat_id": chat["id"], "text": reply, "reply_markup": self.reply_keyboard()},
+            )
             handled += 1
         return handled
 
