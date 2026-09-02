@@ -861,7 +861,14 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     expected_platforms = ["Telegram", "MAX", "VK", "TenChat", "Sostav", "Oborot", "TenChat"]
     assert rows.first.bounding_box()["height"] == rows.nth(1).bounding_box()["height"] == 100
     assert rows.first.inner_text() == "Telegram\nПубликаций\n17\nЧерновиков\n1\nВ плане\n8"
-    assert [row.inner_text() for row in rows.all()[1:]] == [f"{name}\nПубликаций\n—\nЧерновиков\n—\nВ плане\n—" for name in expected_platforms[1:]]
+    assert [row.inner_text() for row in rows.all()[1:]] == [
+        "MAX\nПубликаций\n0\nЧерновиков\n0\nВ плане\n0",
+        "VK\nПубликаций\n5\nЧерновиков\n0\nВ плане\n0",
+        "TenChat\nПубликаций\n3\nЧерновиков\n0\nВ плане\n0",
+        "Sostav\nПубликаций\n2\nЧерновиков\n0\nВ плане\n0",
+        "Oborot\nПубликаций\n3\nЧерновиков\n0\nВ плане\n0",
+        "TenChat\nПубликаций\n3\nЧерновиков\n0\nВ плане\n0",
+    ]
     platform_baseline = rows.first.evaluate("node => ({background: getComputedStyle(node).backgroundImage, outline: getComputedStyle(node).outlineStyle})")
     rows.first.hover()
     platform_hover = rows.first.evaluate("node => ({background: getComputedStyle(node).backgroundImage, outline: getComputedStyle(node).outlineStyle})")
@@ -1012,8 +1019,6 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     on_geometry = pf.evaluate("""node => { const track = node.getBoundingClientRect(), thumb = getComputedStyle(node, '::after'), translateY = Number.parseFloat(thumb.transform.split(',')[5]); return { center: track.height / 2, thumbCenter: Number.parseFloat(thumb.top) + Number.parseFloat(thumb.height) / 2 + translateY, background: getComputedStyle(node).backgroundColor }; }""")
     assert abs(on_geometry["center"] - on_geometry["thumbCenter"]) <= 1
     assert on_geometry["background"] in {"rgb(247, 247, 244)", "rgb(255, 255, 255)"}
-    page.screenshot(path="work/editorial-telegram-detail-verified.png", full_page=True)
-
     telegram_back.focus()
     page.keyboard.press("Enter")
     expect(page.get_by_test_id("editorial-platform-list")).to_be_visible()
@@ -1021,6 +1026,59 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     expect(page.get_by_test_id("page-title")).to_have_text("Telegram")
     page.get_by_test_id("editorial-back").click()
     expect(page.get_by_test_id("editorial-platform-list")).to_be_visible()
+
+    for index, name, count in [(1, "MAX", 0), (2, "VK", 5), (3, "TenChat", 3), (4, "Sostav", 2), (5, "Oborot", 3), (6, "TenChat", 3)]:
+        row = page.get_by_test_id(f"editorial-platform-{index}")
+        row.focus()
+        page.keyboard.press("Enter")
+        expect(page.get_by_test_id("page-title")).to_have_text(name)
+        detail_back = page.get_by_test_id("editorial-back")
+        expect(detail_back.locator("svg")).to_have_count(1)
+        expect(page.locator(".editorial-stat-card")).to_have_count(3)
+        expect(page.locator(".editorial-post-row")).to_have_count(count)
+        if index == 1:
+            page.screenshot(path="work/editorial-max-detail-verified.png", full_page=True)
+        elif index == 2:
+            page.screenshot(path="work/editorial-vk-detail-verified.png", full_page=True)
+        elif index == 5:
+            page.screenshot(path="work/editorial-oborot-detail-verified.png", full_page=True)
+        if count == 0:
+            expect(page.get_by_text("Публикаций пока нет.")).to_be_visible()
+        else:
+            expect(page.locator(".editorial-pf")).to_have_count(count)
+            expect(page.locator(".editorial-url-missing")).to_have_count(5 if name == "VK" else 1 if name == "Oborot" else 0)
+            pf = page.get_by_test_id("editorial-pf-0")
+            expect(pf).not_to_be_checked()
+            expect(pf).to_have_attribute("role", "switch")
+            page.get_by_test_id("editorial-semantic-published-0").click()
+            semantic = page.get_by_test_id("editorial-semantic-modal")
+            expect(semantic).to_have_attribute("role", "dialog")
+            expect(semantic).to_have_attribute("aria-modal", "true")
+            expect(page.get_by_test_id("editorial-semantic-empty")).to_have_text("Семантика не сохранена")
+            expect(page.get_by_test_id("editorial-copy-all")).to_be_disabled()
+            page.keyboard.press("Escape")
+            expect(semantic).to_be_hidden()
+        if name in {"TenChat", "Sostav", "Oborot"}:
+            url = page.get_by_test_id("editorial-url-0" if name != "Oborot" else "editorial-url-1")
+            url_index = "0" if name != "Oborot" else "1"
+            expect(url.locator("svg")).to_have_count(1)
+            expect(url).to_have_attribute("aria-expanded", "false")
+            url.click()
+            expect(url).to_have_attribute("aria-expanded", "true")
+            full_url = page.get_by_test_id(f"editorial-full-url-{url_index}")
+            expect(full_url).to_be_visible()
+            expect(full_url).to_have_attribute("target", "_blank")
+            expect(full_url).to_have_attribute("rel", "noopener noreferrer")
+            page.get_by_test_id(f"editorial-url-copy-{url_index}").click()
+            expect(page.get_by_test_id(f"editorial-url-status-{url_index}")).to_have_text("Скопировано")
+        page.locator('[data-editorial-filter="drafts"]').click()
+        expect(page.get_by_text("Черновиков пока нет.")).to_be_visible()
+        expect(page.locator(".editorial-pf")).to_have_count(0)
+        page.locator('[data-editorial-filter="planned"]').click()
+        expect(page.get_by_text("Материалов в плане пока нет.")).to_be_visible()
+        expect(page.locator(".editorial-pf")).to_have_count(0)
+        page.get_by_test_id("editorial-back").click()
+        expect(page.get_by_test_id("editorial-platform-list")).to_be_visible()
 
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
