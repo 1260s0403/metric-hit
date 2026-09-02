@@ -5,7 +5,7 @@ import json
 import re
 import sqlite3
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .database import read_only_database
@@ -47,6 +47,73 @@ def _text_list(payload: dict[str, Any], name: str) -> list[str]:
     return result
 
 
+def _resource_path(value: str, label: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise HandoffError(f"{label} must contain non-empty strings")
+    normalized = value.strip().replace("\\", "/").rstrip("/")
+    path = PurePosixPath(normalized)
+    if not normalized or path.is_absolute() or ":" in normalized or any(part in {"", ".", ".."} for part in path.parts):
+        raise HandoffError(f"{label} must contain repository-relative paths")
+    return path.as_posix()
+
+
+def _execution_resources(value: object) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise HandoffError("execution_resources must be an object")
+    expected = {"canonical_worktree", "worktree", "branch", "base_head", "paths", "sqlite", "shared"}
+    if set(value) != expected:
+        raise HandoffError("execution_resources must declare canonical_worktree, worktree, branch, base_head, paths, sqlite and shared")
+    canonical = _required_text(value, "canonical_worktree")
+    worktree = _required_text(value, "worktree")
+    if not Path(canonical).is_absolute() or not Path(worktree).is_absolute():
+        raise HandoffError("execution worktrees must be absolute paths")
+    canonical = str(Path(canonical).resolve())
+    worktree = str(Path(worktree).resolve())
+    if canonical.casefold() == worktree.casefold():
+        raise HandoffError("parallel writer cannot use the canonical worktree")
+    branch = _required_text(value, "branch")
+    if not re.fullmatch(r"(?!.*\.\.)(?!.*//)[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", branch):
+        raise HandoffError("execution branch has an invalid format")
+    base_head = _required_text(value, "base_head").lower()
+    if not re.fullmatch(r"[0-9a-f]{7,64}", base_head):
+        raise HandoffError("base_head must be a 7-64 character hexadecimal Git commit hash")
+    paths = [_resource_path(item, "execution_resources.paths") for item in _text_list(value, "paths")]
+    sqlite_resources = value.get("sqlite")
+    shared_resources = value.get("shared")
+    if not isinstance(sqlite_resources, list) or not isinstance(shared_resources, list):
+        raise HandoffError("execution_resources.sqlite and shared must be lists")
+    sqlite_paths = [_resource_path(item, "execution_resources.sqlite") for item in sqlite_resources]
+    shared = []
+    for item in shared_resources:
+        if not isinstance(item, str) or not re.fullmatch(r"[a-z0-9][a-z0-9._:-]{0,127}", item.strip().casefold()):
+            raise HandoffError("execution_resources.shared contains an invalid resource")
+        shared.append(item.strip().casefold())
+    for label, items in (("paths", paths), ("sqlite", sqlite_paths), ("shared", shared)):
+        if len(set(item.casefold() for item in items)) != len(items):
+            raise HandoffError(f"execution_resources.{label} contains duplicates")
+    return {"canonical_worktree": canonical, "worktree": worktree, "branch": branch, "base_head": base_head,
+            "paths": paths, "sqlite": sqlite_paths, "shared": shared}
+
+
+def _paths_overlap(left: str, right: str) -> bool:
+    left_parts = tuple(part.casefold() for part in PurePosixPath(left).parts)
+    right_parts = tuple(part.casefold() for part in PurePosixPath(right).parts)
+    shortest = min(len(left_parts), len(right_parts))
+    return left_parts[:shortest] == right_parts[:shortest]
+
+
+def _exclusive_resources(resources: dict[str, Any]) -> bool:
+    exclusive_shared = {"core", "policy", "config", "migration", "dependency", "shared_runtime", "central_db", "memory", "context_pack", "integration"}
+    if exclusive_shared.intersection(resources["shared"]):
+        return True
+    protected = ("agents.md", "documents/operating-context.md", "documents/structured-memory.md", "documents/roadmap.md",
+                 "knowledge/approved", "data/database", "migrations", "pyproject.toml", "package.json", "package-lock.json",
+                 "requirements.txt", "src/metrichit_os/migrations")
+    return any(_paths_overlap(path, item) for path in resources["paths"] for item in protected)
+
+
 def _title(goal: str) -> str:
     compact = " ".join(goal.split())
     return compact if len(compact) <= 80 else compact[:79].rstrip() + "…"
@@ -68,7 +135,7 @@ def _render_delta(delta: dict[str, Any]) -> str:
 class HandoffStore:
     ALLOWED_FIELDS = {
         "idempotency_key", "semantic_key", "goal", "scope", "constraints", "acceptance",
-        "source", "project_id", "approved_by", "supersedes_candidate_id",
+        "source", "project_id", "approved_by", "supersedes_candidate_id", "execution_resources",
     }
 
     def __init__(self, database_path: Path):
@@ -105,6 +172,7 @@ class HandoffStore:
             "acceptance": _text_list(payload, "acceptance"),
             "source": source_ref,
             "project_id": project_id,
+            "execution_resources": _execution_resources(payload.get("execution_resources")),
         }
         fingerprint_input = {
             "semantic_key": semantic_key, "approved_by": approved_by,
@@ -293,10 +361,7 @@ class HandoffStore:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("BEGIN IMMEDIATE")
-            active = self._active_handoff_id(connection)
-            if active is not None:
-                return None
-            ready = self._next_ready(connection)
+            ready = next((item for item in self._ready_results(connection) if self._claim_blocker(connection, item) is None), None)
             if ready is None:
                 return None
             row = self._handoff_row(connection, ready["handoff_id"])
@@ -358,9 +423,9 @@ class HandoffStore:
                 return result
             if result["status"] != "ready":
                 raise HandoffError("handoff is not ready to claim")
-            active = self._active_handoff_id(connection)
-            if active is not None and active != handoff_id:
-                raise HandoffError(f"another developer handoff is already in progress: {active}")
+            blocker = self._claim_blocker(connection, result)
+            if blocker is not None:
+                raise HandoffError(blocker)
             now = _utc_text()
             lifecycle = handoff["lifecycle"]
             lifecycle.update({"status": "in_progress", "claimed_at": now, "claimed_by": developer_id})
@@ -370,6 +435,44 @@ class HandoffStore:
 
     def complete(self, handoff_id: str, commit_hash: str, developer_id: str) -> dict[str, Any]:
         return self._complete(handoff_id, commit_hash, "Legacy handoff completion.", developer_id, require_thread=False)
+
+    def begin_integration(self, handoff_id: str, developer_id: str, expected_base_head: str, current_base_head: str, conflict_free: bool) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        developer_id = self._developer_id(developer_id)
+        expected = self._git_hash(expected_base_head, "expected_base_head")
+        current = self._git_hash(current_base_head, "current_base_head")
+        if expected != current:
+            raise HandoffError("stale base blocks integration")
+        if conflict_free is not True:
+            raise HandoffError("merge conflict blocks integration")
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            result = self._attested_result(connection, dict(row), metadata, handoff)
+            lifecycle = handoff["lifecycle"]
+            evidence = {"status": "integrating", "expected_base_head": expected, "current_base_head": current,
+                        "conflict_free": True, "claimed_by": developer_id}
+            existing = lifecycle.get("integration")
+            if existing is not None:
+                if existing != evidence:
+                    raise HandoffError("integration lease already has different evidence")
+                return result
+            if result["status"] != "in_progress" or lifecycle.get("claimed_by") != developer_id:
+                raise HandoffError("writer must own an in-progress handoff before integration")
+            if result.get("execution_resources") is None:
+                raise HandoffError("integration requires declared execution resources")
+            for active in self._active_results(connection):
+                integration = active["lifecycle"].get("integration")
+                if active["handoff_id"] != handoff_id and isinstance(integration, dict) and integration.get("status") == "integrating":
+                    raise HandoffError(f"integration is already in progress: {active['handoff_id']}")
+            lifecycle["integration"] = evidence
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "in_progress", _utc_text(), "integration-started")
+            return self._load_task(connection, handoff_id)
 
     def _complete(self, handoff_id: str, commit_hash: str, result_text: str, developer_id: str, *, require_thread: bool) -> dict[str, Any]:
         handoff_id = self._handoff_id(handoff_id)
@@ -401,6 +504,8 @@ class HandoffStore:
                 raise HandoffError("handoff is claimed by another developer")
             if require_thread and not lifecycle.get("executor_thread_id"):
                 raise HandoffError("dispatcher completion requires an executor thread")
+            if result.get("execution_resources") is not None and lifecycle.get("integration", {}).get("status") != "integrating":
+                raise HandoffError("declared parallel writer must acquire the integration lease before completion")
             now = _utc_text()
             lifecycle.update({"status": "completed", "completed_at": now, "commit_hash": commit_hash, "result": result_text})
             metadata["handoff"] = handoff
@@ -425,7 +530,17 @@ class HandoffStore:
             raise HandoffError("thread_id must be a 1-128 character identifier")
         return value
 
+    @staticmethod
+    def _git_hash(value: str, name: str) -> str:
+        if not isinstance(value, str) or not re.fullmatch(r"[0-9a-fA-F]{7,64}", value.strip()):
+            raise HandoffError(f"{name} must be a 7-64 character hexadecimal Git commit hash")
+        return value.strip().lower()
+
     def _next_ready(self, connection: sqlite3.Connection) -> dict[str, Any] | None:
+        ready = self._ready_results(connection)
+        return ready[0] if ready else None
+
+    def _ready_results(self, connection: sqlite3.Connection) -> list[dict[str, Any]]:
         rows = connection.execute(
             """SELECT id,title,content,data_json,status,source_id,created_at
                FROM tasks WHERE type='standalone_task' AND status='pending' ORDER BY created_at,id"""
@@ -436,16 +551,17 @@ class HandoffStore:
             priority = metadata.get("priority", "normal")
             priority_rank = {"high": 0, "normal": 1, "low": 2}.get(priority, 2) if isinstance(priority, str) else 2
             parsed_rows.append((priority_rank, row, metadata))
+        ready = []
         for _, row, metadata in sorted(parsed_rows, key=lambda item: (item[0], item[1]["created_at"], item[1]["id"])):
             handoff = metadata.get("handoff")
             if isinstance(handoff, dict) and handoff.get("kind") == "codex_engineering":
                 try:
                     result = self._attested_result(connection, dict(row), metadata, handoff)
                     if result["status"] == "ready":
-                        return result
+                        ready.append(result)
                 except HandoffError:
                     continue
-        return None
+        return ready
 
     @staticmethod
     def _dispatch_payload(result: dict[str, Any]) -> dict[str, Any]:
@@ -454,6 +570,7 @@ class HandoffStore:
             "task_id": result["task_id"],
             "goal": result["goal"], "scope": result["scope"],
             "constraints": result["constraints"], "acceptance": result["acceptance"],
+            "execution_resources": result.get("execution_resources"),
         }
 
     def _handoff_row(self, connection: sqlite3.Connection, handoff_id: str) -> sqlite3.Row:
@@ -465,20 +582,55 @@ class HandoffStore:
             raise HandoffError("handoff was not found")
         return row
 
-    def _active_handoff_id(self, connection: sqlite3.Connection) -> str | None:
+    def _active_results(self, connection: sqlite3.Connection) -> list[dict[str, Any]]:
         rows = connection.execute(
             "SELECT id,data_json,status,source_id,created_at FROM tasks WHERE type='standalone_task' AND status IN ('pending','in_progress') ORDER BY created_at,id",
         ).fetchall()
+        active = []
         for row in rows:
             metadata = self._object(row["data_json"])
             handoff = metadata.get("handoff")
             if not isinstance(handoff, dict) or handoff.get("kind") != "codex_engineering":
                 continue
             try:
-                if self._attested_result(connection, dict(row), metadata, handoff)["status"] in {"dispatching", "in_progress"}:
-                    return str(row["id"])
+                result = self._attested_result(connection, dict(row), metadata, handoff)
+                if result["status"] in {"dispatching", "in_progress"}:
+                    active.append(result)
             except HandoffError:
                 continue
+        return active
+
+    def _active_handoff_id(self, connection: sqlite3.Connection) -> str | None:
+        active = self._active_results(connection)
+        return active[0]["handoff_id"] if active else None
+
+    def _claim_blocker(self, connection: sqlite3.Connection, candidate: dict[str, Any]) -> str | None:
+        active = [item for item in self._active_results(connection) if item["handoff_id"] != candidate["handoff_id"]]
+        if not active:
+            return None
+        if len(active) >= 2:
+            return "maximum active writer leases is two"
+        resources = candidate.get("execution_resources")
+        if resources is None:
+            return "another developer handoff is already in progress: missing execution resource declaration blocks concurrent writer"
+        if _exclusive_resources(resources):
+            return "exclusive core or shared resource blocks concurrent writer"
+        for other in active:
+            existing = other.get("execution_resources")
+            if existing is None:
+                return f"legacy exclusive writer is already in progress: {other['handoff_id']}"
+            if _exclusive_resources(existing):
+                return f"exclusive core or shared resource is already leased: {other['handoff_id']}"
+            if resources["worktree"].casefold() == existing["worktree"].casefold():
+                return "writers must use distinct worktrees"
+            if resources["branch"].casefold() == existing["branch"].casefold():
+                return "writers must use distinct branches"
+            if any(_paths_overlap(left, right) for left in resources["paths"] for right in existing["paths"]):
+                return "path resource overlap blocks concurrent writer"
+            if {item.casefold() for item in resources["sqlite"]}.intersection(item.casefold() for item in existing["sqlite"]):
+                return "same SQLite resource blocks concurrent writer"
+            if set(resources["shared"]).intersection(existing["shared"]):
+                return "shared resource overlap blocks concurrent writer"
         return None
 
     def _update_lifecycle(
@@ -592,6 +744,15 @@ class HandoffStore:
             raise HandoffError("claimed handoff has an invalid developer identifier")
         if status in {"in_progress", "completed"} and lifecycle.get("executor_thread_id") is not None and not isinstance(lifecycle["executor_thread_id"], str):
             raise HandoffError("engineering task has an invalid executor thread")
+        resources = _execution_resources(handoff.get("execution_resources"))
+        integration = lifecycle.get("integration")
+        if integration is not None:
+            if resources is None or not isinstance(integration, dict) or integration.get("status") != "integrating":
+                raise HandoffError("engineering task has an invalid integration lease")
+            if any(not isinstance(integration.get(key), str) for key in ("expected_base_head", "current_base_head", "claimed_by")):
+                raise HandoffError("engineering task has an invalid integration lease")
+            if integration.get("conflict_free") is not True:
+                raise HandoffError("engineering task has an invalid integration lease")
         return {
             "acceptance": list(handoff["acceptance"]),
             "constraints": list(handoff["constraints"]),
@@ -603,6 +764,7 @@ class HandoffStore:
             },
             "goal": handoff["goal"],
             "project_id": project_id,
+            "execution_resources": resources,
             "scope": list(handoff["scope"]),
             "handoff_id": row["id"],
             "lifecycle": {**lifecycle, "idempotency_key": handoff["idempotency_key"]},

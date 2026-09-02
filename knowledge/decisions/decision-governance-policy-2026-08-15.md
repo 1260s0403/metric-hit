@@ -38,6 +38,10 @@ Managed sandbox является внешней границей платфор�
 
 Strategy сам сообщает владельцу о необходимости нового Strategy-чата, если текущий чат стал слишком длинным, регулярно требует сжатия, теряет важные детали, путает решения или заметно расходует контекст. Перед переходом он read-only сверяет, что approved memory, current context и roadmap фиксируют значимые утверждённые решения, планы, ограничения, незавершённые задачи и ближайшие следующие шаги. При пробеле Strategy создаёт отдельный native Codex task-thread для штатной синхронизации канонического контекста; сам он файлы не меняет. После полной сверки он кратко подтверждает владельцу, что новый Strategy-чат восстановит всё нужное через startup protocol без истории старого чата. Каждый новый Strategy-чат принимает эту роль через startup protocol.
 
+### Controlled parallel execution v1 — утверждённая эволюция
+
+Прежний глобальный single-writer запрет заменён ограниченным режимом: одновременно допускаются максимум два независимых writer thread, но в каждом change set остаются один named writer, отдельная неканоническая Git worktree/branch, один commit и clean Git. До claim каждая задача обязана объявить canonical/worktree, branch, base HEAD, path, SQLite и shared resources. Missing/invalid declaration, третий writer, общий worktree/branch, ancestor/descendant path overlap, same SQLite или shared resource блокируются fail-closed. Core/policy/config/migration/dependency/shared-runtime, central control-plane, context-pack и memory/policy mutations идут эксклюзивно; разные project SQLite могут работать параллельно. Интеграция использует один lease, stale base или конфликт блокируют merge без force/reset/delete. Подготовка/закрытие context pack и синхронизация approved memory сериализованы. Read-only multi-agent pilot 2–3 веток сохраняется без изменений.
+
 ## Целевая архитектура структурированной памяти
 
 `AGENTS.md` остаётся короткой конституцией Strategy: роль, обязательные инварианты, запреты, owner-gates и правила назначения исполнителя. Изменяемые знания и подробный контекст не копируются в него.

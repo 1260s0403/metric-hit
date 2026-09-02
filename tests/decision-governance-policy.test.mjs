@@ -51,6 +51,11 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.multi_agent_pilot.parallel_writers_allowed, false);
       assert.equal(data.execution.multi_agent_pilot.owner_approval_channel, 'current_owner_chat');
       assert.equal(data.execution.multi_agent_pilot.managed_sandbox_bypass_claim_allowed, false);
+      assert.equal(data.execution.controlled_parallel_execution_v1.maximum_active_writers, 2);
+      assert.equal(data.execution.controlled_parallel_execution_v1.canonical_worktree_allowed, false);
+      assert.equal(data.execution.controlled_parallel_execution_v1.distinct_project_sqlite_allowed, true);
+      assert.equal(data.execution.controlled_parallel_execution_v1.invalid_or_missing_declaration, 'fail_closed');
+      assert.equal(data.execution.controlled_parallel_execution_v1.integration, 'single_lease');
       assert.deepEqual(data.execution.small_change_fast_path.eligible, ['isolated_ui_css_text', 'narrow_fix', 'documentation', 'approved_memory_rule_sync']);
       assert.equal(data.execution.small_change_fast_path.strategy_full_startup_completed_once, true);
       assert.deepEqual(data.execution.small_change_fast_path.handoff_context, ['owner_approval', 'exact_scope_acceptance', 'branch_head_status', 'relevant_canonical_references']);
@@ -106,7 +111,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 16);
+      assert.equal(operations.revision, 17);
       assert.equal(operations.startup_surface.agents_is_compact_contract, true);
       assert.equal(operations.startup_surface.safety_gates_preserved, true);
       assert.deepEqual(operations.context_routing_target.hierarchy, ['core', 'project', 'subproject', 'task']);
@@ -139,9 +144,12 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.deepEqual(operations.canonical_sync.allowed_for, ['direct_owner_request', 'genuinely_significant_approved_decision']);
       assert.equal(operations.strategy.owner_visible, true);
       assert.equal(operations.strategy.read_only, true);
-      assert.equal(operations.repository_mutation.responsible_executors, 1);
-      assert.equal(operations.repository_mutation.commits, 1);
-      assert.equal(operations.repository_mutation.parallel_writers_allowed, false);
+      assert.equal(operations.repository_mutation.responsible_executors_per_change_set, 1);
+      assert.equal(operations.repository_mutation.commits_per_change_set, 1);
+      assert.equal(operations.repository_mutation.maximum_parallel_writers, 2);
+      assert.equal(operations.repository_mutation.parallel_writers_allowed, true);
+      assert.equal(operations.repository_mutation.resource_leases_required, true);
+      assert.equal(operations.repository_mutation.integration_serialized, true);
       assert.deepEqual(operations.multi_agent_pilot.parallel_branches, { minimum: 2, maximum: 3 });
       assert.equal(operations.small_change_fast_path.repo_side_handoff_required, false);
       assert.equal(operations.risk_routing.fast_path_uses_fastest_available_compatible_approved_executor_model, true);
@@ -159,10 +167,11 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.create_command, 'handoff-create');
       assert.equal(data.handoff.next_command, 'handoff-next');
       assert.equal(data.handoff.claim_command, 'handoff-claim');
+      assert.equal(data.handoff.integrate_command, 'handoff-integrate');
       assert.equal(data.handoff.complete_command, 'handoff-complete');
       assert.equal(data.handoff.atomic_decision_task_link, true);
       assert.equal(data.handoff.native_task_thread, 'internal_execution_mechanism');
-      assert.equal(data.handoff.repo_side_role, 'decision_task_context_and_result_audit');
+      assert.equal(data.handoff.repo_side_role, 'decision_task_context_and_resource_lease_audit');
       assert.equal(data.handoff.repo_side_is_execution_queue, false);
       assert.equal(data.handoff.permanent_developer_chat_required, false);
       assert.equal(data.handoff.user_workflow_requires_lifecycle_commands, false);
@@ -175,13 +184,15 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.existing_thread_prevents_second_creation, true);
       assert.equal(data.handoff.new_engineering_task_requires_new_native_thread, true);
       assert.equal(data.handoff.strategy_may_replace_existing_or_completed_thread_scope, false);
-      assert.equal(data.handoff.active_engineering_thread_blocks_second_writer_thread, true);
-      assert.equal(data.handoff.maximum_active_writer_executors, 1);
+      assert.equal(data.handoff.active_engineering_thread_blocks_second_writer_thread, false);
+      assert.equal(data.handoff.maximum_active_writer_executors, 2);
+      assert.equal(data.handoff.resource_conflict_requires_wait, true);
+      assert.equal(data.handoff.integration_is_serialized, true);
       assert.equal(data.handoff.maximum_parallel_read_only_branches, 3);
-      assert.equal(data.handoff.active_writer_thread_requires_wait_or_owner_explicit_cancellation, true);
+      assert.equal(data.handoff.active_writer_thread_requires_wait_or_owner_explicit_cancellation, false);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 29);
+      assert.equal(data.revision, 30);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
@@ -214,7 +225,7 @@ test('canonical workflow documents preserve the small-change fast path and sandb
   assert.match(operating, /test_operator_panel_e2e\.py/);
   assert.match(agents, /самую быструю доступную совместимую/);
   assert.match(agents, /owner-facing порт/);
-  for (const document of [agents, decision, operating]) assert.match(document, /(?:multi-agent|Контролируемый pilot)/i);
+  for (const document of [agents, decision, operating]) assert.match(document, /(?:multi-agent|read-only pilot|Контролируемый pilot)/i);
   assert.match(agents, /текущем чате с владельцем/);
 });
 

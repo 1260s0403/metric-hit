@@ -169,6 +169,13 @@ def workflow_parser() -> argparse.ArgumentParser:
     handoff_claim.add_argument("--db", required=True)
     handoff_claim.add_argument("--id", required=True)
     handoff_claim.add_argument("--developer", required=True)
+    handoff_integrate = subparsers.add_parser("handoff-integrate")
+    handoff_integrate.add_argument("--db", required=True)
+    handoff_integrate.add_argument("--id", required=True)
+    handoff_integrate.add_argument("--developer", required=True)
+    handoff_integrate.add_argument("--expected-base", required=True)
+    handoff_integrate.add_argument("--current-base", required=True)
+    handoff_integrate.add_argument("--conflict-free", action="store_true")
     handoff_complete = subparsers.add_parser("handoff-complete")
     handoff_complete.add_argument("--db", required=True)
     handoff_complete.add_argument("--id", required=True)
@@ -347,6 +354,11 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         return 0
     if arguments.command == "handoff-claim":
         print_json(HandoffStore(database_path).claim(arguments.id, arguments.developer))
+        return 0
+    if arguments.command == "handoff-integrate":
+        print_json(HandoffStore(database_path).begin_integration(
+            arguments.id, arguments.developer, arguments.expected_base, arguments.current_base, arguments.conflict_free,
+        ))
         return 0
     if arguments.command == "handoff-complete":
         print_json(HandoffStore(database_path).complete(arguments.id, arguments.commit, arguments.developer))

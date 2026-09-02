@@ -35,6 +35,26 @@ def payload(**changes):
     return value
 
 
+def resources(tmp_path, name, *, paths=None, sqlite_resources=None, shared=None):
+    return {
+        "canonical_worktree": str(tmp_path / "canonical"),
+        "worktree": str(tmp_path / name),
+        "branch": f"codex/{name}",
+        "base_head": "a" * 40,
+        "paths": paths or [f"work/{name}"],
+        "sqlite": sqlite_resources or [],
+        "shared": shared or [],
+    }
+
+
+def parallel_payload(tmp_path, name, **resource_changes):
+    declaration = resources(tmp_path, name, **resource_changes)
+    return payload(
+        idempotency_key=f"parallel-{name}", semantic_key=f"architecture.parallel_{name}",
+        goal=f"Parallel writer {name}", execution_resources=declaration,
+    )
+
+
 def test_approved_decision_creates_linked_existing_task_and_is_idempotent(tmp_path):
     database = temporary_database(tmp_path)
     store = HandoffStore(database)
@@ -210,6 +230,110 @@ def test_lifecycle_is_idempotent_and_allows_only_one_active_developer_handoff(tm
     with pytest.raises(HandoffError, match="different commit hash"):
         store.complete(first["handoff_id"], "d" * 40, "developer-a")
     assert store.next()["handoff_id"] == second["handoff_id"]
+
+
+def test_parallel_v1_allows_two_isolated_writers_blocks_third_and_serializes_integration(tmp_path):
+    store = HandoffStore(temporary_database(tmp_path))
+    first = store.create_approved(parallel_payload(
+        tmp_path, "articles", sqlite_resources=["data/projects/project-a/project.sqlite"],
+    ))
+    second = store.create_approved(parallel_payload(
+        tmp_path, "landing", sqlite_resources=["data/projects/project-b/project.sqlite"],
+    ))
+    third = store.create_approved(parallel_payload(tmp_path, "project-c"))
+    first_claim = store.claim(first["handoff_id"], "writer-a")
+    assert store.claim(first["handoff_id"], "writer-a") == first_claim
+    second_claim = store.claim(second["handoff_id"], "writer-b")
+    assert second_claim["status"] == "in_progress"
+    with pytest.raises(HandoffError, match="maximum active writer leases is two"):
+        store.claim(third["handoff_id"], "writer-c")
+
+    integration = store.begin_integration(first["handoff_id"], "writer-a", "b" * 40, "b" * 40, True)
+    assert integration["lifecycle"]["integration"]["status"] == "integrating"
+    assert store.begin_integration(first["handoff_id"], "writer-a", "b" * 40, "b" * 40, True) == integration
+    with pytest.raises(HandoffError, match="integration is already in progress"):
+        store.begin_integration(second["handoff_id"], "writer-b", "b" * 40, "b" * 40, True)
+    with pytest.raises(HandoffError, match="stale base"):
+        store.begin_integration(second["handoff_id"], "writer-b", "b" * 40, "c" * 40, True)
+    with pytest.raises(HandoffError, match="merge conflict"):
+        store.begin_integration(second["handoff_id"], "writer-b", "c" * 40, "c" * 40, False)
+    store.complete(first["handoff_id"], "1" * 40, "writer-a")
+    store.begin_integration(second["handoff_id"], "writer-b", "c" * 40, "c" * 40, True)
+    store.complete(second["handoff_id"], "2" * 40, "writer-b")
+    assert store.claim(third["handoff_id"], "writer-c")["status"] == "in_progress"
+
+
+@pytest.mark.parametrize(
+    ("first_changes", "second_changes", "message"),
+    [
+        ({"paths": ["work/articles"]}, {"paths": ["work/articles/drafts"]}, "path resource overlap"),
+        ({"sqlite_resources": ["data/projects/a/project.sqlite"]}, {"sqlite_resources": ["data/projects/a/project.sqlite"]}, "same SQLite"),
+        ({"shared": ["runtime:owner-panel"]}, {"shared": ["runtime:owner-panel"]}, "shared resource overlap"),
+        ({"shared": ["core"]}, {}, "exclusive core or shared resource"),
+        ({"paths": ["AGENTS.md"]}, {}, "exclusive core or shared resource"),
+    ],
+)
+def test_parallel_v1_blocks_overlapping_or_exclusive_resources(tmp_path, first_changes, second_changes, message):
+    store = HandoffStore(temporary_database(tmp_path))
+    first = store.create_approved(parallel_payload(tmp_path, "first", **first_changes))
+    second = store.create_approved(parallel_payload(tmp_path, "second", **second_changes))
+    store.claim(first["handoff_id"], "writer-a")
+    with pytest.raises(HandoffError, match=message):
+        store.claim(second["handoff_id"], "writer-b")
+
+
+def test_parallel_v1_fails_closed_on_missing_invalid_or_canonical_declarations(tmp_path):
+    database = temporary_database(tmp_path)
+    store = HandoffStore(database)
+    declared = store.create_approved(parallel_payload(tmp_path, "declared"))
+    legacy = store.create_approved(payload(
+        idempotency_key="legacy-exclusive", semantic_key="architecture.legacy_exclusive", goal="Legacy exclusive",
+    ))
+    store.claim(declared["handoff_id"], "writer-a")
+    with pytest.raises(HandoffError, match="missing execution resource declaration"):
+        store.claim(legacy["handoff_id"], "writer-b")
+
+    incomplete = resources(tmp_path, "incomplete")
+    incomplete.pop("paths")
+    with pytest.raises(HandoffError, match="must declare"):
+        store.create_approved(payload(
+            idempotency_key="invalid-incomplete", semantic_key="architecture.invalid_incomplete",
+            goal="Invalid incomplete", execution_resources=incomplete,
+        ))
+    canonical = resources(tmp_path, "canonical-invalid")
+    canonical["worktree"] = canonical["canonical_worktree"]
+    with pytest.raises(HandoffError, match="canonical worktree"):
+        store.create_approved(payload(
+            idempotency_key="invalid-canonical", semantic_key="architecture.invalid_canonical",
+            goal="Invalid canonical", execution_resources=canonical,
+        ))
+
+
+def test_parallel_v1_declared_writer_requires_integration_lease_before_completion(tmp_path):
+    store = HandoffStore(temporary_database(tmp_path))
+    created = store.create_approved(parallel_payload(tmp_path, "requires-integration"))
+    store.claim(created["handoff_id"], "writer-a")
+    with pytest.raises(HandoffError, match="integration lease"):
+        store.complete(created["handoff_id"], "f" * 40, "writer-a")
+
+
+@pytest.mark.parametrize(("field", "message"), [("worktree", "distinct worktrees"), ("branch", "distinct branches")])
+def test_parallel_v1_requires_distinct_worktrees_and_branches(tmp_path, field, message):
+    store = HandoffStore(temporary_database(tmp_path))
+    first_resources = resources(tmp_path, "first")
+    second_resources = resources(tmp_path, "second")
+    second_resources[field] = first_resources[field]
+    first = store.create_approved(payload(
+        idempotency_key="distinct-first", semantic_key="architecture.distinct_first",
+        goal="Distinct first", execution_resources=first_resources,
+    ))
+    second = store.create_approved(payload(
+        idempotency_key="distinct-second", semantic_key="architecture.distinct_second",
+        goal="Distinct second", execution_resources=second_resources,
+    ))
+    store.claim(first["handoff_id"], "writer-a")
+    with pytest.raises(HandoffError, match=message):
+        store.claim(second["handoff_id"], "writer-b")
 
 
 def test_dispatcher_claims_once_records_thread_and_completes_idempotently(tmp_path):

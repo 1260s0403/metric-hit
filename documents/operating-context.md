@@ -51,6 +51,10 @@ Strategy и engineering-задачи могут открывать любые п
 
 Если Strategy-чат стал слишком длинным, регулярно требует сжатия, теряет детали, путает решения или заметно расходует контекст, Strategy сам предлагает переход. Перед ним он read-only сверяет, что approved memory, current context и roadmap содержат значимые утверждённые решения, планы, ограничения, незавершённые задачи и ближайшие следующие шаги. При пробеле отдельный native task-thread синхронизирует канонический контекст; после сверки Strategy подтверждает, что новый чат продолжит работу только по startup protocol, без старой переписки.
 
+### Controlled parallel execution v1
+
+Утверждённая v1-политика заменяет прежний глобальный запрет параллельных writer-ов только в этих пределах: максимум два независимых writer-а, каждый в отдельном неканоническом Git worktree и branch, с объявленными base HEAD, path, SQLite и shared resources. Handoff атомарно выдаёт leases и fail-closed отклоняет missing/invalid declaration, третий writer, общий worktree/branch, ancestor/descendant path overlap, same SQLite и shared resource. Core/policy/config/migration/dependency/shared-runtime, central control-plane, context-pack и memory/policy mutations эксклюзивны; разные project SQLite совместимы. Integration lease всегда один, а stale base или конфликт блокирует merge без force/reset/delete. Подготовка и закрытие context pack, синхронизация approved memory и интеграция выполняются последовательно. Внутри каждого change set сохраняются один named writer, одна ветка, один commit и clean Git; read-only multi-agent pilot не меняется.
+
 ## Автономные отделы
 
 Концепция автономных отделов не является текущим этапом. Любая разработка отдела, его БД, workflow, агентов или контрактов отложена до отдельной команды владельца. Редакция не считается активным или первым подключаемым отделом. Пока пауза действует, отсутствие `data/editorial/editorial.sqlite` ожидаемо и отчётные команды возвращают `paused/not initialized`.
