@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Callable, Protocol
 from urllib.request import Request, urlopen
 
+EXPENSE_CATEGORIES = ("Бытовые", "Сервисы", "Продвижение", "Выплаты")
+
 
 class TelegramTransport(Protocol):
     def call(self, method: str, payload: dict[str, object]) -> dict[str, object]: ...
@@ -55,7 +57,8 @@ class AccountantStore:
                     kind TEXT NOT NULL CHECK(kind IN ('income', 'expense')),
                     amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
                     label TEXT NOT NULL,
-                    occurred_at TEXT NOT NULL
+                    occurred_at TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT ''
                 )"""
             )
             columns = {
@@ -65,6 +68,10 @@ class AccountantStore:
             if "details" not in columns:
                 connection.execute(
                     "ALTER TABLE accountant_transactions ADD COLUMN details TEXT NOT NULL DEFAULT ''"
+                )
+            if "category" not in columns:
+                connection.execute(
+                    "ALTER TABLE accountant_transactions ADD COLUMN category TEXT NOT NULL DEFAULT ''"
                 )
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_accountant_chat_date "
@@ -79,6 +86,7 @@ class AccountantStore:
         label: str,
         occurred_date: str | None = None,
         details: str = "",
+        category: str = "",
     ) -> Transaction:
         if kind not in {"income", "expense"}:
             raise ValueError("kind must be income or expense")
@@ -92,11 +100,14 @@ class AccountantStore:
         else:
             occurred_at = self._now().astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         cleaned_details = details.strip()
+        cleaned_category = category.strip()
+        if kind == "expense" and cleaned_category and cleaned_category not in EXPENSE_CATEGORIES:
+            raise ValueError("unknown expense category")
         with self._connect() as connection:
             connection.execute(
-                "INSERT INTO accountant_transactions(chat_id, kind, amount_cents, label, occurred_at, details) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (chat_id, kind, cents, cleaned_label, occurred_at, cleaned_details),
+                "INSERT INTO accountant_transactions(chat_id, kind, amount_cents, label, occurred_at, details, category) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (chat_id, kind, cents, cleaned_label, occurred_at, cleaned_details, cleaned_category),
             )
         return Transaction(chat_id, kind, cents, cleaned_label, occurred_at, cleaned_details)
 
@@ -130,6 +141,19 @@ class AccountantStore:
                 (*parameters, kind),
             ).fetchall()
         return [(str(row["label"]), int(row["total"])) for row in rows]
+
+    def expense_category_totals(
+        self, chat_id: int, start: str | None = None, end: str | None = None
+    ) -> list[tuple[str, int]]:
+        where, parameters = self._date_filter(chat_id, start, end)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT category, SUM(amount_cents) AS total FROM accountant_transactions "
+                f"WHERE {where} AND kind = 'expense' GROUP BY category",
+                parameters,
+            ).fetchall()
+        totals = {str(row["category"]): int(row["total"]) for row in rows}
+        return [(category, totals.get(category, 0)) for category in EXPENSE_CATEGORIES]
 
     @staticmethod
     def _date_filter(chat_id: int, start: str | None, end: str | None) -> tuple[str, tuple[object, ...]]:
@@ -207,9 +231,14 @@ class AccountantCommands:
                 period = period_title(start, end)
                 if command == "/report":
                     income, expense = self.store.totals(chat_id, start, end)
+                    category_lines = "\n".join(
+                        f"{category}: {format_money(amount)}"
+                        for category, amount in self.store.expense_category_totals(chat_id, start, end)
+                    )
                     return (
                         f"Отчёт{period}:\nДоходы: {format_money(income)}\n"
-                        f"Расходы: {format_money(expense)}\nИтог: {format_money(income - expense)}"
+                        f"Расходы: {format_money(expense)}\nРасходы по категориям:\n"
+                        f"{category_lines}\nИтог: {format_money(income - expense)}"
                     )
                 kind = "income" if command == "/sources" else "expense"
                 heading = "Источники доходов" if kind == "income" else "Направления расходов"
@@ -292,13 +321,21 @@ class TelegramAccountantBot:
             "one_time_keyboard": True,
         }
 
+    @staticmethod
+    def expense_category_keyboard() -> dict[str, object]:
+        return {
+            "keyboard": [[{"text": category}] for category in EXPENSE_CATEGORIES],
+            "resize_keyboard": True,
+            "one_time_keyboard": True,
+        }
+
     def _handle_message(self, chat_id: int, text: str) -> tuple[str, dict[str, object]]:
         if text == "Доход":
             self._flows[chat_id] = {"kind": "income", "step": "label"}
             return "Введите ник клиента.", self.reply_keyboard()
         if text == "Расход":
-            self._flows[chat_id] = {"kind": "expense", "step": "label"}
-            return "Введите, куда ушли деньги.", self.reply_keyboard()
+            self._flows[chat_id] = {"kind": "expense", "step": "category"}
+            return "Выберите категорию расхода.", self.expense_category_keyboard()
         if text == "Отчёты":
             return self.commands.handle(chat_id, "/report"), self.reply_keyboard()
         if text.startswith("/"):
@@ -311,6 +348,8 @@ class TelegramAccountantBot:
         keyboard = (
             self.date_keyboard()
             if self._flows.get(chat_id) is flow and flow.get("step") in {"date", "manual_date"}
+            else self.expense_category_keyboard()
+            if self._flows.get(chat_id) is flow and flow.get("step") == "category"
             else self.reply_keyboard()
         )
         return reply, keyboard
@@ -319,6 +358,12 @@ class TelegramAccountantBot:
         value = text.strip()
         kind = flow["kind"]
         step = flow["step"]
+        if step == "category":
+            if value not in EXPENSE_CATEGORIES:
+                return "Выберите категорию кнопкой."
+            flow["category"] = value
+            flow["step"] = "label"
+            return "Введите, куда ушли деньги."
         if step == "label":
             if not value:
                 return "Поле не может быть пустым. Введите значение ещё раз."
@@ -372,6 +417,7 @@ class TelegramAccountantBot:
             flow["label"],
             occurred_date=flow["date"],
             details=flow.get("details", ""),
+            category=flow.get("category", ""),
         )
         self._flows.pop(chat_id, None)
         action = "Доход добавлен" if item.kind == "income" else "Расход добавлен"
