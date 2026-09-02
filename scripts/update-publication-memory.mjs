@@ -451,6 +451,27 @@ export const oborotBusinessSiteLaunchReadinessPublicationUpdate = Object.freeze(
   },
 });
 
+export const telegramSiteReadinessBeforePfPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.telegram_site_readiness_before_pf_2026_09_02', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Как подготовить сайт к запуску ПФ: 5 проверок для владельца бизнеса',
+  content: 'Владелец подтвердил публикацию в Telegram 02.09.2026 поста «Как подготовить сайт к запуску ПФ: 5 проверок для владельца бизнеса». Публичный URL владельцем не предоставлен. Зафиксированы локальные пути исходника и обложки, а также SHA-256 обложки; эта запись основана только на подтверждении владельца и не содержит независимого внешнего подтверждения.',
+  platform: 'Telegram', canonicalUrl: null,
+  publishedAt: '2026-09-02T00:00:00.000Z', reviewedAt: '2026-09-02T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: {
+    published: true, publication_date: '2026-09-02',
+    post_title: 'Как подготовить сайт к запуску ПФ: 5 проверок для владельца бизнеса',
+    local_post_path: 'work/social/telegram/drafts/2026-09-02-site-readiness-before-pf.md',
+    cover_asset_path: 'work/social/telegram/assets/2026-09-02-site-readiness-before-pf.png',
+    cover_asset_sha256: '47c32aac1a8dccd010f451146a7a64f64c4eb01f5d1c8baaf4d497e0ccaec3f4',
+    publication_status: 'owner_confirmed_published',
+    public_url: null, public_url_status: 'not_provided_by_owner',
+    independent_external_confirmation: 'not_performed',
+    external_action_performed_in_this_update: false,
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
@@ -466,8 +487,9 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
                     : command === 'vk-metrichit-pf-product-overview-publication' ? vkMetricHitPfProductOverviewPublicationUpdate
                       : command === 'vk-internet-shop-category-first-launch-publication' ? vkInternetShopCategoryFirstLaunchPublicationUpdate
                         : command === 'vk-business-site-launch-readiness-publication' ? vkBusinessSiteLaunchReadinessPublicationUpdate
-                          : command === 'oborot-business-site-launch-readiness-publication' ? oborotBusinessSiteLaunchReadinessPublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication', 'vk-internet-shop-category-first-launch-publication', 'vk-business-site-launch-readiness-publication', 'oborot-business-site-launch-readiness-publication'].includes(command)) {
+                          : command === 'oborot-business-site-launch-readiness-publication' ? oborotBusinessSiteLaunchReadinessPublicationUpdate
+                            : command === 'telegram-site-readiness-before-pf-publication' ? telegramSiteReadinessBeforePfPublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication', 'vk-internet-shop-category-first-launch-publication', 'vk-business-site-launch-readiness-publication', 'oborot-business-site-launch-readiness-publication', 'telegram-site-readiness-before-pf-publication'].includes(command)) {
     throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication|vk-prelaunch-pf-checklist-publication|vk-august-16-pf-services-incident-publication|vk-internet-shop-category-first-launch-publication|vk-business-site-launch-readiness-publication|oborot-business-site-launch-readiness-publication> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));

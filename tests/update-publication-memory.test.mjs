@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { oborotBusinessSiteLaunchReadinessPublicationUpdate, oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkAugust16PfServicesIncidentPublicationUpdate, vkBusinessSiteLaunchReadinessPublicationUpdate, vkCommunityCoverPublicationUpdate, vkMetricHitPfProductOverviewPublicationUpdate, vkPfYandexServiceUpdate, vkPrelaunchPfChecklistPublicationUpdate, vkWebsiteCreationServicePublicationUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
+import { oborotBusinessSiteLaunchReadinessPublicationUpdate, oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, telegramSiteReadinessBeforePfPublicationUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkAugust16PfServicesIncidentPublicationUpdate, vkBusinessSiteLaunchReadinessPublicationUpdate, vkCommunityCoverPublicationUpdate, vkMetricHitPfProductOverviewPublicationUpdate, vkPfYandexServiceUpdate, vkPrelaunchPfChecklistPublicationUpdate, vkWebsiteCreationServicePublicationUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
 
 test('publication memory update supersedes the existing revision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-publication-update-'));
@@ -385,6 +385,38 @@ test('owner-confirmed Oborot article records its cover and exact PF target queri
     assert.equal(data.verified_facts.independent_yandex_indexation, 'not_performed');
     assert.equal(data.verified_facts.external_action_performed_in_this_update, false);
     assert.match(current.content, /не подтверждает запуск кампании/u);
+    readOnly.close();
+  } finally {
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
+    catch (error) { if (error?.code !== 'EBUSY') throw error; }
+  }
+});
+
+test('owner-confirmed Telegram post records exact source and cover paths without PF or indexation claims', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-telegram-site-readiness-publication-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    const first = updatePublicationMemory(databasePath, telegramSiteReadinessBeforePfPublicationUpdate);
+    const second = updatePublicationMemory(databasePath, telegramSiteReadinessBeforePfPublicationUpdate);
+    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    const readOnly = new DatabaseSync(databasePath, { readOnly: true });
+    const current = readOnly.prepare(`SELECT data_json,status FROM memory_candidates
+      WHERE semantic_key='publication.telegram_site_readiness_before_pf_2026_09_02'`).get();
+    const data = JSON.parse(current.data_json);
+    assert.equal(current.status, 'approved');
+    assert.equal(data.publication_status, 'owner_confirmed_published');
+    assert.equal(data.platform, 'Telegram');
+    assert.equal(data.canonical_url, null);
+    assert.equal(data.public_url_status, 'not_provided_by_owner');
+    assert.equal(data.verified_facts.local_post_path, 'work/social/telegram/drafts/2026-09-02-site-readiness-before-pf.md');
+    assert.equal(data.verified_facts.cover_asset_path, 'work/social/telegram/assets/2026-09-02-site-readiness-before-pf.png');
+    assert.equal(data.verified_facts.cover_asset_sha256, '47c32aac1a8dccd010f451146a7a64f64c4eb01f5d1c8baaf4d497e0ccaec3f4');
+    assert.equal(data.verified_facts.independent_external_confirmation, 'not_performed');
+    assert.equal(data.verified_facts.external_action_performed_in_this_update, false);
+    assert.equal(JSON.stringify(data.verified_facts).includes('pf_promotion_target_queries'), false);
+    assert.equal(JSON.stringify(data.verified_facts).includes('indexation'), false);
     readOnly.close();
   } finally {
     try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
