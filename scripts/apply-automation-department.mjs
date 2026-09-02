@@ -1,0 +1,154 @@
+import { createHash } from 'node:crypto';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const defaultDatabase = join(root, 'data', 'database', 'metrichit.db');
+const owner = 'owner';
+const approvedAt = '2026-09-02T00:00:00.000Z';
+const sourceRef = 'direct owner approval 2026-09-02';
+const metrichitProjectId = '00000000-0000-4000-a000-000000000102';
+const departmentScopeId = 'scope:subproject:automation';
+const departmentProjectId = 'a9f37b82-0ab9-4e7d-83c5-17c6b9136bf0';
+const semanticKey = 'automation.department_registration';
+
+function stableUuid(key) {
+  const hex = createHash('sha256').update(`metrichit-automation-department:${key}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+function assertFields(row, expected, label) {
+  if (!row) throw new Error(`Missing ${label}`);
+  for (const [field, value] of Object.entries(expected)) {
+    if (row[field] !== value) throw new Error(`${label}.${field} differs`);
+  }
+}
+
+function ensureScopedRecord(database, record) {
+  const existing = database.prepare('SELECT * FROM scoped_memory_records WHERE id=?').get(record.id);
+  if (!existing) {
+    database.prepare(`INSERT INTO scoped_memory_records
+      (id,semantic_key,scope_id,layer,record_type,lifecycle_status,title,content,source_ref,valid_from,supersedes_id,rule_effect,task_types_json,metadata_json,created_at,updated_at)
+      VALUES (?,?,?,?,?,'active',?,?,?,?,NULL,?,?,?,?,?)`).run(
+      record.id, record.semanticKey, departmentScopeId, record.layer, record.recordType,
+      record.title, record.content, sourceRef, approvedAt, record.ruleEffect,
+      JSON.stringify(['all']), JSON.stringify({ authority: 'direct_owner_confirmation' }), approvedAt, approvedAt,
+    );
+  }
+  assertFields(database.prepare('SELECT * FROM scoped_memory_records WHERE id=?').get(record.id), {
+    semantic_key: record.semanticKey, scope_id: departmentScopeId, layer: record.layer,
+    record_type: record.recordType, lifecycle_status: 'active', title: record.title,
+    content: record.content, source_ref: sourceRef, rule_effect: record.ruleEffect,
+  }, `scoped record ${record.semanticKey}`);
+}
+
+export function applyAutomationDepartment(databasePath = defaultDatabase) {
+  const title = 'Отдел «Автоматизация» MetricHit';
+  const content = 'В MetricHit создан отдельный отдел «Автоматизация» для будущих рабочих направлений Freelance.ru, FL.ru, Kwork, Avito и других площадок. Отдел имеет изолированную scoped memory в цепочке «Ядро → MetricHit → Автоматизация». Рабочие материалы площадки размещаются только по пути work/automation/<platform>. Секреты, локальные сессии, токены, cookies и клиентские данные не хранятся в repository. Создание площадочного контура, login, запуск сценария или внешняя публикация не входят в регистрацию отдела и требуют отдельного утверждённого scope.';
+  const data = JSON.stringify({
+    department: 'automation',
+    parent_project_id: metrichitProjectId,
+    scope_id: departmentScopeId,
+    project_id: departmentProjectId,
+    working_root: 'work/automation',
+    planned_platforms: ['freelance-ru', 'fl-ru', 'kwork', 'avito'],
+    platform_scopes_created: false,
+    secrets_in_repository: false,
+    login_or_publication_authorized: false,
+  });
+  const sourceId = stableUuid('source');
+  const documentId = stableUuid('document');
+  const versionId = stableUuid('version');
+  const candidateId = stableUuid('candidate');
+  const database = new DatabaseSync(databasePath);
+  const created = { projects: 0, scopes: 0, sources: 0, documents: 0, versions: 0, candidates: 0, scopedRecords: 0 };
+
+  database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
+  try {
+    const existing = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").all(semanticKey, candidateId);
+    if (existing.length) throw new Error(`Semantic duplicate or evolution requires review for ${semanticKey}`);
+
+    created.projects += Number(database.prepare(`INSERT OR IGNORE INTO documents
+      (id,type,title,content,data_json,status,author,valid_at,access_level,version)
+      VALUES (?,'project',?,?,?,'active',?,'2026-09-02','internal',1)`).run(
+      departmentProjectId, title, 'Подпроект MetricHit для безопасной подготовки и сопровождения автоматизаций площадок.',
+      JSON.stringify({ kind: 'project', parent_project_id: metrichitProjectId, scope_type: 'subproject' }), owner,
+    ).changes);
+    assertFields(database.prepare('SELECT * FROM documents WHERE id=?').get(departmentProjectId), {
+      type: 'project', title, status: 'active',
+      data_json: JSON.stringify({ kind: 'project', parent_project_id: metrichitProjectId, scope_type: 'subproject' }),
+    }, 'automation department project');
+
+    created.scopes += Number(database.prepare(`INSERT OR IGNORE INTO scope_passports
+      (id,scope_kind,parent_scope_id,name,summary,status,metadata_json,created_at,updated_at)
+      VALUES (?,'subproject','scope:project:metrichit','Автоматизация',?,'active',?,?,?)`).run(
+      departmentScopeId, 'Автоматизация публикационных и иных площадочных сценариев MetricHit.',
+      JSON.stringify({ aliases: ['автоматизация', 'automation', 'freelance.ru', 'fl.ru', 'kwork', 'авито', 'avito'], working_root: 'work/automation' }), approvedAt, approvedAt,
+    ).changes);
+    assertFields(database.prepare('SELECT * FROM scope_passports WHERE id=?').get(departmentScopeId), {
+      scope_kind: 'subproject', parent_scope_id: 'scope:project:metrichit', name: 'Автоматизация', status: 'active',
+    }, 'automation scope passport');
+
+    created.sources += Number(database.prepare(`INSERT OR IGNORE INTO sources
+      (id,type,title,content,data_json,status,author,valid_at,access_level)
+      VALUES (?,'owner_decision',?,?,?,'active',?,'2026-09-02','internal')`).run(
+      sourceId, title, sourceRef, JSON.stringify({ authority: 'direct_owner_confirmation', approved_at: approvedAt }), owner,
+    ).changes);
+    created.documents += Number(database.prepare(`INSERT OR IGNORE INTO documents
+      (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version)
+      VALUES (?,'owner_decision',?,?,?,'active',?,?,'2026-09-02','internal',1)`).run(
+      documentId, title, content, data, sourceId, owner,
+    ).changes);
+    created.versions += Number(database.prepare(`INSERT OR IGNORE INTO document_versions
+      (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version)
+      VALUES (?,?,'owner_decision',?,?,?,'active',?,?,'2026-09-02','internal',1)`).run(
+      versionId, documentId, title, content, data, sourceId, owner,
+    ).changes);
+    created.candidates += Number(database.prepare(`INSERT OR IGNORE INTO memory_candidates
+      (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version)
+      VALUES (?,'decision',?,?,?,?,'pending',?,?,'2026-09-02','internal',1)`).run(
+      candidateId, semanticKey, title, content, data, sourceId, owner,
+    ).changes);
+    if (database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId)?.status === 'pending') {
+      database.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(
+        owner, approvedAt, 'Одобрено прямой командой владельца создать отдел «Автоматизация».', approvedAt, candidateId,
+      );
+    }
+    assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), {
+      type: 'decision', semantic_key: semanticKey, title, content, data_json: data, status: 'approved',
+      source_id: sourceId, reviewed_by: owner, reviewed_at: approvedAt,
+    }, 'automation department decision');
+
+    const recordCountBefore = database.prepare('SELECT count(*) AS count FROM scoped_memory_records WHERE id IN (?,?,?)').get(
+      'memory:automation:registration', 'memory:automation:boundaries', 'memory:automation:platform-design',
+    ).count;
+    ensureScopedRecord(database, {
+      id: 'memory:automation:registration', semanticKey, layer: 'permanent', recordType: 'decision', ruleEffect: null,
+      title, content,
+    });
+    ensureScopedRecord(database, {
+      id: 'memory:automation:boundaries', semanticKey: 'automation.operating_boundaries', layer: 'permanent', recordType: 'rule', ruleEffect: 'require',
+      title: 'Границы автоматизации',
+      content: 'Рабочие материалы площадки размещаются только в work/automation/<platform>. Секреты, локальные сессии, токены, cookies и клиентские данные исключены из repository. Login, запуск сценариев, отправка форм и внешняя публикация требуют отдельного утверждённого scope владельца.',
+    });
+    ensureScopedRecord(database, {
+      id: 'memory:automation:platform-design', semanticKey: 'automation.platform_scope_design', layer: 'working', recordType: 'decision', ruleEffect: null,
+      title: 'Будущие площадочные направления',
+      content: 'Freelance.ru, FL.ru, Kwork и Avito — будущие самостоятельные рабочие направления отдела. Сейчас они не созданы как scope и не имеют файлов, сценариев или доступов. Для каждой площадки будущая отдельная задача определяет точный scope, изолированную память, разрешённые пути и проверки без изменения других площадок.',
+    });
+    created.scopedRecords = 3 - Number(recordCountBefore);
+
+    database.exec('COMMIT');
+    return { databasePath, departmentScopeId, departmentProjectId, candidateId, created };
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  } finally {
+    database.close();
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  console.log(`Applied automation department: ${JSON.stringify(applyAutomationDepartment(process.argv[2] ? resolve(process.argv[2]) : defaultDatabase))}`);
+}
