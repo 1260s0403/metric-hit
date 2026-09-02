@@ -829,7 +829,7 @@ def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(pag
     expect(page.get_by_test_id("entries")).to_contain_text("Согласовать содержание файла")
 
 
-def test_editorial_uses_compact_project_rows_and_keyboard_platform_navigation(page: Page, panel: str) -> None:
+def test_editorial_matches_project_and_platform_references(page: Page, panel: str) -> None:
     browser_errors: list[str] = []
     page.on("pageerror", lambda error: browser_errors.append(str(error)))
     page.on("console", lambda message: browser_errors.append(message.text) if message.type == "error" else None)
@@ -837,28 +837,36 @@ def test_editorial_uses_compact_project_rows_and_keyboard_platform_navigation(pa
     page.get_by_test_id("tab-editorial").focus()
     page.keyboard.press("Enter")
 
+    page.set_viewport_size({"width": 1584, "height": 992})
     expect(page.get_by_test_id("page-title")).to_have_text("Редакция")
+    expect(page.get_by_test_id("page-description")).to_have_text("Проекты редакции. Выберите проект, чтобы продолжить работу.")
     expect(page.get_by_test_id("tab-editorial")).to_have_attribute("aria-current", "page")
     project_rows = page.locator('[data-testid^="editorial-project-"]:not([data-testid="editorial-project-list"])')
     expect(project_rows).to_have_count(4)
     assert project_rows.all_text_contents() == [
-        "MMetricHitПлощадки и статусы публикаций›",
-        "–Тест 1Скоро будет доступен",
-        "–Тест 2Скоро будет доступен",
-        "–Тест 3Скоро будет доступен",
+        "MetricHitОсновной проект редакции",
+        "Тест 1Проект редакции",
+        "Тест 2Проект редакции",
+        "Тест 3Проект редакции",
     ]
-    expect(project_rows.nth(1)).to_be_disabled()
+    expect(page.get_by_text("Скоро будет доступен")).to_have_count(0)
+    expect(page.locator(".editorial-project-arrow")).to_have_count(0)
+    expect(page.locator(".editorial-list")).to_have_count(1)
     page.screenshot(path="work/editorial-projects-verified.png", full_page=True)
 
     page.get_by_test_id("editorial-project-0").focus()
     page.keyboard.press("Enter")
     rows = page.locator('[data-testid^="editorial-platform-"]:not([data-testid="editorial-platform-list"])')
     expect(rows).to_have_count(7)
-    assert [row.inner_text() for row in rows.all()] == [f"{name}\n—\n—\n—" for name in ["ТГ", "MAX", "ВК", "TenChat", "Sostav", "Oborot", "TenChat"]]
-    expect(page.get_by_test_id("editorial-back")).to_be_visible()
+    expect(page.get_by_test_id("page-title")).to_have_text("MetricHit")
+    assert [row.inner_text() for row in rows.all()] == [f"{name}\nПубликаций\n—\nЧерновиков\n—\nВ плане\n—" for name in ["Telegram", "MAX", "VK", "TenChat", "Sostav", "Oborot", "TenChat"]]
+    expect(page.get_by_test_id("editorial-back")).to_have_count(0)
+    expect(page.locator(".editorial-platform-heading")).to_have_count(0)
     page.screenshot(path="work/editorial-platforms-verified.png", full_page=True)
 
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
-    page.screenshot(path="work/editorial-platforms-mobile-verified.png", full_page=True)
+    page.get_by_test_id("tab-editorial").click()
+    expect(page.get_by_test_id("page-title")).to_have_text("Редакция")
+    expect(page.get_by_test_id("editorial-project-list")).to_be_visible()
     assert browser_errors == []
