@@ -852,20 +852,32 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     expect(page.get_by_text("Скоро будет доступен")).to_have_count(0)
     expect(page.locator(".editorial-project-arrow")).to_have_count(0)
     expect(page.locator(".editorial-list")).to_have_count(1)
-    page.screenshot(path="work/editorial-projects-verified.png", full_page=True)
 
     page.get_by_test_id("editorial-project-0").focus()
     page.keyboard.press("Enter")
     rows = page.locator('[data-testid^="editorial-platform-"]:not([data-testid="editorial-platform-list"])')
     expect(rows).to_have_count(7)
     expect(page.get_by_test_id("page-title")).to_have_text("MetricHit")
-    assert [row.inner_text() for row in rows.all()] == [f"{name}\nПубликаций\n—\nЧерновиков\n—\nВ плане\n—" for name in ["Telegram", "MAX", "VK", "TenChat", "Sostav", "Oborot", "TenChat"]]
-    expect(page.get_by_test_id("editorial-back")).to_have_count(0)
+    expected_platforms = ["Telegram", "MAX", "VK", "TenChat", "Sostav", "Oborot", "TenChat"]
+    assert rows.first.bounding_box()["height"] == rows.nth(1).bounding_box()["height"] == 100
+    assert rows.first.inner_text() == "Telegram\nПубликаций\n17\nЧерновиков\n1\nВ плане\n8"
+    assert [row.inner_text() for row in rows.all()[1:]] == [f"{name}\nПубликаций\n—\nЧерновиков\n—\nВ плане\n—" for name in expected_platforms[1:]]
+    platform_back = page.get_by_test_id("editorial-back")
+    expect(platform_back).to_have_text("Назад")
+    expect(platform_back.locator("svg")).to_have_count(1)
     expect(page.locator(".editorial-platform-heading")).to_have_count(0)
     page.screenshot(path="work/editorial-platforms-verified.png", full_page=True)
+    platform_back.focus()
+    page.keyboard.press("Enter")
+    expect(page.get_by_test_id("editorial-project-list")).to_be_visible()
+    page.get_by_test_id("editorial-project-0").click()
+    expect(page.get_by_test_id("editorial-platform-list")).to_be_visible()
 
     page.get_by_test_id("editorial-platform-0").click()
     expect(page.get_by_test_id("page-title")).to_have_text("Telegram")
+    telegram_back = page.get_by_test_id("editorial-back")
+    expect(telegram_back).to_have_text("Назад")
+    expect(telegram_back.locator("svg")).to_have_count(1)
     expect(page.locator(".editorial-stat-card")).to_have_count(3)
     expected_titles = [
         "Как подготовить сайт к запуску ПФ: 5 проверок для владельца бизнеса",
@@ -909,7 +921,6 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     expect(draft_rows.first.locator("a")).to_have_count(0)
     expect(drafts_filter).to_have_attribute("aria-pressed", "true")
     assert "active" in (drafts_filter.get_attribute("class") or "")
-    page.screenshot(path="work/editorial-telegram-drafts-verified.png", full_page=True)
     planned_filter.focus()
     page.keyboard.press("Enter")
     planned_filter.click()
@@ -931,7 +942,6 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     expect(planned_rows.locator("a")).to_have_count(0)
     expect(planned_filter).to_have_attribute("aria-pressed", "true")
     assert "active" in (planned_filter.get_attribute("class") or "")
-    page.screenshot(path="work/editorial-telegram-planned-verified.png", full_page=True)
     published_filter.click()
     expect(page.locator('[data-testid^="editorial-post-"]')).to_have_count(17)
     expect(page.get_by_test_id("editorial-pf-2")).to_have_count(1)
@@ -977,6 +987,14 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     assert abs(on_geometry["center"] - on_geometry["thumbCenter"]) <= 1
     assert on_geometry["background"] in {"rgb(247, 247, 244)", "rgb(255, 255, 255)"}
     page.screenshot(path="work/editorial-telegram-detail-verified.png", full_page=True)
+
+    telegram_back.focus()
+    page.keyboard.press("Enter")
+    expect(page.get_by_test_id("editorial-platform-list")).to_be_visible()
+    page.get_by_test_id("editorial-platform-0").click()
+    expect(page.get_by_test_id("page-title")).to_have_text("Telegram")
+    page.get_by_test_id("editorial-back").click()
+    expect(page.get_by_test_id("editorial-platform-list")).to_be_visible()
 
     page.set_viewport_size({"width": 390, "height": 844})
     assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")

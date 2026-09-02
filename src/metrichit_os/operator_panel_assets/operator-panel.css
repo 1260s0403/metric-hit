@@ -407,6 +407,7 @@ body[data-view-name="editorial"] .page-header{margin:15px 0 52px}
 body[data-view-name="editorial"] .page-header h2{margin:0 0 20px;font-size:44px;font-weight:520;letter-spacing:-.045em}
 body[data-view-name="editorial"] .page-header p{margin:0;font-size:18px;color:#aaa9a6}
 .editorial-list{display:grid;width:min(624px,100%);gap:20px}
+.editorial-back{display:inline-flex;align-items:center;gap:7px;margin:0 0 16px;padding:7px 10px;border:1px solid #55585a;border-radius:7px;background:transparent;color:#e8e5de;font:inherit;font-size:14px;line-height:1;cursor:pointer}.editorial-back svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}.editorial-back:hover{border-color:#898b8d;background:#242628}.editorial-back:focus-visible{outline:2px solid #e9e8e3;outline-offset:3px}
 .editorial-project-row{display:grid;grid-template-columns:70px minmax(0,1fr);gap:22px;align-items:center;width:100%;min-height:126px;padding:22px 44px;border:1px solid #4a4d50;border-radius:7px;background:linear-gradient(135deg,#1a1c1f,#151719);color:#e8e5de;text-align:left}
 .editorial-project-row:hover,.editorial-project-row:focus-visible{background:linear-gradient(135deg,#202326,#181a1c);outline:2px solid #777a7d;outline-offset:2px}
 .editorial-project-icon{display:grid;place-items:center;width:58px;height:58px;color:#bdbebd}
