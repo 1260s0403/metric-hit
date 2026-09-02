@@ -894,6 +894,48 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     for card in page.locator(".editorial-stat-card").all():
         label, value = card.locator(".editorial-stat-label").bounding_box(), card.locator(".editorial-stat-value").bounding_box()
         assert value["x"] > label["x"] and abs((label["y"] + label["height"] / 2) - (value["y"] + value["height"] / 2)) <= 1
+    published_filter = page.get_by_test_id("editorial-filter-published")
+    drafts_filter = page.get_by_test_id("editorial-filter-drafts")
+    planned_filter = page.get_by_test_id("editorial-filter-planned")
+    expect(published_filter).to_have_attribute("aria-pressed", "true")
+    assert "active" in (published_filter.get_attribute("class") or "")
+    drafts_filter.click()
+    expect(page.locator(".editorial-posts h3")).to_have_text("Черновики")
+    draft_rows = page.locator('[data-testid^="editorial-post-drafts-"]')
+    expect(draft_rows).to_have_count(1)
+    expect(draft_rows.first.locator("strong")).to_have_text("Акция: 1 500 кликов вместо 1 000 первым 30 новым пользователям")
+    expect(draft_rows.first).to_contain_text("Отложена 13.08.2026")
+    expect(draft_rows.first.locator(".editorial-pf")).to_have_count(0)
+    expect(draft_rows.first.locator("a")).to_have_count(0)
+    expect(drafts_filter).to_have_attribute("aria-pressed", "true")
+    assert "active" in (drafts_filter.get_attribute("class") or "")
+    page.screenshot(path="work/editorial-telegram-drafts-verified.png", full_page=True)
+    planned_filter.focus()
+    page.keyboard.press("Enter")
+    planned_filter.click()
+    expected_planned_titles = [
+        "Серия по личному кабинету, шаг 1: создание проекта и выбор региона",
+        "Серия: добавление запросов и целевых страниц",
+        "Серия: настройка дневных лимитов",
+        "Серия: расписание показов по часам",
+        "Серия: плавный запуск и функции бустов",
+        "Серия: контроль кликов и позиций",
+        "Серия: переход на поддерживающий режим",
+        "Что проверить в первые 24 часа после запуска",
+    ]
+    expect(page.locator(".editorial-posts h3")).to_have_text("В плане")
+    planned_rows = page.locator('[data-testid^="editorial-post-planned-"]')
+    expect(planned_rows).to_have_count(8)
+    assert [row.locator("strong").inner_text() for row in planned_rows.all()] == expected_planned_titles
+    expect(planned_rows.locator(".editorial-pf")).to_have_count(0)
+    expect(planned_rows.locator("a")).to_have_count(0)
+    expect(planned_filter).to_have_attribute("aria-pressed", "true")
+    assert "active" in (planned_filter.get_attribute("class") or "")
+    page.screenshot(path="work/editorial-telegram-planned-verified.png", full_page=True)
+    published_filter.click()
+    expect(page.locator('[data-testid^="editorial-post-"]')).to_have_count(17)
+    expect(page.get_by_test_id("editorial-pf-2")).to_have_count(1)
+    expect(published_filter).to_have_attribute("aria-pressed", "true")
     for index in range(10):
         expect(page.get_by_test_id(f"editorial-post-{index}").get_by_test_id("editorial-url-missing")).to_have_text("Ссылка не сохранена")
         expect(page.get_by_test_id(f"editorial-url-{index}")).to_have_count(0)
@@ -916,7 +958,7 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     expect(page.get_by_test_id("editorial-full-url-10")).to_be_hidden()
     page.get_by_test_id("editorial-url-copy-10").click()
     expect(page.get_by_test_id("editorial-url-status-10")).to_have_text("Скопировано")
-    page.get_by_test_id("editorial-semantic-0").click()
+    page.get_by_test_id("editorial-semantic-published-0").click()
     semantic = page.get_by_test_id("editorial-semantic-modal")
     expect(semantic).to_be_visible()
     expect(page.get_by_test_id("editorial-semantic-empty")).to_have_text("Семантика не сохранена")
