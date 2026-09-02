@@ -862,6 +862,15 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     assert rows.first.bounding_box()["height"] == rows.nth(1).bounding_box()["height"] == 100
     assert rows.first.inner_text() == "Telegram\nПубликаций\n17\nЧерновиков\n1\nВ плане\n8"
     assert [row.inner_text() for row in rows.all()[1:]] == [f"{name}\nПубликаций\n—\nЧерновиков\n—\nВ плане\n—" for name in expected_platforms[1:]]
+    platform_baseline = rows.first.evaluate("node => ({background: getComputedStyle(node).backgroundImage, outline: getComputedStyle(node).outlineStyle})")
+    rows.first.hover()
+    platform_hover = rows.first.evaluate("node => ({background: getComputedStyle(node).backgroundImage, outline: getComputedStyle(node).outlineStyle})")
+    assert platform_hover["background"] != platform_baseline["background"]
+    assert platform_hover["outline"] != platform_baseline["outline"]
+    rows.first.focus()
+    platform_focus = rows.first.evaluate("node => ({outline: getComputedStyle(node).outlineStyle, height: node.getBoundingClientRect().height})")
+    assert platform_focus["outline"] != "none"
+    assert platform_focus["height"] == 100
     platform_back = page.get_by_test_id("editorial-back")
     expect(platform_back).to_have_text("Назад")
     expect(platform_back.locator("svg")).to_have_count(1)
@@ -873,6 +882,7 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     platform_back.focus()
     platform_focus = platform_back.evaluate("node => getComputedStyle(node).outlineStyle")
     assert platform_focus != "none"
+    rows.first.hover()
     page.screenshot(path="work/editorial-platforms-verified.png", full_page=True)
     page.keyboard.press("Enter")
     expect(page.get_by_test_id("editorial-project-list")).to_be_visible()
