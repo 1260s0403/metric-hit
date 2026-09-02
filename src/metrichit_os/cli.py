@@ -181,6 +181,44 @@ def workflow_parser() -> argparse.ArgumentParser:
     handoff_complete.add_argument("--id", required=True)
     handoff_complete.add_argument("--commit", required=True)
     handoff_complete.add_argument("--developer", required=True)
+    coordinator_claim = subparsers.add_parser("handoff-coordinator-claim")
+    coordinator_claim.add_argument("--db", required=True)
+    coordinator_claim.add_argument("--id", required=True)
+    coordinator_claim.add_argument("--coordinator", required=True)
+    delegate_child = subparsers.add_parser("handoff-delegate-child")
+    delegate_child.add_argument("--db", required=True)
+    delegate_child.add_argument("--id", required=True)
+    delegate_child.add_argument("--coordinator", required=True)
+    delegate_child.add_argument("--worker", required=True)
+    delegate_child.add_argument("--data", required=True)
+    worker_claim = subparsers.add_parser("handoff-worker-claim")
+    worker_claim.add_argument("--db", required=True)
+    worker_claim.add_argument("--id", required=True)
+    worker_claim.add_argument("--worker", required=True)
+    worker_submit = subparsers.add_parser("handoff-worker-submit")
+    worker_submit.add_argument("--db", required=True)
+    worker_submit.add_argument("--id", required=True)
+    worker_submit.add_argument("--worker", required=True)
+    worker_submit.add_argument("--data", required=True)
+    coordinator_review = subparsers.add_parser("handoff-coordinator-review")
+    coordinator_review.add_argument("--db", required=True)
+    coordinator_review.add_argument("--id", required=True)
+    coordinator_review.add_argument("--coordinator", required=True)
+    coordinator_review.add_argument("--decision", choices=("approve", "reject"), required=True)
+    coordinator_review.add_argument("--evidence", required=True, help="JSON list")
+    integration_result = subparsers.add_parser("handoff-integration-result")
+    integration_result.add_argument("--db", required=True)
+    integration_result.add_argument("--id", required=True)
+    integration_result.add_argument("--developer", required=True)
+    integration_result.add_argument("--commit", required=True)
+    integration_result.add_argument("--result", required=True)
+    strategy_complete = subparsers.add_parser("handoff-strategy-complete")
+    strategy_complete.add_argument("--db", required=True)
+    strategy_complete.add_argument("--id", required=True)
+    strategy_complete.add_argument("--strategy", required=True)
+    strategy_complete.add_argument("--parent-pack", required=True)
+    strategy_complete.add_argument("--pack-status", choices=("open", "closed"), required=True)
+    strategy_complete.add_argument("--clean-delivery", action="store_true")
     dispatch_next = subparsers.add_parser("dispatcher-next")
     dispatch_next.add_argument("--db", required=True)
     dispatch_claim = subparsers.add_parser("dispatcher-claim-next")
@@ -362,6 +400,37 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         return 0
     if arguments.command == "handoff-complete":
         print_json(HandoffStore(database_path).complete(arguments.id, arguments.commit, arguments.developer))
+        return 0
+    if arguments.command == "handoff-coordinator-claim":
+        print_json(HandoffStore(database_path).coordinator_claim(arguments.id, arguments.coordinator))
+        return 0
+    if arguments.command == "handoff-delegate-child":
+        print_json(HandoffStore(database_path).delegate_child(
+            arguments.id, arguments.coordinator, arguments.worker, json.loads(arguments.data),
+        ))
+        return 0
+    if arguments.command == "handoff-worker-claim":
+        print_json(HandoffStore(database_path).claim_worker(arguments.id, arguments.worker))
+        return 0
+    if arguments.command == "handoff-worker-submit":
+        print_json(HandoffStore(database_path).worker_submit(
+            arguments.id, arguments.worker, json.loads(arguments.data),
+        ))
+        return 0
+    if arguments.command == "handoff-coordinator-review":
+        print_json(HandoffStore(database_path).coordinator_review(
+            arguments.id, arguments.coordinator, arguments.decision, json.loads(arguments.evidence),
+        ))
+        return 0
+    if arguments.command == "handoff-integration-result":
+        print_json(HandoffStore(database_path).integration_result(
+            arguments.id, arguments.developer, arguments.commit, arguments.result,
+        ))
+        return 0
+    if arguments.command == "handoff-strategy-complete":
+        print_json(HandoffStore(database_path).strategy_complete(
+            arguments.id, arguments.strategy, arguments.parent_pack, arguments.pack_status, arguments.clean_delivery,
+        ))
         return 0
     if arguments.command == "dispatcher-next":
         print_json({"handoff": HandoffStore(database_path).dispatcher_next()})

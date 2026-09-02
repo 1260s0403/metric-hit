@@ -15,6 +15,24 @@ class HandoffError(ValueError):
     pass
 
 
+COORDINATOR_PROFILES = {
+    "metrichit.editorial.v1": {
+        "scope_id": "scope:subproject:editorial",
+        "task_types": {"editorial", "research"},
+        "allowed_skills": {
+            "editorial": {"content-strategy", "seo-strategy", "copywriting", "image"},
+            "research": {"content-strategy", "seo-strategy", "customer-research"},
+        },
+        "maximum_research_branches": 3,
+        "maximum_delegation_depth": 2,
+    },
+}
+
+EDITORIAL_SCOPE_CHAIN = (
+    "scope:core", "scope:project:metrichit", "scope:subproject:editorial",
+)
+
+
 def _utc_text() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
@@ -45,6 +63,105 @@ def _text_list(payload: dict[str, Any], name: str) -> list[str]:
             raise HandoffError(f"{name} must contain non-empty strings")
         result.append(item.strip())
     return result
+
+
+def _orchestration_route(value: object) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) != {
+        "profile_id", "parent_context_pack_id", "task_scope_id", "task_type", "scope_chain",
+    }:
+        raise HandoffError("orchestration must declare profile_id, parent_context_pack_id, task_scope_id, task_type and scope_chain")
+    profile_id = _required_text(value, "profile_id")
+    profile = COORDINATOR_PROFILES.get(profile_id)
+    if profile is None:
+        raise HandoffError("unknown or inactive coordinator profile")
+    parent_context_pack_id = _required_text(value, "parent_context_pack_id")
+    task_scope_id = _required_text(value, "task_scope_id")
+    task_type = _required_text(value, "task_type")
+    scope_chain = _text_list(value, "scope_chain")
+    if task_type not in profile["task_types"]:
+        raise HandoffError("task type is not allowed by coordinator profile")
+    expected_chain = [*EDITORIAL_SCOPE_CHAIN, task_scope_id]
+    if scope_chain != expected_chain or not task_scope_id.startswith("scope:task:"):
+        raise HandoffError("coordinator route must use the exact compiler-generated scope chain")
+    return {
+        "profile_id": profile_id,
+        "parent_context_pack_id": parent_context_pack_id,
+        "task_scope_id": task_scope_id,
+        "task_type": task_type,
+        "scope_chain": scope_chain,
+        "role": "temporary_read_only_coordinator",
+        "lifecycle": {"stage": "routed"},
+    }
+
+
+def _child_card(value: object, handoff: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != {
+        "result", "scope", "resources", "mandatory_rules", "first_check", "acceptance", "forbidden_changes",
+    }:
+        raise HandoffError("child execution card is incomplete")
+    result = _required_text(value, "result")
+    scope = _text_list(value, "scope")
+    mandatory_rules = _text_list(value, "mandatory_rules")
+    first_check = _required_text(value, "first_check")
+    acceptance = _text_list(value, "acceptance")
+    forbidden_changes = _text_list(value, "forbidden_changes")
+    if not set(scope).issubset(set(handoff["scope"])):
+        raise HandoffError("child execution card escapes the approved parent scope")
+    resources = _execution_resources(value.get("resources"))
+    if resources is None or resources != handoff.get("execution_resources"):
+        raise HandoffError("child execution card resources must exactly match the approved handoff resources")
+    return {
+        "result": result, "scope": scope, "resources": resources,
+        "mandatory_rules": mandatory_rules, "first_check": first_check,
+        "acceptance": acceptance, "forbidden_changes": forbidden_changes,
+    }
+
+
+def _selected_skills(value: object, profile: dict[str, Any], task_type: str) -> list[str]:
+    if not isinstance(value, list):
+        raise HandoffError("selected_skills must be a list")
+    selected = []
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise HandoffError("selected_skills must contain identifiers")
+        selected.append(item.strip())
+    if len(set(selected)) != len(selected):
+        raise HandoffError("selected_skills contains duplicates")
+    if not set(selected).issubset(profile["allowed_skills"][task_type]):
+        raise HandoffError("unknown or disallowed skill")
+    return selected
+
+
+def _validated_orchestration(value: object) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise HandoffError("engineering task has invalid orchestration metadata")
+    route_fields = {key: value.get(key) for key in (
+        "profile_id", "parent_context_pack_id", "task_scope_id", "task_type", "scope_chain",
+    )}
+    expected = _orchestration_route(route_fields)
+    if value.get("role") != expected["role"] or not isinstance(value.get("lifecycle"), dict):
+        raise HandoffError("engineering task has invalid orchestration metadata")
+    lifecycle = value["lifecycle"]
+    stages = {"routed", "coordinator_claimed", "delegated", "worker_in_progress", "worker_submitted",
+              "domain_approved", "integrating", "integrated", "completed"}
+    if lifecycle.get("stage") not in stages:
+        raise HandoffError("engineering task has invalid orchestration lifecycle")
+    if lifecycle["stage"] != "routed" and not isinstance(lifecycle.get("coordinator_id"), str):
+        raise HandoffError("engineering task has invalid coordinator ownership")
+    delegation = value.get("delegation")
+    if lifecycle["stage"] in {"delegated", "worker_in_progress", "worker_submitted", "domain_approved", "integrating", "integrated", "completed"}:
+        if not isinstance(delegation, dict) or delegation.get("delegation_depth") != 2 or not isinstance(delegation.get("worker_id"), str):
+            raise HandoffError("engineering task has invalid delegation metadata")
+        profile = COORDINATOR_PROFILES[value["profile_id"]]
+        _selected_skills(delegation.get("selected_skills"), profile, value["task_type"])
+        branches = delegation.get("research_branches")
+        if not isinstance(branches, int) or isinstance(branches, bool) or not 0 <= branches <= profile["maximum_research_branches"]:
+            raise HandoffError("engineering task has invalid research branch declaration")
+    return value
 
 
 def _resource_path(value: str, label: str) -> str:
@@ -135,7 +252,7 @@ def _render_delta(delta: dict[str, Any]) -> str:
 class HandoffStore:
     ALLOWED_FIELDS = {
         "idempotency_key", "semantic_key", "goal", "scope", "constraints", "acceptance",
-        "source", "project_id", "approved_by", "supersedes_candidate_id", "execution_resources",
+        "source", "project_id", "approved_by", "supersedes_candidate_id", "execution_resources", "orchestration",
     }
 
     def __init__(self, database_path: Path):
@@ -173,7 +290,10 @@ class HandoffStore:
             "source": source_ref,
             "project_id": project_id,
             "execution_resources": _execution_resources(payload.get("execution_resources")),
+            "orchestration": _orchestration_route(payload.get("orchestration")),
         }
+        if delta["orchestration"] is not None and delta["execution_resources"] is None:
+            raise HandoffError("orchestration writer requires declared execution resources")
         fingerprint_input = {
             "semantic_key": semantic_key, "approved_by": approved_by,
             "supersedes_candidate_id": supersedes, **delta,
@@ -361,7 +481,8 @@ class HandoffStore:
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute("BEGIN IMMEDIATE")
-            ready = next((item for item in self._ready_results(connection) if self._claim_blocker(connection, item) is None), None)
+            ready = next((item for item in self._ready_results(connection)
+                          if item.get("orchestration") is None and self._claim_blocker(connection, item) is None), None)
             if ready is None:
                 return None
             row = self._handoff_row(connection, ready["handoff_id"])
@@ -387,6 +508,8 @@ class HandoffStore:
             metadata = self._object(row["data_json"])
             handoff = metadata.get("handoff")
             result = self._attested_result(connection, dict(row), metadata, handoff)
+            if handoff.get("orchestration") is not None:
+                raise HandoffError("orchestrated handoff requires Strategy completion")
             lifecycle = handoff["lifecycle"]
             if lifecycle.get("claimed_by") != dispatcher_id:
                 raise HandoffError("handoff is claimed by another dispatcher")
@@ -406,6 +529,157 @@ class HandoffStore:
     def dispatcher_complete(self, handoff_id: str, commit_hash: str, result: str, dispatcher_id: str) -> dict[str, Any]:
         return self._complete(handoff_id, commit_hash, result, dispatcher_id, require_thread=True)
 
+    def coordinator_claim(self, handoff_id: str, coordinator_id: str) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        coordinator_id = self._developer_id(coordinator_id)
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            result = self._attested_result(connection, dict(row), metadata, handoff)
+            orchestration = handoff.get("orchestration")
+            if not isinstance(orchestration, dict):
+                raise HandoffError("handoff is not routed to a coordinator")
+            lifecycle = orchestration["lifecycle"]
+            if lifecycle.get("coordinator_id") is not None:
+                if lifecycle.get("coordinator_id") != coordinator_id:
+                    raise HandoffError("coordinator route is claimed by another coordinator")
+                return result
+            if result["status"] != "ready" or lifecycle.get("stage") != "routed":
+                raise HandoffError("coordinator route cannot be claimed at this stage")
+            lifecycle.update({"stage": "coordinator_claimed", "coordinator_id": coordinator_id, "claimed_at": _utc_text()})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "pending", _utc_text(), "coordinator-claimed")
+            return self._load_task(connection, handoff_id)
+
+    def delegate_child(self, handoff_id: str, coordinator_id: str, worker_id: str, delegation: dict[str, Any]) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        coordinator_id = self._developer_id(coordinator_id)
+        worker_id = self._developer_id(worker_id)
+        if not isinstance(delegation, dict) or set(delegation) != {"child_card", "selected_skills", "research_branches", "delegation_depth"}:
+            raise HandoffError("delegation must declare child_card, selected_skills, research_branches and delegation_depth")
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            result = self._attested_result(connection, dict(row), metadata, handoff)
+            orchestration = handoff.get("orchestration")
+            if not isinstance(orchestration, dict):
+                raise HandoffError("handoff is not routed to a coordinator")
+            lifecycle = orchestration["lifecycle"]
+            if lifecycle.get("coordinator_id") != coordinator_id:
+                raise HandoffError("wrong coordinator")
+            if delegation.get("delegation_depth") != 2:
+                raise HandoffError("maximum delegation depth is Strategy to coordinator to worker")
+            profile = COORDINATOR_PROFILES[orchestration["profile_id"]]
+            research_branches = delegation.get("research_branches")
+            if not isinstance(research_branches, int) or isinstance(research_branches, bool) or not 0 <= research_branches <= profile["maximum_research_branches"]:
+                raise HandoffError("research_branches must be between zero and three")
+            child_card = _child_card(delegation.get("child_card"), handoff)
+            selected = _selected_skills(delegation.get("selected_skills"), profile, orchestration["task_type"])
+            exact = {"worker_id": worker_id, "delegation_depth": 2, "child_card": child_card,
+                     "selected_skills": selected, "research_branches": research_branches}
+            existing = orchestration.get("delegation")
+            if existing == exact:
+                return result
+            if lifecycle.get("stage") != "coordinator_claimed":
+                raise HandoffError("coordinator must claim the route before delegation")
+            orchestration["delegation"] = exact
+            lifecycle.update({"stage": "delegated", "delegated_at": _utc_text()})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "pending", _utc_text(), "child-delegated")
+            return self._load_task(connection, handoff_id)
+
+    def claim_worker(self, handoff_id: str, worker_id: str) -> dict[str, Any]:
+        return self.claim(handoff_id, worker_id)
+
+    def worker_submit(self, handoff_id: str, worker_id: str, evidence: dict[str, Any]) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        worker_id = self._developer_id(worker_id)
+        if not isinstance(evidence, dict) or set(evidence) != {"commit_hash", "checks", "acceptance", "clean_git", "result"}:
+            raise HandoffError("worker evidence is incomplete")
+        commit_hash = self._git_hash(evidence.get("commit_hash"), "commit_hash")
+        checks = _text_list(evidence, "checks")
+        acceptance = _text_list(evidence, "acceptance")
+        result_text = _required_text(evidence, "result")
+        if evidence.get("clean_git") is not True:
+            raise HandoffError("worker evidence must attest clean Git")
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            current = self._attested_result(connection, dict(row), metadata, handoff)
+            orchestration = handoff.get("orchestration")
+            if not isinstance(orchestration, dict) or current["status"] != "in_progress":
+                raise HandoffError("worker must own an in-progress orchestrated handoff")
+            lifecycle = orchestration["lifecycle"]
+            if handoff["lifecycle"].get("claimed_by") != worker_id or orchestration.get("delegation", {}).get("worker_id") != worker_id:
+                raise HandoffError("wrong worker")
+            submission = {"commit_hash": commit_hash, "checks": checks, "acceptance": acceptance,
+                          "clean_git": True, "result": result_text}
+            if lifecycle.get("stage") in {"worker_submitted", "domain_approved", "integrating", "integrated"} \
+                    and orchestration.get("submission") == submission:
+                return current
+            if lifecycle.get("stage") not in {"worker_in_progress", "delegated"}:
+                raise HandoffError("worker cannot submit at this orchestration stage")
+            card = orchestration["delegation"]["child_card"]
+            if card["first_check"] not in checks or not all(item in acceptance for item in card["acceptance"]):
+                raise HandoffError("worker evidence does not satisfy the child execution card")
+            prior = orchestration.get("submission")
+            if prior is not None:
+                orchestration.setdefault("attempts", []).append({"submission": prior, "review": orchestration.get("review")})
+            orchestration["submission"] = submission
+            orchestration.pop("review", None)
+            lifecycle.update({"stage": "worker_submitted", "submitted_at": _utc_text()})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "in_progress", _utc_text(), "worker-submitted")
+            return self._load_task(connection, handoff_id)
+
+    def coordinator_review(self, handoff_id: str, coordinator_id: str, decision: str, evidence: list[str]) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        coordinator_id = self._developer_id(coordinator_id)
+        if decision not in {"approve", "reject"}:
+            raise HandoffError("coordinator decision must be approve or reject")
+        evidence_items = _text_list({"evidence": evidence}, "evidence")
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            current = self._attested_result(connection, dict(row), metadata, handoff)
+            orchestration = handoff.get("orchestration")
+            if not isinstance(orchestration, dict) or orchestration["lifecycle"].get("coordinator_id") != coordinator_id:
+                raise HandoffError("wrong coordinator")
+            lifecycle = orchestration["lifecycle"]
+            exact = {"decision": decision, "evidence": evidence_items}
+            if lifecycle.get("stage") in {"domain_approved", "integrating", "integrated"} and orchestration.get("review") == exact:
+                return current
+            if lifecycle.get("stage") == "delegated" and decision == "reject" and orchestration.get("review") == exact:
+                return current
+            if lifecycle.get("stage") != "worker_submitted":
+                raise HandoffError("coordinator review requires worker submission")
+            orchestration["review"] = exact
+            if decision == "approve":
+                lifecycle.update({"stage": "domain_approved", "reviewed_at": _utc_text()})
+            else:
+                orchestration.setdefault("attempts", []).append({"submission": orchestration.get("submission"), "review": exact})
+                orchestration.pop("submission", None)
+                lifecycle.update({"stage": "delegated", "reviewed_at": _utc_text()})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "in_progress", _utc_text(), f"domain-{decision}")
+            return self._load_task(connection, handoff_id)
+
     def claim(self, handoff_id: str, developer_id: str) -> dict[str, Any]:
         handoff_id = self._handoff_id(handoff_id)
         developer_id = self._developer_id(developer_id)
@@ -417,6 +691,16 @@ class HandoffStore:
             metadata = self._object(row["data_json"])
             handoff = metadata.get("handoff")
             result = self._attested_result(connection, dict(row), metadata, handoff)
+            orchestration = handoff.get("orchestration")
+            if isinstance(orchestration, dict):
+                orchestration_lifecycle = orchestration["lifecycle"]
+                delegation = orchestration.get("delegation")
+                if not isinstance(delegation, dict) or delegation.get("worker_id") != developer_id:
+                    raise HandoffError("worker is not the delegated writer")
+                if result["status"] == "in_progress" and handoff["lifecycle"].get("claimed_by") == developer_id:
+                    return result
+                if orchestration_lifecycle.get("stage") not in {"delegated", "worker_in_progress"}:
+                    raise HandoffError("worker cannot claim at this orchestration stage")
             if result["status"] == "in_progress":
                 if handoff["lifecycle"].get("claimed_by") != developer_id:
                     raise HandoffError("handoff is already claimed by another developer")
@@ -429,6 +713,8 @@ class HandoffStore:
             now = _utc_text()
             lifecycle = handoff["lifecycle"]
             lifecycle.update({"status": "in_progress", "claimed_at": now, "claimed_by": developer_id})
+            if isinstance(orchestration, dict):
+                orchestration["lifecycle"].update({"stage": "worker_in_progress", "worker_started_at": now})
             metadata["handoff"] = handoff
             self._update_lifecycle(connection, row, metadata, "in_progress", now, "claimed")
             return self._load_task(connection, handoff_id)
@@ -454,13 +740,19 @@ class HandoffStore:
             handoff = metadata.get("handoff")
             result = self._attested_result(connection, dict(row), metadata, handoff)
             lifecycle = handoff["lifecycle"]
+            orchestration = handoff.get("orchestration")
             evidence = {"status": "integrating", "expected_base_head": expected, "current_base_head": current,
                         "conflict_free": True, "claimed_by": developer_id}
             existing = lifecycle.get("integration")
             if existing is not None:
-                if existing != evidence:
+                comparable = {key: existing.get(key) for key in evidence}
+                if comparable.get("status") == "integrated":
+                    comparable["status"] = "integrating"
+                if comparable != evidence:
                     raise HandoffError("integration lease already has different evidence")
                 return result
+            if isinstance(orchestration, dict) and orchestration["lifecycle"].get("stage") != "domain_approved":
+                raise HandoffError("coordinator domain approval is required before integration")
             if result["status"] != "in_progress" or lifecycle.get("claimed_by") != developer_id:
                 raise HandoffError("writer must own an in-progress handoff before integration")
             if result.get("execution_resources") is None:
@@ -470,8 +762,90 @@ class HandoffStore:
                 if active["handoff_id"] != handoff_id and isinstance(integration, dict) and integration.get("status") == "integrating":
                     raise HandoffError(f"integration is already in progress: {active['handoff_id']}")
             lifecycle["integration"] = evidence
+            if isinstance(orchestration, dict):
+                orchestration["lifecycle"].update({"stage": "integrating", "integration_started_at": _utc_text()})
             metadata["handoff"] = handoff
             self._update_lifecycle(connection, row, metadata, "in_progress", _utc_text(), "integration-started")
+            return self._load_task(connection, handoff_id)
+
+    def integration_result(self, handoff_id: str, developer_id: str, commit_hash: str, result_text: str) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        developer_id = self._developer_id(developer_id)
+        commit_hash = self._git_hash(commit_hash, "commit_hash")
+        result_text = _required_text({"result": result_text}, "result")
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            current = self._attested_result(connection, dict(row), metadata, handoff)
+            orchestration = handoff.get("orchestration")
+            integration = handoff["lifecycle"].get("integration")
+            if not isinstance(orchestration, dict) or not isinstance(integration, dict):
+                raise HandoffError("orchestrated integration lease is required")
+            if integration.get("claimed_by") != developer_id or handoff["lifecycle"].get("claimed_by") != developer_id:
+                raise HandoffError("integration is owned by another worker")
+            exact = {**integration, "status": "integrated", "commit_hash": commit_hash, "result": result_text}
+            if integration.get("status") == "integrated":
+                if integration != exact:
+                    raise HandoffError("integration already has different result evidence")
+                return current
+            if integration.get("status") != "integrating" or orchestration["lifecycle"].get("stage") != "integrating":
+                raise HandoffError("integration result cannot be recorded at this stage")
+            if orchestration.get("submission", {}).get("commit_hash") != commit_hash:
+                raise HandoffError("integration commit must match the worker submission")
+            handoff["lifecycle"]["integration"] = exact
+            orchestration["lifecycle"].update({"stage": "integrated", "integrated_at": _utc_text()})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "in_progress", _utc_text(), "integration-completed")
+            return self._load_task(connection, handoff_id)
+
+    def strategy_complete(self, handoff_id: str, strategy_id: str, parent_context_pack_id: str,
+                          pack_status: str, clean_delivery: bool) -> dict[str, Any]:
+        handoff_id = self._handoff_id(handoff_id)
+        strategy_id = self._developer_id(strategy_id)
+        parent_context_pack_id = _required_text({"parent_context_pack_id": parent_context_pack_id}, "parent_context_pack_id")
+        if pack_status != "closed" or clean_delivery is not True:
+            raise HandoffError("Strategy completion requires a closed parent context pack and clean delivery evidence")
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            current = self._attested_result(connection, dict(row), metadata, handoff)
+            orchestration = handoff.get("orchestration")
+            if not isinstance(orchestration, dict):
+                raise HandoffError("handoff is not orchestrated")
+            lifecycle = orchestration["lifecycle"]
+            integration = handoff["lifecycle"].get("integration")
+            completion = {"strategy_id": strategy_id, "parent_context_pack_id": parent_context_pack_id,
+                          "pack_status": "closed", "clean_delivery": True}
+            if current["status"] == "completed":
+                if orchestration.get("strategy_completion") != completion:
+                    raise HandoffError("completed orchestration has different Strategy evidence")
+                return current
+            if lifecycle.get("stage") != "integrated" or not isinstance(integration, dict) or integration.get("status") != "integrated":
+                raise HandoffError("Strategy completion requires coordinator approval and completed integration")
+            if orchestration.get("review", {}).get("decision") != "approve":
+                raise HandoffError("Strategy completion requires valid coordinator approval")
+            if orchestration["parent_context_pack_id"] != parent_context_pack_id:
+                raise HandoffError("closed context pack evidence belongs to another pack")
+            context_pack = connection.execute(
+                "SELECT status FROM context_packs WHERE id=?", (parent_context_pack_id,),
+            ).fetchone()
+            if context_pack is None or context_pack["status"] != "closed":
+                raise HandoffError("Strategy completion requires the original context pack to be closed in the control plane")
+            orchestration["strategy_completion"] = completion
+            lifecycle.update({"stage": "completed", "completed_at": _utc_text()})
+            main = handoff["lifecycle"]
+            main.update({"status": "completed", "completed_at": _utc_text(),
+                         "commit_hash": integration["commit_hash"], "result": integration["result"]})
+            metadata["handoff"] = handoff
+            self._update_lifecycle(connection, row, metadata, "completed", _utc_text(), "strategy-completed", integration["commit_hash"])
             return self._load_task(connection, handoff_id)
 
     def _complete(self, handoff_id: str, commit_hash: str, result_text: str, developer_id: str, *, require_thread: bool) -> dict[str, Any]:
@@ -491,6 +865,8 @@ class HandoffStore:
             metadata = self._object(row["data_json"])
             handoff = metadata.get("handoff")
             result = self._attested_result(connection, dict(row), metadata, handoff)
+            if handoff.get("orchestration") is not None:
+                raise HandoffError("orchestrated handoff requires Strategy completion")
             lifecycle = handoff["lifecycle"]
             if result["status"] == "completed":
                 if lifecycle.get("commit_hash") != commit_hash:
@@ -653,7 +1029,7 @@ class HandoffStore:
             data["new"]["commit_hash"] = commit_hash
         connection.execute(
             "INSERT INTO audit_log (id,type,title,data_json,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES (?, 'task_change', ?, ?, ?, ?, ?, 'restricted', 1, 'task', ?, 'update')",
-            (_uuid(f"audit:{action}:{row['id']}"), f"Codex engineering handoff {action}", json.dumps(data, ensure_ascii=False, sort_keys=True), row["author"], now, now, row["id"]),
+            (_uuid(f"audit:{action}:{row['id']}:{new_version}"), f"Codex engineering handoff {action}", json.dumps(data, ensure_ascii=False, sort_keys=True), row["author"], now, now, row["id"]),
         )
 
     def _load_task(self, connection: sqlite3.Connection, task_id: str) -> dict[str, Any]:
@@ -745,14 +1121,23 @@ class HandoffStore:
         if status in {"in_progress", "completed"} and lifecycle.get("executor_thread_id") is not None and not isinstance(lifecycle["executor_thread_id"], str):
             raise HandoffError("engineering task has an invalid executor thread")
         resources = _execution_resources(handoff.get("execution_resources"))
+        orchestration = _validated_orchestration(handoff.get("orchestration"))
+        if orchestration is not None and isinstance(orchestration.get("delegation"), dict):
+            _child_card(orchestration["delegation"].get("child_card"), handoff)
         integration = lifecycle.get("integration")
         if integration is not None:
-            if resources is None or not isinstance(integration, dict) or integration.get("status") != "integrating":
+            if resources is None or not isinstance(integration, dict) or integration.get("status") not in {"integrating", "integrated"}:
                 raise HandoffError("engineering task has an invalid integration lease")
             if any(not isinstance(integration.get(key), str) for key in ("expected_base_head", "current_base_head", "claimed_by")):
                 raise HandoffError("engineering task has an invalid integration lease")
             if integration.get("conflict_free") is not True:
                 raise HandoffError("engineering task has an invalid integration lease")
+            if integration.get("status") == "integrated" and (
+                not isinstance(integration.get("commit_hash"), str)
+                or not re.fullmatch(r"[0-9a-f]{7,64}", integration["commit_hash"])
+                or not isinstance(integration.get("result"), str) or not integration["result"].strip()
+            ):
+                raise HandoffError("engineering task has invalid integration result evidence")
         return {
             "acceptance": list(handoff["acceptance"]),
             "constraints": list(handoff["constraints"]),
@@ -765,6 +1150,7 @@ class HandoffStore:
             "goal": handoff["goal"],
             "project_id": project_id,
             "execution_resources": resources,
+            "orchestration": orchestration,
             "scope": list(handoff["scope"]),
             "handoff_id": row["id"],
             "lifecycle": {**lifecycle, "idempotency_key": handoff["idempotency_key"]},

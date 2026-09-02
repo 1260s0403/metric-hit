@@ -39,6 +39,10 @@
 
 ## Следующие этапы
 
+### Завершено — orchestration v1, пилот «MetricHit → Редакция»
+
+Реализован минимальный orchestration-контур поверх structured memory и HandoffStore без новой schema или сервиса. Strategy маршрутизирует задачу во временный read-only coordinator profile `metrichit.editorial.v1`; compiler ограничивает context цепочкой `Ядро → MetricHit → Редакция → задача`. Coordinator создаёт одну child execution card одному writer-у, выбирает skills из task-type allowlist, допускает до трёх read-only research/audit веток и выполняет предметную approve/reject-проверку. Handoff fail-closed enforce ownership, depth=2, lifecycle, повторную сдачу после reject, последовательную integration и Strategy completion только с закрытым parent pack и clean-delivery evidence. Глобальный предел двух writer leases и прежние resource/stale-base правила сохранены. Реальная редакционная задача в ходе внедрения не запускалась. UI, daemon, scheduler, API и автономная production-редакция остаются на паузе.
+
 ### Завершено — структурированная память `Ядро → проект → подпроект → задача`
 
 Целевая архитектура утверждена 30.08.2026 и реализована 31.08.2026. `AGENTS.md` остаётся короткой конституцией Strategy; изменяемые знания живут в scoped memory. Strategy сначала определяет scope и тип задачи, затем compiler собирает минимальный context pack только из нужной родительской цепочки. Общие знания хранятся один раз на ближайшем общем уровне; sibling scope и история без основания не загружаются. Канонический контракт — `documents/structured-memory.md`, schema — migration v11, compiler/router — `scripts/structured-memory.mjs`.

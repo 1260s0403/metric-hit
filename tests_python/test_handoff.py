@@ -55,6 +55,49 @@ def parallel_payload(tmp_path, name, **resource_changes):
     )
 
 
+def orchestration_payload(tmp_path, name="editorial-orchestration"):
+    value = parallel_payload(tmp_path, name, paths=[f"work/{name}"])
+    value["orchestration"] = {
+        "profile_id": "metrichit.editorial.v1",
+        "parent_context_pack_id": "pack-editorial-v1",
+        "task_scope_id": "scope:task:editorial-v1",
+        "task_type": "editorial",
+        "scope_chain": [
+            "scope:core", "scope:project:metrichit", "scope:subproject:editorial", "scope:task:editorial-v1",
+        ],
+    }
+    return value
+
+
+def delegation_for(handoff, **changes):
+    value = {
+        "delegation_depth": 2,
+        "selected_skills": ["copywriting", "seo-strategy"],
+        "research_branches": 3,
+        "child_card": {
+            "result": "Editorial result is ready",
+            "scope": list(handoff["scope"]),
+            "resources": handoff["execution_resources"],
+            "mandatory_rules": ["AGENTS.md", "Editorial scoped rules"],
+            "first_check": "focused editorial check",
+            "acceptance": ["domain evidence exists"],
+            "forbidden_changes": ["publication"],
+        },
+    }
+    value.update(changes)
+    return value
+
+
+def worker_evidence(commit="3" * 40):
+    return {
+        "commit_hash": commit,
+        "checks": ["focused editorial check"],
+        "acceptance": ["domain evidence exists"],
+        "clean_git": True,
+        "result": "Verified editorial result",
+    }
+
+
 def test_approved_decision_creates_linked_existing_task_and_is_idempotent(tmp_path):
     database = temporary_database(tmp_path)
     store = HandoffStore(database)
@@ -334,6 +377,114 @@ def test_parallel_v1_requires_distinct_worktrees_and_branches(tmp_path, field, m
     store.claim(first["handoff_id"], "writer-a")
     with pytest.raises(HandoffError, match=message):
         store.claim(second["handoff_id"], "writer-b")
+
+
+def test_orchestration_v1_enforces_order_ownership_review_integration_and_strategy_completion(tmp_path):
+    store = HandoffStore(temporary_database(tmp_path))
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            "INSERT INTO context_packs (id,scope_id,task_type,compiler_version,input_hash,payload_json,compiled_bytes,status,created_at) "
+            "VALUES ('pack-editorial-v1','scope:subproject:editorial','editorial',6,?,'{}',2,'open','2026-09-02T00:00:00.000Z')",
+            ("a" * 64,),
+        )
+    created = store.create_approved(orchestration_payload(tmp_path))
+    assert created["orchestration"]["lifecycle"]["stage"] == "routed"
+    assert store.create_approved(orchestration_payload(tmp_path)) == created
+    with pytest.raises(HandoffError, match="coordinator domain approval"):
+        store.begin_integration(created["handoff_id"], "editorial-writer", "a" * 40, "a" * 40, True)
+    with pytest.raises(HandoffError, match="not the delegated writer"):
+        store.claim_worker(created["handoff_id"], "editorial-writer")
+
+    claimed = store.coordinator_claim(created["handoff_id"], "editorial-coordinator")
+    assert store.coordinator_claim(created["handoff_id"], "editorial-coordinator") == claimed
+    with pytest.raises(HandoffError, match="another coordinator"):
+        store.coordinator_claim(created["handoff_id"], "wrong-coordinator")
+    delegated = store.delegate_child(
+        created["handoff_id"], "editorial-coordinator", "editorial-writer", delegation_for(created),
+    )
+    assert delegated["orchestration"]["delegation"]["selected_skills"] == ["copywriting", "seo-strategy"]
+    assert delegated["orchestration"]["delegation"]["research_branches"] == 3
+    assert store.delegate_child(
+        created["handoff_id"], "editorial-coordinator", "editorial-writer", delegation_for(created),
+    ) == delegated
+    with pytest.raises(HandoffError, match="wrong coordinator"):
+        store.delegate_child(created["handoff_id"], "wrong-coordinator", "editorial-writer", delegation_for(created))
+
+    started = store.claim_worker(created["handoff_id"], "editorial-writer")
+    assert started["orchestration"]["lifecycle"]["stage"] == "worker_in_progress"
+    with pytest.raises(HandoffError, match="another developer|delegated writer"):
+        store.claim_worker(created["handoff_id"], "wrong-writer")
+    submitted = store.worker_submit(created["handoff_id"], "editorial-writer", worker_evidence())
+    assert store.worker_submit(created["handoff_id"], "editorial-writer", worker_evidence()) == submitted
+    with pytest.raises(HandoffError, match="wrong coordinator"):
+        store.coordinator_review(created["handoff_id"], "wrong-coordinator", "approve", ["domain QA passed"])
+    approved = store.coordinator_review(
+        created["handoff_id"], "editorial-coordinator", "approve", ["domain QA passed"],
+    )
+    assert approved["orchestration"]["lifecycle"]["stage"] == "domain_approved"
+    assert store.coordinator_review(
+        created["handoff_id"], "editorial-coordinator", "approve", ["domain QA passed"],
+    ) == approved
+    with pytest.raises(HandoffError, match="closed parent context pack"):
+        store.strategy_complete(created["handoff_id"], "strategy", "pack-editorial-v1", "open", True)
+    integration = store.begin_integration(created["handoff_id"], "editorial-writer", "a" * 40, "a" * 40, True)
+    assert integration["orchestration"]["lifecycle"]["stage"] == "integrating"
+    integrated = store.integration_result(
+        created["handoff_id"], "editorial-writer", "3" * 40, "Integrated editorial result",
+    )
+    assert integrated["lifecycle"]["integration"]["status"] == "integrated"
+    with pytest.raises(HandoffError, match="another pack"):
+        store.strategy_complete(created["handoff_id"], "strategy", "wrong-pack", "closed", True)
+    with pytest.raises(HandoffError, match="original context pack"):
+        store.strategy_complete(created["handoff_id"], "strategy", "pack-editorial-v1", "closed", True)
+    with sqlite3.connect(store.path) as connection:
+        connection.execute(
+            "UPDATE context_packs SET status='closed',closed_at='2026-09-02T00:00:00.000Z' WHERE id='pack-editorial-v1'",
+        )
+    completed = store.strategy_complete(
+        created["handoff_id"], "strategy", "pack-editorial-v1", "closed", True,
+    )
+    assert completed["status"] == "completed"
+    assert completed["lifecycle"]["commit_hash"] == "3" * 40
+    assert store.strategy_complete(
+        created["handoff_id"], "strategy", "pack-editorial-v1", "closed", True,
+    ) == completed
+    with pytest.raises(HandoffError, match="orchestration stage"):
+        store.claim_worker(created["handoff_id"], "editorial-writer")
+
+
+def test_orchestration_v1_rejects_invalid_delegation_and_preserves_rejected_attempt(tmp_path):
+    store = HandoffStore(temporary_database(tmp_path))
+    created = store.create_approved(orchestration_payload(tmp_path, "editorial-reject"))
+    store.coordinator_claim(created["handoff_id"], "coordinator")
+    incomplete = delegation_for(created)
+    incomplete["child_card"].pop("acceptance")
+    with pytest.raises(HandoffError, match="incomplete"):
+        store.delegate_child(created["handoff_id"], "coordinator", "writer", incomplete)
+    with pytest.raises(HandoffError, match="maximum delegation depth"):
+        store.delegate_child(created["handoff_id"], "coordinator", "writer", delegation_for(created, delegation_depth=3))
+    with pytest.raises(HandoffError, match="between zero and three"):
+        store.delegate_child(created["handoff_id"], "coordinator", "writer", delegation_for(created, research_branches=4))
+    with pytest.raises(HandoffError, match="unknown or disallowed skill"):
+        store.delegate_child(created["handoff_id"], "coordinator", "writer", delegation_for(created, selected_skills=["auto-install-me"]))
+
+    store.delegate_child(created["handoff_id"], "coordinator", "writer", delegation_for(created))
+    store.claim_worker(created["handoff_id"], "writer")
+    store.worker_submit(created["handoff_id"], "writer", worker_evidence("4" * 40))
+    rejected = store.coordinator_review(created["handoff_id"], "coordinator", "reject", ["revise evidence"])
+    assert rejected["orchestration"]["lifecycle"]["stage"] == "delegated"
+    assert rejected["orchestration"]["attempts"][0]["review"]["decision"] == "reject"
+    with pytest.raises(HandoffError, match="domain approval"):
+        store.begin_integration(created["handoff_id"], "writer", "a" * 40, "a" * 40, True)
+    store.worker_submit(created["handoff_id"], "writer", worker_evidence("5" * 40))
+    approved = store.coordinator_review(created["handoff_id"], "coordinator", "approve", ["revision accepted"])
+    assert approved["orchestration"]["lifecycle"]["stage"] == "domain_approved"
+    with sqlite3.connect(store.path) as connection:
+        actions = [row[0] for row in connection.execute(
+            "SELECT title FROM audit_log WHERE entity_id=? ORDER BY created_at,id", (created["handoff_id"],),
+        )]
+    assert any("domain-reject" in item for item in actions)
+    assert any("domain-approve" in item for item in actions)
 
 
 def test_dispatcher_claims_once_records_thread_and_completes_idempotently(tmp_path):

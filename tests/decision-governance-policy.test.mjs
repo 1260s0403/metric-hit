@@ -56,6 +56,11 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.controlled_parallel_execution_v1.distinct_project_sqlite_allowed, true);
       assert.equal(data.execution.controlled_parallel_execution_v1.invalid_or_missing_declaration, 'fail_closed');
       assert.equal(data.execution.controlled_parallel_execution_v1.integration, 'single_lease');
+      assert.equal(data.execution.orchestration_v1.pilot_profile.id, 'metrichit.editorial.v1');
+      assert.deepEqual(data.execution.orchestration_v1.path, ['strategy', 'department_coordinator', 'worker']);
+      assert.equal(data.execution.orchestration_v1.maximum_delegation_depth, 2);
+      assert.equal(data.execution.orchestration_v1.maximum_read_only_research_branches, 3);
+      assert.equal(data.execution.orchestration_v1.permanent_department_chat, false);
       assert.deepEqual(data.execution.small_change_fast_path.eligible, ['isolated_ui_css_text', 'narrow_fix', 'documentation', 'approved_memory_rule_sync']);
       assert.equal(data.execution.small_change_fast_path.strategy_full_startup_completed_once, true);
       assert.deepEqual(data.execution.small_change_fast_path.handoff_context, ['owner_approval', 'exact_scope_acceptance', 'branch_head_status', 'relevant_canonical_references']);
@@ -111,7 +116,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 17);
+      assert.equal(operations.revision, 18);
       assert.equal(operations.startup_surface.agents_is_compact_contract, true);
       assert.equal(operations.startup_surface.safety_gates_preserved, true);
       assert.deepEqual(operations.context_routing_target.hierarchy, ['core', 'project', 'subproject', 'task']);
@@ -150,6 +155,8 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operations.repository_mutation.parallel_writers_allowed, true);
       assert.equal(operations.repository_mutation.resource_leases_required, true);
       assert.equal(operations.repository_mutation.integration_serialized, true);
+      assert.equal(operations.orchestration_v1.pilot_profile.scope_id, 'scope:subproject:editorial');
+      assert.equal(operations.orchestration_v1.completion_requires.includes('coordinator_approval'), true);
       assert.deepEqual(operations.multi_agent_pilot.parallel_branches, { minimum: 2, maximum: 3 });
       assert.equal(operations.small_change_fast_path.repo_side_handoff_required, false);
       assert.equal(operations.risk_routing.fast_path_uses_fastest_available_compatible_approved_executor_model, true);
@@ -192,7 +199,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_writer_thread_requires_wait_or_owner_explicit_cancellation, false);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 30);
+      assert.equal(data.revision, 31);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();

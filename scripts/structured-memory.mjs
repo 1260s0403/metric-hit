@@ -9,12 +9,23 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
-export const COMPILER_VERSION = 5;
+export const COMPILER_VERSION = 6;
 export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
 export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
 export const SCOPE_IDS = Object.freeze({
   core: 'scope:core', metrichit: 'scope:project:metrichit',
   editorial: 'scope:subproject:editorial', panel: 'scope:subproject:panel',
+});
+export const COORDINATOR_PROFILES = Object.freeze({
+  'metrichit.editorial.v1': Object.freeze({
+    id: 'metrichit.editorial.v1', status: 'active', scope_id: SCOPE_IDS.editorial,
+    task_types: Object.freeze(['editorial', 'research']), role: 'temporary_read_only_coordinator',
+    maximum_delegation_depth: 2, maximum_research_branches: 3,
+    allowed_skills: Object.freeze({
+      editorial: Object.freeze(['content-strategy', 'seo-strategy', 'copywriting', 'image']),
+      research: Object.freeze(['content-strategy', 'seo-strategy', 'customer-research']),
+    }),
+  }),
 });
 const TARGET_QUERY_VOLUME_LADDER = Object.freeze([
   { minimumCharacters: 1800, maximumCharacters: 2800, minimumQueries: 8, maximumQueries: 12 },
@@ -74,6 +85,21 @@ export function createTaskScope(databasePath = defaultDatabasePath, { taskId, pa
     if (!row || row.parent_scope_id !== parentScopeId) throw new Error('task scope conflicts with an existing passport');
     return row;
   } finally { database.close(); }
+}
+
+export function selectCoordinatorSkills(profileId, taskType, selectedSkills = []) {
+  const profile = COORDINATOR_PROFILES[profileId];
+  if (!profile || profile.status !== 'active') throw new Error('unknown or inactive coordinator profile');
+  if (!profile.task_types.includes(taskType)) throw new Error('task type is not allowed by coordinator profile');
+  if (!Array.isArray(selectedSkills) || selectedSkills.some((item) => !nonEmptyText(item))) {
+    throw new Error('selected skills must be a list of identifiers');
+  }
+  const normalized = selectedSkills.map((item) => item.trim());
+  if (new Set(normalized).size !== normalized.length) throw new Error('selected skills contain duplicates');
+  if (normalized.some((item) => !profile.allowed_skills[taskType].includes(item))) {
+    throw new Error('unknown or disallowed skill');
+  }
+  return normalized;
 }
 
 function appliesTo(record, taskType, includeHistory) {
@@ -654,6 +680,7 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
 export function compileDeterministicContext(database, {
   scopeId, taskType, includeHistory = false, includeReferencedContent = false,
   projectDatabasePath = defaultProjectDatabasePath, agentsContent = null, taskBrief = {}, route = null,
+  coordinatorProfile = null,
 }) {
   const resolved = resolveScopedMemory(database, scopeId, taskType, { includeHistory });
   const records = resolved.records.map((row) => ({
@@ -669,7 +696,9 @@ export function compileDeterministicContext(database, {
   const latestDecisions = records.filter((item) => item.type === 'decision')
     .sort((a, b) => b.valid_from.localeCompare(a.valid_from) || a.semantic_key.localeCompare(b.semantic_key)).slice(0, 5);
   const resolvedRoute = route ?? { scopeId, taskType, signals: [] };
-  const approvedEditorialRequirements = resolveApprovedEditorialRequirements(database, resolvedRoute);
+  const effectiveRequirementRoute = resolved.chain.some((item) => item.id === SCOPE_IDS.editorial)
+    ? { ...resolvedRoute, scopeId: SCOPE_IDS.editorial } : resolvedRoute;
+  const approvedEditorialRequirements = resolveApprovedEditorialRequirements(database, effectiveRequirementRoute);
   const rules = [...new Map([...records.filter((item) => item.type === 'rule'), ...approvedEditorialRequirements]
     .map((item) => [item.semantic_key, item])).values()];
   const semanticCoreTaxonomy = rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore)
@@ -698,6 +727,7 @@ export function compileDeterministicContext(database, {
     references,
     expanded_references: expandedReferences,
     history_included: includeHistory,
+    coordinator_profile: coordinatorProfile,
   };
   return payload;
 }
@@ -723,7 +753,7 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
         scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory),
         includeReferencedContent: Boolean(request.includeReferencedContent),
         projectDatabasePath: request.projectDatabasePath ?? defaultProjectDatabasePath,
-        taskBrief: request.taskBrief ?? {}, route,
+        taskBrief: request.taskBrief ?? {}, route, coordinatorProfile: request.coordinatorProfile ?? null,
       });
     } catch (error) {
       writeAudit(database, { ...route, outcome: 'rejected', signals: [...route.signals, 'execution_preflight_rejected'] }, null,
@@ -731,7 +761,7 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
       throw error;
     }
     const serialized = canonical(payload);
-    const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), includeReferencedContent: Boolean(request.includeReferencedContent), taskBrief: request.taskBrief ?? {} })), compiled_bytes: Buffer.byteLength(serialized) };
+    const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), includeReferencedContent: Boolean(request.includeReferencedContent), taskBrief: request.taskBrief ?? {}, coordinatorProfileId: request.coordinatorProfile?.id ?? null })), compiled_bytes: Buffer.byteLength(serialized) };
     database.prepare(`INSERT INTO context_packs
       (id,scope_id,task_type,compiler_version,input_hash,payload_json,compiled_bytes,status,created_at)
       VALUES (?,?,?,?,?,?,?,'open',?)`).run(pack.id, route.scopeId, route.taskType, COMPILER_VERSION,
@@ -739,6 +769,40 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
     writeAudit(database, route, pack.id, request.explicitScopeId ?? null);
     return { route, pack: { ...pack, status: 'open', payload } };
   } finally { database.close(); }
+}
+
+export function compileCoordinatorContext(databasePath = defaultDatabasePath, request = {}) {
+  const profile = COORDINATOR_PROFILES[request.profileId];
+  if (!profile || profile.status !== 'active') throw new Error('unknown or inactive coordinator profile');
+  if (!nonEmptyText(request.taskId)) throw new Error('coordinator taskId is required');
+  if (!profile.task_types.includes(request.taskType)) throw new Error('task type is not allowed by coordinator profile');
+  const database = open(resolve(databasePath), true);
+  let parentRoute;
+  try {
+    parentRoute = routeTask(database, { text: request.text ?? '', taskType: request.taskType });
+  } finally { database.close(); }
+  if (parentRoute.outcome !== 'routed' || parentRoute.scopeId !== profile.scope_id) {
+    throw new Error('task is outside the coordinator profile scope');
+  }
+  const taskScope = createTaskScope(databasePath, {
+    taskId: request.taskId, parentScopeId: profile.scope_id,
+    name: request.taskName ?? `Task ${request.taskId}`,
+    summary: request.taskSummary ?? 'Temporary coordinator task scope.',
+  });
+  const coordinatorProfile = {
+    id: profile.id, status: profile.status, scope_id: profile.scope_id, task_types: [...profile.task_types],
+    role: profile.role, maximum_delegation_depth: profile.maximum_delegation_depth,
+    maximum_research_branches: profile.maximum_research_branches,
+    allowed_skills: Object.fromEntries(Object.entries(profile.allowed_skills).map(([key, value]) => [key, [...value]])),
+  };
+  const compiled = compileContextPack(databasePath, {
+    ...request, explicitScopeId: taskScope.id, taskType: request.taskType,
+    coordinatorProfile, taskBrief: request.taskBrief ?? {},
+  });
+  const chain = compiled.pack?.payload?.passports?.map((item) => item.id) ?? [];
+  const expected = [SCOPE_IDS.core, SCOPE_IDS.metrichit, SCOPE_IDS.editorial, taskScope.id];
+  if (canonical(chain) !== canonical(expected)) throw new Error('coordinator context contains an invalid scope chain');
+  return { ...compiled, coordinator: coordinatorProfile, taskScope };
 }
 
 export function closeContextPack(databasePath = defaultDatabasePath, packId, delivery = {}) {

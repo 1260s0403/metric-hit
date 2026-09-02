@@ -9,8 +9,8 @@ import { DatabaseSync } from 'node:sqlite';
 
 import {
   SEMANTIC_CORE_REFERENCE_KEY, SCOPE_IDS, closeContextPack, compileContextPack,
-  compileDeterministicContext, createTaskScope, loadReferencedMemory, registerScopedRecord,
-  resolveScopedMemory, routeTask, supersedeScopedRecord,
+  compileCoordinatorContext, compileDeterministicContext, createTaskScope, loadReferencedMemory,
+  registerScopedRecord, resolveScopedMemory, routeTask, selectCoordinatorSkills, supersedeScopedRecord,
 } from '../scripts/structured-memory.mjs';
 
 function fixture() {
@@ -777,6 +777,42 @@ test('authoritative semantic reference fails closed on project content drift', (
       .run('{"taxonomy":{"fixture":[]},"keyword_count":0}', 'fixture-semantic-core');
     project.close();
     assert.throws(() => loadReferencedMemory(projectDatabasePath, records, 'research'), /hash mismatch/);
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('orchestration v1 routes only Editorial, compiles the task chain and selects allowed skills', () => {
+  const { directory, databasePath, projectDatabasePath } = fixture();
+  try {
+    const taskBrief = {
+      result: 'Telegram draft is prepared', scope: ['work/social/telegram/draft.md'],
+      firstCheck: 'node --test tests/structured-memory.test.mjs', acceptance: ['draft_ready'],
+      forbiddenChanges: ['publication'],
+    };
+    const compiled = compileCoordinatorContext(databasePath, {
+      profileId: 'metrichit.editorial.v1', taskId: 'editorial-orchestration-test',
+      taskName: 'Editorial orchestration test', text: 'Подготовь пост Telegram для MetricHit',
+      taskType: 'editorial', projectDatabasePath, taskBrief,
+    });
+    assert.equal(compiled.route.outcome, 'routed');
+    assert.deepEqual(compiled.pack.payload.passports.map((item) => item.id), [
+      SCOPE_IDS.core, SCOPE_IDS.metrichit, SCOPE_IDS.editorial, 'scope:task:editorial-orchestration-test',
+    ]);
+    assert.equal(compiled.pack.payload.coordinator_profile.role, 'temporary_read_only_coordinator');
+    assert.equal(compiled.pack.payload.coordinator_profile.maximum_delegation_depth, 2);
+    assert.equal(compiled.pack.payload.coordinator_profile.maximum_research_branches, 3);
+    assert.equal(compiled.pack.payload.passports.some((item) => item.id === SCOPE_IDS.panel), false);
+    assert.deepEqual(selectCoordinatorSkills('metrichit.editorial.v1', 'editorial', ['copywriting', 'seo-strategy']),
+      ['copywriting', 'seo-strategy']);
+    assert.throws(() => selectCoordinatorSkills('metrichit.editorial.v1', 'editorial', ['not-installed']),
+      /unknown or disallowed skill/);
+    assert.throws(() => compileCoordinatorContext(databasePath, {
+      profileId: 'metrichit.editorial.v1', taskId: 'panel-route', text: 'Исправь UI operator panel MetricHit',
+      taskType: 'ui', taskBrief,
+    }), /task type is not allowed|outside the coordinator profile scope/);
+    assert.throws(() => compileCoordinatorContext(databasePath, {
+      profileId: 'metrichit.editorial.v1', taskId: 'sibling-route', text: 'Исследуй UI operator panel MetricHit',
+      taskType: 'research', taskBrief,
+    }), /outside the coordinator profile scope/);
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 

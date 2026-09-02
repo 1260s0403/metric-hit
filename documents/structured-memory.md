@@ -39,3 +39,11 @@ Migration v12 добавляет в central control plane компактную s
 Целевая проверка: `node --test tests/structured-memory.test.mjs`. Затем: `node scripts/check-memory.mjs`; полная Node/Python regression и SQLite integrity обязательны перед поставкой крупного изменения.
 
 Owner-gates не меняются: удаление, force-операции, внешняя публикация, расходы, доступы/права, стратегия, политика памяти, глобальные/системные настройки и существенное расширение scope требуют отдельного решения владельца.
+
+## Orchestration v1
+
+Первый active coordinator profile — `metrichit.editorial.v1`, точный scope `MetricHit → Редакция`, task types `editorial` и `research`. Coordinator создаётся как временная read-only роль из профиля и compiler-generated context pack; постоянный чат, собственная память или произвольное чтение sibling scope ему не разрешены. Пакет обязан содержать только `Ядро → MetricHit → Редакция → задача` и применимые approved requirements.
+
+Coordinator формирует ровно одну дочернюю execution card для одного writer-а: Result, exact scope/resources, mandatory rules, First check, measurable Acceptance и Forbidden changes. Card должна оставаться внутри parent scope и точно повторять approved resource declaration. Skills — декларативные identifiers из task-type allowlist установленных навыков; unknown/disallowed identifier, duplicate и auto-install отклоняются. Максимальная глубина — `Strategy → coordinator → worker`; worker не делегирует. До трёх read-only research/audit веток можно объявить отдельно, но они не получают mutation lease.
+
+Handoff metadata без новой schema enforce lifecycle: `routed → coordinator_claimed → delegated → worker_in_progress → worker_submitted → domain_approved → integrating → integrated → completed`. Reject возвращает задачу в `delegated`, сохраняет submission/review audit и допускает повторную сдачу тем же незавершённым worker. Переходы, ownership и replay проверяются fail-closed. Integration начинается только после domain approval и сохраняет stale-base/conflict/single-lease правила. Strategy completion требует того же закрытого parent context pack, approved domain review, integrated commit/result и clean-delivery evidence. Prompt и reasoning в audit не сохраняются.
