@@ -83,6 +83,52 @@ def test_plan_and_summary_do_not_leak_content(tmp_path: Path) -> None:
     assert migration_plan_summary(build_migration_plan(path))["unresolvedByEntity"]
 
 
+def test_planner_classifies_structured_scope_and_future_explicit_ownership(tmp_path: Path) -> None:
+    path = tmp_path / "structured.sqlite"
+    source_id = "12000000-0000-4000-a000-000000000001"
+    project_candidate = "12000000-0000-4000-a000-000000000002"
+    core_candidate = "12000000-0000-4000-a000-000000000003"
+    with sqlite3.connect(path) as db:
+        db.executescript("""
+        CREATE TABLE scope_passports(id TEXT PRIMARY KEY,scope_kind TEXT,parent_scope_id TEXT);
+        CREATE TABLE scoped_memory_records(id TEXT PRIMARY KEY,type TEXT,scope_id TEXT,data_json TEXT);
+        CREATE TABLE context_packs(id TEXT PRIMARY KEY,scope_id TEXT,data_json TEXT);
+        CREATE TABLE scope_routing_audit(id TEXT PRIMARY KEY,requested_scope_id TEXT,resolved_scope_id TEXT,data_json TEXT);
+        CREATE TABLE sources(id TEXT PRIMARY KEY,type TEXT,data_json TEXT);
+        CREATE TABLE memory_candidates(id TEXT PRIMARY KEY,type TEXT,data_json TEXT,source_id TEXT);
+        CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT);
+        INSERT INTO scope_passports VALUES('scope:core','core',NULL);
+        INSERT INTO scope_passports VALUES('scope:project:metrichit','project','scope:core');
+        INSERT INTO scope_passports VALUES('scope:subproject:editorial','subproject','scope:project:metrichit');
+        INSERT INTO scope_passports VALUES('scope:task:future','task','scope:subproject:editorial');
+        INSERT INTO scoped_memory_records VALUES('memory:future','decision','scope:task:future','{}');
+        INSERT INTO context_packs VALUES('13000000-0000-4000-a000-000000000001','scope:task:future','{}');
+        INSERT INTO scope_routing_audit VALUES('13000000-0000-4000-a000-000000000002',NULL,NULL,'{}');
+        INSERT INTO schema_migrations VALUES(1,'initial');
+        """)
+        db.execute("INSERT INTO sources VALUES(?, 'owner_decision', '{}')", (source_id,))
+        db.execute(
+            "INSERT INTO memory_candidates VALUES(?, 'decision', ?, ?)",
+            (project_candidate, json.dumps({"project_id": DEFAULT_PROJECT_ID}), source_id),
+        )
+        db.execute(
+            "INSERT INTO memory_candidates VALUES(?, 'decision', ?, NULL)",
+            (core_candidate, json.dumps({"belongs_to": "central_core"})),
+        )
+
+    plan = build_migration_plan(path)
+    records = {(record["table"], record["id"]): record for record in plan["records"]}
+    assert records[("scope_passports", "scope:core")]["classification"] == "core"
+    assert records[("scope_passports", "scope:task:future")]["classification"] == "managed_project"
+    assert records[("scoped_memory_records", "memory:future")]["classification"] == "managed_project"
+    assert records[("context_packs", "13000000-0000-4000-a000-000000000001")]["classification"] == "managed_project"
+    assert records[("scope_routing_audit", "13000000-0000-4000-a000-000000000002")]["classification"] == "core"
+    assert records[("memory_candidates", core_candidate)]["classification"] == "core"
+    assert records[("sources", source_id)]["classification"] == "unresolved"
+    assert plan["counts"]["unresolved"] == 1
+    assert plan["readyToMigrate"] is False
+
+
 def test_primary_relations_override_stale_derived_links_but_not_confirmed_memory(tmp_path: Path) -> None:
     path = tmp_path / "relation-precedence.sqlite"
     source_id = "11000000-0000-4000-a000-000000000001"

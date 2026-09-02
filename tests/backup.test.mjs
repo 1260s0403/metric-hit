@@ -73,6 +73,26 @@ test('backup SHA-256 works without the Get-FileHash cmdlet', () => {
   `);
 });
 
+test('backup SHA-256 can read a live SQLite-style shared file', () => {
+  const library = join(repositoryRoot, 'scripts', 'backup-common.ps1').replaceAll("'", "''");
+  runPowerShell(`
+    . '${library}'
+    $testFile = Join-Path ([IO.Path]::GetTempPath()) ('MetricHitSharedHash-' + [guid]::NewGuid().ToString('N'))
+    $writer = $null
+    try {
+      [IO.File]::WriteAllText($testFile, 'abc', [Text.UTF8Encoding]::new($false))
+      $writer = [IO.FileStream]::new($testFile, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::ReadWrite)
+      $actual = Get-BackupSha256 -Path $testFile
+      if ($actual -cne 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad') {
+        throw "Unexpected shared-file SHA-256: $actual"
+      }
+    } finally {
+      if ($null -ne $writer) { $writer.Dispose() }
+      Remove-Item -LiteralPath $testFile -Force -ErrorAction SilentlyContinue
+    }
+  `);
+});
+
 test('backup path policy blocks secrets and transient trees without blocking work materials', () => {
   const library = join(repositoryRoot, 'scripts', 'backup-common.ps1').replaceAll("'", "''");
   runPowerShell(`

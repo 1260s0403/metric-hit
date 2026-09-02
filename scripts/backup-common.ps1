@@ -4,7 +4,12 @@ function Get-BackupSha256 {
     param([Parameter(Mandatory = $true)][string]$Path)
 
     $resolvedPath = (Get-Item -LiteralPath $Path -ErrorAction Stop).FullName
-    $stream = [IO.File]::OpenRead($resolvedPath)
+    $stream = [IO.FileStream]::new(
+        $resolvedPath,
+        [IO.FileMode]::Open,
+        [IO.FileAccess]::Read,
+        ([IO.FileShare]::ReadWrite -bor [IO.FileShare]::Delete)
+    )
     try {
         $algorithm = [Security.Cryptography.SHA256]::Create()
         try {

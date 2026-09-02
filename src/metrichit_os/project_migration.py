@@ -116,6 +116,7 @@ RELATION_COLUMNS = {
     "target_memory_item_id",
     "entity_id",
 }
+SCOPE_COLUMNS = {"scope_id", "requested_scope_id", "resolved_scope_id"}
 METADATA_RELATION_FIELDS = {"knowledge_entry_id"}
 TARGET_METADATA_RELATION_FIELDS = {
     "knowledge_entry_id", "parent_project_id", "project_id", "subproject_id",
@@ -198,6 +199,25 @@ def _classification(signals: list[tuple[str, str | None, str]]) -> tuple[str, st
     return CLASS_UNRESOLVED, None, ["legacy_unscoped"]
 
 
+def _scope_signal(
+    scope_id: str,
+    scopes: dict[str, dict[str, str | None]],
+) -> tuple[str, str | None, str]:
+    visited: set[str] = set()
+    current = scope_id
+    while current and current not in visited:
+        visited.add(current)
+        if current == "scope:core":
+            return CLASS_CORE, None, "explicit_core_scope"
+        if current == "scope:project:metrichit":
+            return CLASS_PROJECT, DEFAULT_PROJECT_ID, "explicit_metrichit_scope"
+        scope = scopes.get(current)
+        if not scope:
+            return CLASS_UNRESOLVED, None, "unknown_scope_link"
+        current = scope.get("parent")
+    return CLASS_UNRESOLVED, None, "invalid_scope_hierarchy"
+
+
 def build_migration_plan(database_path: Path) -> dict[str, Any]:
     source_path = database_path.resolve()
     source_hash_before = sha256_file(source_path)
@@ -210,18 +230,19 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
         ]
         rows: list[dict[str, Any]] = []
         projects: dict[str, dict[str, Any]] = {}
+        scopes: dict[str, dict[str, str | None]] = {}
         for table in tables:
             columns = [row["name"] for row in connection.execute(f'PRAGMA table_info("{table}")')]
             stable_column = "id" if "id" in columns else "version" if "version" in columns else columns[0]
             selected = [stable_column]
-            for name in ("type", "data_json", *sorted(RELATION_COLUMNS)):
+            for name in ("type", "data_json", "scope_kind", "parent_scope_id", *sorted(RELATION_COLUMNS | SCOPE_COLUMNS)):
                 if name in columns and name not in selected:
                     selected.append(name)
             query = ",".join(f'"{name}"' for name in selected)
             for row in connection.execute(f'SELECT {query} FROM "{table}" ORDER BY "{stable_column}"'):
                 item = {name: row[name] for name in selected}
                 metadata = _metadata(item.get("data_json"))
-                relations = {name: str(item[name]) for name in RELATION_COLUMNS if item.get(name)}
+                relations = {name: str(item[name]) for name in RELATION_COLUMNS | SCOPE_COLUMNS if item.get(name)}
                 relations.update({
                     f"data_json.{name}": str(metadata[name])
                     for name in METADATA_RELATION_FIELDS
@@ -240,6 +261,11 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
                     projects[record["id"]] = {
                         "role": metadata.get("scope_type"),
                         "parent": metadata.get("parent_project_id"),
+                    }
+                if table == "scope_passports":
+                    scopes[record["id"]] = {
+                        "kind": str(item.get("scope_kind") or ""),
+                        "parent": str(item["parent_scope_id"]) if item.get("parent_scope_id") else None,
                     }
 
     known_roles = {
@@ -314,6 +340,18 @@ def build_migration_plan(database_path: Path) -> dict[str, Any]:
         if row["table"] == "documents" and row["entityType"] == "project":
             signals.append(_signal(row["id"], projects))
         metadata = row["metadata"]
+        if metadata.get("belongs_to") == "central_core":
+            signals.append((CLASS_CORE, None, "explicit_control_plane_metadata"))
+        if row["table"] == "scope_passports":
+            signals.append(_scope_signal(row["id"], scopes))
+        for column in sorted(SCOPE_COLUMNS):
+            scope_id = row["relations"].get(column)
+            if scope_id:
+                signals.append(_scope_signal(scope_id, scopes))
+        if row["table"] == "scope_routing_audit" and not any(
+            row["relations"].get(column) for column in SCOPE_COLUMNS
+        ):
+            signals.append((CLASS_CORE, None, "routing_control_plane_record"))
         if metadata.get("project_id") and str(metadata["project_id"]) not in metadata_corrections.get(
             (row["table"], row["id"], "project_id"), set()
         ):

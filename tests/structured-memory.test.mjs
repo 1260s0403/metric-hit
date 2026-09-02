@@ -1,17 +1,20 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
 import {
-  SEMANTIC_CORE_REFERENCE_KEY, SCOPE_IDS, closeContextPack, compileContextPack,
+  SEMANTIC_CORE_REFERENCE_KEY, SCOPE_IDS, abandonContextPack, closeContextPack, compileContextPack,
   compileCoordinatorContext, compileDeterministicContext, createTaskScope, loadReferencedMemory,
   registerScopedRecord, resolveScopedMemory, routeTask, selectCoordinatorSkills, supersedeScopedRecord,
 } from '../scripts/structured-memory.mjs';
+import {
+  CENTRAL_ORPHAN_PACK_IDS, PROJECT_ORPHAN_PACK_IDS, repairOrphanContextPacks,
+} from '../scripts/apply-integrity-repair.mjs';
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-structured-memory-'));
@@ -426,6 +429,92 @@ test('delivery validation rejects a changed execution card', () => {
       scopeCompliance: true, forbiddenChangesObserved: [],
     }), /execution_card_hash_mismatch/);
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('abandoned context packs are audited, idempotent and cannot be reported as delivered', () => {
+  const { directory, databasePath } = fixture();
+  try {
+    const compiled = compileContextPack(databasePath, { text: 'Исправь Python модуль MetricHit', taskBrief: {
+      result: 'Исправление', scope: ['scripts'], firstCheck: 'code-check',
+      acceptance: ['fixed'], forbiddenChanges: ['ui'],
+    } });
+    const abandoned = abandonContextPack(databasePath, compiled.pack.id, {
+      reason: 'No active executor remains.', owner: 'integrity-repair-executor',
+    });
+    assert.equal(abandoned.status, 'closed');
+    assert.equal(abandoned.terminal_outcome, 'abandoned');
+    assert.equal(abandoned.changed, true);
+    assert.equal(abandonContextPack(databasePath, compiled.pack.id, {
+      reason: 'No active executor remains.', owner: 'integrity-repair-executor',
+    }).changed, false);
+    const fakeClose = closeContextPack(databasePath, compiled.pack.id, {
+      result: 'fake', checks: ['code-check'], satisfiedAcceptance: ['fixed'],
+      scopeCompliance: true, forbiddenChangesObserved: [],
+    });
+    assert.equal(fakeClose.changed, false);
+    assert.equal(fakeClose.terminal_outcome, 'abandoned');
+    const database = new DatabaseSync(databasePath, { readOnly: true });
+    const payload = JSON.parse(database.prepare('SELECT payload_json FROM context_packs WHERE id=?').get(compiled.pack.id).payload_json);
+    assert.equal(payload.terminal_outcome, 'abandoned');
+    assert.equal(payload.delivery_validation, undefined);
+    assert.equal(database.prepare("SELECT count(*) count FROM audit_log WHERE type='context_pack_terminal_event' AND entity_id=?")
+      .get(compiled.pack.id).count, 1);
+    database.close();
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('integrity repair terminalizes exactly the 11 approved orphan IDs and replay is a no-op', () => {
+  const central = fixture();
+  const project = fixture();
+  try {
+    const insert = (databasePath, ids) => {
+      const database = new DatabaseSync(databasePath);
+      const payload = JSON.stringify({ execution_card: { result: 'stale' } });
+      for (const id of ids) database.prepare(`INSERT INTO context_packs
+        (id,scope_id,task_type,compiler_version,input_hash,payload_json,compiled_bytes,status,created_at)
+        VALUES (?,'scope:project:metrichit','code',1,?,?,?,'open','2026-09-01T00:00:00.000Z')`)
+        .run(id, 'a'.repeat(64), payload, Buffer.byteLength(payload));
+      database.close();
+    };
+    insert(central.databasePath, CENTRAL_ORPHAN_PACK_IDS);
+    insert(project.databasePath, PROJECT_ORPHAN_PACK_IDS);
+    const first = repairOrphanContextPacks(central.databasePath, project.databasePath);
+    assert.equal(first.centralPacks.length, 10);
+    assert.equal(first.projectPacks.length, 1);
+    assert.equal([...first.centralPacks, ...first.projectPacks].every((item) => item.changed), true);
+    const replay = repairOrphanContextPacks(central.databasePath, project.databasePath);
+    assert.equal([...replay.centralPacks, ...replay.projectPacks].every((item) => !item.changed), true);
+    for (const [databasePath, ids] of [[central.databasePath, CENTRAL_ORPHAN_PACK_IDS], [project.databasePath, PROJECT_ORPHAN_PACK_IDS]]) {
+      const database = new DatabaseSync(databasePath, { readOnly: true });
+      const rows = database.prepare(`SELECT id,payload_json FROM context_packs
+        WHERE id IN (${ids.map(() => '?').join(',')}) ORDER BY id`).all(...ids);
+      assert.equal(rows.length, ids.length);
+      assert.equal(rows.every((row) => JSON.parse(row.payload_json).terminal_outcome === 'abandoned'), true);
+      assert.equal(database.prepare("SELECT count(*) count FROM audit_log WHERE type='context_pack_terminal_event'").get().count, ids.length);
+      database.close();
+    }
+  } finally {
+    rmSync(central.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    rmSync(project.directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
+
+test('Timeweb editorial registry keeps an exact existing draft and supporting references', () => {
+  const draftRef = 'work/articles/drafts/2026-08-29-timeweb-cloud-pf-service-selection.md';
+  const draft = readFileSync(resolve(draftRef));
+  assert.equal(createHash('sha256').update(draft).digest('hex'),
+    '7e37b52282427ada420734e4b31071ab23c3832a9e73842317b240dcb2495e37');
+  assert.equal(existsSync(resolve('work/articles/assets/2026-08-29-timeweb-pf-service-hero-v1.png')), true);
+  assert.equal(existsSync(resolve('work/articles/assets/2026-08-29-timeweb-pf-service-flow-v1.png')), true);
+  const project = new DatabaseSync(resolve(
+    'data/projects/00000000-0000-4000-a000-000000000102/project.sqlite'), { readOnly: true });
+  const row = project.prepare(`SELECT content_ref,status,workflow_stage,plan_ref
+    FROM editorial_materials WHERE id=?`).get('7d4b6d6e-3576-4d55-be77-4fd710b3c9b5');
+  project.close();
+  assert.equal(row.content_ref, draftRef);
+  assert.equal(row.status, 'draft');
+  assert.equal(row.workflow_stage, 'draft');
+  assert.equal(existsSync(resolve(row.plan_ref)), true);
 });
 
 test('global execution gate fails closed for incomplete cards and validates all supported task types', () => {

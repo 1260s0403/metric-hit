@@ -11,6 +11,7 @@ const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '000
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
 export const COMPILER_VERSION = 6;
 export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
+export const YADRO_CONTROL_PLANE_PROJECT_ID = '00000000-0000-4000-a000-000000000101';
 export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
 export const SCOPE_IDS = Object.freeze({
   core: 'scope:core', metrichit: 'scope:project:metrichit',
@@ -810,14 +811,18 @@ export function closeContextPack(databasePath = defaultDatabasePath, packId, del
   try {
     const stored = database.prepare('SELECT * FROM context_packs WHERE id=?').get(packId);
     if (!stored) throw new Error('context pack was not found');
-    if (stored.status !== 'open') return { id: stored.id, status: stored.status, closed_at: stored.closed_at, changed: false };
+    if (stored.status !== 'open') {
+      const terminalPayload = parseJson(stored.payload_json, {});
+      return { id: stored.id, status: stored.status, closed_at: stored.closed_at, changed: false,
+        terminal_outcome: terminalPayload.terminal_outcome ?? 'delivered' };
+    }
     const payload = parseJson(stored.payload_json, null);
     if (!payload?.execution_card) throw new Error('delivery validation failed: execution_card_missing');
     if (hash(canonical(payload.execution_card)) !== payload.execution_card_hash) {
       throw new Error('delivery validation failed: execution_card_hash_mismatch');
     }
     const validation = validateDeliveryEvidence(payload.execution_card, delivery);
-    const deliveredPayload = { ...payload, delivery_validation: validation };
+    const deliveredPayload = { ...payload, terminal_outcome: 'delivered', delivery_validation: validation };
     const serialized = canonical(deliveredPayload);
     const closedAt = validation.validated_at;
     const changed = database.prepare(`UPDATE context_packs
@@ -826,7 +831,61 @@ export function closeContextPack(databasePath = defaultDatabasePath, packId, del
     const row = database.prepare('SELECT id,status,closed_at,payload_json FROM context_packs WHERE id=?').get(packId);
     if (!row) throw new Error('context pack was not found');
     return { id: row.id, status: row.status, closed_at: row.closed_at, changed: changed === 1,
-      validation: parseJson(row.payload_json, {}).delivery_validation };
+      terminal_outcome: 'delivered', validation: parseJson(row.payload_json, {}).delivery_validation };
+  } finally { database.close(); }
+}
+
+function deterministicUuid(value) {
+  const hex = hash(value).slice(0, 32).split('');
+  hex[12] = '5';
+  hex[16] = ['8', '9', 'a', 'b'][Number.parseInt(hex[16], 16) % 4];
+  return `${hex.slice(0, 8).join('')}-${hex.slice(8, 12).join('')}-${hex.slice(12, 16).join('')}-${hex.slice(16, 20).join('')}-${hex.slice(20).join('')}`;
+}
+
+export function abandonContextPack(databasePath = defaultDatabasePath, packId, abandonment = {}) {
+  if (!nonEmptyText(abandonment.reason)) throw new Error('context pack abandonment reason is required');
+  if (!nonEmptyText(abandonment.owner)) throw new Error('context pack abandonment owner is required');
+  const database = open(resolve(databasePath));
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    const stored = database.prepare('SELECT * FROM context_packs WHERE id=?').get(packId);
+    if (!stored) throw new Error('context pack was not found');
+    const payload = parseJson(stored.payload_json, null);
+    if (!payload) throw new Error('context pack payload is invalid');
+    if (stored.status !== 'open') {
+      const outcome = payload.terminal_outcome ?? 'delivered';
+      if (outcome !== 'abandoned') throw new Error('delivered context pack cannot be abandoned');
+      database.exec('COMMIT');
+      return { id: stored.id, status: stored.status, closed_at: stored.closed_at,
+        terminal_outcome: outcome, changed: false };
+    }
+    const closedAt = now();
+    const abandonmentEvidence = {
+      reason: abandonment.reason.trim(), owner: abandonment.owner.trim(), abandoned_at: closedAt,
+    };
+    const terminalPayload = { ...payload, terminal_outcome: 'abandoned', abandonment: abandonmentEvidence };
+    const serialized = canonical(terminalPayload);
+    const changed = database.prepare(`UPDATE context_packs
+      SET payload_json=?,compiled_bytes=?,status='closed',closed_at=? WHERE id=? AND status='open'`)
+      .run(serialized, Buffer.byteLength(serialized), closedAt, packId).changes;
+    if (changed !== 1) throw new Error('context pack abandonment did not change exactly one open pack');
+    const projectId = String(stored.scope_id).startsWith('scope:core')
+      ? YADRO_CONTROL_PLANE_PROJECT_ID : METRICHIT_PROJECT_ID;
+    const auditId = deterministicUuid(`context-pack-abandoned:${packId}`);
+    database.prepare(`INSERT INTO audit_log
+      (id,type,title,content,data_json,author,entity_type,entity_id,action,valid_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`).run(
+      auditId, 'context_pack_terminal_event', 'Context pack abandoned', abandonmentEvidence.reason,
+      canonical({ context_pack_id: packId, terminal_outcome: 'abandoned', project_id: projectId,
+        owner: abandonmentEvidence.owner, reason: abandonmentEvidence.reason }),
+      abandonmentEvidence.owner, 'context_pack', packId, 'update', closedAt,
+    );
+    database.exec('COMMIT');
+    return { id: stored.id, status: 'closed', closed_at: closedAt,
+      terminal_outcome: 'abandoned', changed: true, audit_id: auditId };
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
   } finally { database.close(); }
 }
 
