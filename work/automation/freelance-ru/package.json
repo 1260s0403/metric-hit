@@ -1,0 +1,15 @@
+{
+  "name": "freelance-offer-conveyor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:queue": "node scripts/build-offer-queue.mjs",
+    "reauth": "node scripts/save-freelance-session.mjs --owner-command",
+    "publish": "node scripts/publish-offers.mjs --owner-command",
+    "delete-duplicate": "node scripts/delete-offer.mjs --id=102063 --owner-command",
+    "test": "node tests/queue-regression.mjs && node tests/session-storage.test.mjs"
+  },
+  "dependencies": {
+    "playwright": "^1.58.2"
+  }
+}

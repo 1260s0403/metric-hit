@@ -1,0 +1,40 @@
+[
+  {
+    "at": "2026-09-02T14:23:32.234Z",
+    "event": "duplicate_created",
+    "offerId": "seo-starter",
+    "url": "https://freelance.ru/offer/kompleksnoe-seo-prodvizhenie-sajta-102063.html",
+    "note": "Создано повторно из-за того, что исходная опубликованная карточка не была отмечена как published в очереди. Требуется решение владельца по удалению."
+  },
+  {
+    "at": "2026-09-02T14:23:36.141Z",
+    "event": "published",
+    "offerId": "landing-page",
+    "url": "https://freelance.ru/offer/sozdam-sovremennyj-lending-dlya-vashego-biznesa-102064.html"
+  },
+  {
+    "at": "2026-09-02T14:23:39.706Z",
+    "event": "published",
+    "offerId": "ai-assistant",
+    "url": "https://freelance.ru/offer/sozdam-ai-bota-dlya-obrabotki-zayavok-i-voprosov-102065.html"
+  },
+  {
+    "at": "2026-09-02T14:23:43.182Z",
+    "event": "published",
+    "offerId": "crm-setup",
+    "url": "https://freelance.ru/offer/nastroyu-crm-dlya-zayavok-i-kontrolya-prodazh-102066.html"
+  },
+  {
+    "at": "2026-09-02T14:30:00.000Z",
+    "event": "duplicate_deleted_verified",
+    "offerId": "seo-starter",
+    "url": "https://freelance.ru/offer/kompleksnoe-seo-prodvizhenie-sajta-102063.html",
+    "note": "После подтверждения удаления страница объявления возвращает 404."
+  },
+  {
+    "at": "2026-09-02T14:27:59.784Z",
+    "event": "published",
+    "offerId": "telegram-bot",
+    "url": "https://freelance.ru/offer/sozdam-telegram-bota-dlya-zayavok-i-zapisi-102067.html"
+  }
+]
