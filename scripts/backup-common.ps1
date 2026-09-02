@@ -162,6 +162,7 @@ function Get-BackupFileInventory {
     Get-ChildItem -LiteralPath $rootPath -Recurse -File -Force | Sort-Object FullName | ForEach-Object {
         $relativePath = $_.FullName.Substring($rootPath.Length).TrimStart('\', '/').Replace('\', '/')
         if ($PathPrefix) { $relativePath = "$($PathPrefix.TrimEnd('/'))/$relativePath" }
+        if (Test-BackupPathProhibited -RelativePath $relativePath) { return }
         $items += [ordered]@{
             path = $relativePath
             size = [long]$_.Length

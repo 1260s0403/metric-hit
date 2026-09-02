@@ -97,7 +97,7 @@ test('backup path policy blocks secrets and transient trees without blocking wor
   const library = join(repositoryRoot, 'scripts', 'backup-common.ps1').replaceAll("'", "''");
   runPowerShell(`
     . '${library}'
-    $blocked = @('.env', 'nested/.env.local', 'secrets/key.txt', '.codex/auth.json', 'logs/run.log', 'tmp/stage.bin', 'backups/old.zip', 'private.pem', 'api-token.txt')
+    $blocked = @('.env', 'nested/.env.local', 'secrets/key.txt', '.codex/auth.json', 'logs/run.log', 'tmp/stage.bin', 'node_modules/package.json', 'backups/old.zip', 'private.pem', 'api-token.txt')
     $allowed = @('work/landing/index.html', 'work/archive/migration-packages/2026-08-13/source.zip', 'backups/.gitkeep', 'logs/.gitkeep', '.gitignore', 'documents/backup-and-restore.md')
     foreach ($path in $blocked) { if (-not (Test-BackupPathProhibited $path)) { throw "Allowed prohibited path: $path" } }
     foreach ($path in $allowed) { if (Test-BackupPathProhibited $path) { throw "Blocked safe path: $path" } }

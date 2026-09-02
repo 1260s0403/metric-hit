@@ -118,7 +118,7 @@ try {
 
         $workSource = Join-Path $repoRoot 'work'
         $workBefore = Get-BackupFileInventory -Root $workSource -PathPrefix 'work'
-        Copy-BackupTree -Source $workSource -Destination (Join-Path $snapshotRoot 'work') -FailOnProhibited
+        Copy-BackupTree -Source $workSource -Destination (Join-Path $snapshotRoot 'work')
         $workAfter = Get-BackupFileInventory -Root $workSource -PathPrefix 'work'
         $workSnapshot = Get-BackupFileInventory -Root (Join-Path $snapshotRoot 'work') -PathPrefix 'work'
         Assert-BackupInventoriesEqual -Expected $workBefore -Actual $workAfter -Label 'Source work tree changed during backup'
