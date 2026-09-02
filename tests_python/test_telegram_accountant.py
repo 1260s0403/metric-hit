@@ -100,13 +100,14 @@ def test_income_button_flow_saves_client_date_and_top_up_type(tmp_path):
         {"update_id": 1, "message": {"chat": {"id": 9}, "text": "Доход"}},
         {"update_id": 2, "message": {"chat": {"id": 9}, "text": "@client"}},
         {"update_id": 3, "message": {"chat": {"id": 9}, "text": "1250.50"}},
-        {"update_id": 4, "message": {"chat": {"id": 9}, "text": "2026-08-31"}},
-        {"update_id": 5, "message": {"chat": {"id": 9}, "text": "Перевод"}},
-        {"update_id": 6, "message": {"chat": {"id": 9}, "text": "Отчёты"}},
+        {"update_id": 4, "message": {"chat": {"id": 9}, "text": "Другая дата"}},
+        {"update_id": 5, "message": {"chat": {"id": 9}, "text": "2026-08-31"}},
+        {"update_id": 6, "message": {"chat": {"id": 9}, "text": "Перевод"}},
+        {"update_id": 7, "message": {"chat": {"id": 9}, "text": "Отчёты"}},
     ])
     accounting_store = store(tmp_path)
     bot = TelegramAccountantBot(accounting_store, transport=transport)
-    assert bot.poll_once(timeout=1) == 6
+    assert bot.poll_once(timeout=1) == 7
     assert transport.calls[-2][1]["text"] == "Доход добавлен: 1 250.50 ₽ — @client (Перевод), дата 2026-08-31."
     assert transport.calls[-1][1] == {
         "chat_id": 9,
@@ -126,11 +127,37 @@ def test_expense_flow_is_isolated_between_chats(tmp_path):
         {"update_id": 4, "message": {"chat": {"id": 2}, "text": "Сервисы"}},
         {"update_id": 5, "message": {"chat": {"id": 1}, "text": "300"}},
         {"update_id": 6, "message": {"chat": {"id": 2}, "text": "50"}},
-        {"update_id": 7, "message": {"chat": {"id": 1}, "text": "2026-09-01"}},
-        {"update_id": 8, "message": {"chat": {"id": 2}, "text": "2026-09-02"}},
+        {"update_id": 7, "message": {"chat": {"id": 1}, "text": "Сегодня"}},
+        {"update_id": 8, "message": {"chat": {"id": 2}, "text": "Вчера"}},
     ])
     accounting_store = store(tmp_path)
     bot = TelegramAccountantBot(accounting_store, transport=transport)
     assert bot.poll_once(timeout=1) == 8
     assert accounting_store.breakdown(1, "expense") == [("Реклама", 30000)]
     assert accounting_store.breakdown(2, "expense") == [("Сервисы", 5000)]
+
+
+def test_date_buttons_save_current_or_previous_date_and_restore_main_keyboard(tmp_path):
+    transport = FakeTransport([
+        {"update_id": 1, "message": {"chat": {"id": 1}, "text": "Доход"}},
+        {"update_id": 2, "message": {"chat": {"id": 1}, "text": "@client"}},
+        {"update_id": 3, "message": {"chat": {"id": 1}, "text": "100"}},
+        {"update_id": 4, "message": {"chat": {"id": 1}, "text": "Сегодня"}},
+        {"update_id": 5, "message": {"chat": {"id": 1}, "text": "Перевод"}},
+        {"update_id": 6, "message": {"chat": {"id": 2}, "text": "Расход"}},
+        {"update_id": 7, "message": {"chat": {"id": 2}, "text": "Реклама"}},
+        {"update_id": 8, "message": {"chat": {"id": 2}, "text": "25"}},
+        {"update_id": 9, "message": {"chat": {"id": 2}, "text": "Вчера"}},
+    ])
+    accounting_store = store(tmp_path)
+    bot = TelegramAccountantBot(
+        accounting_store,
+        transport=transport,
+        now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC),
+    )
+    assert bot.poll_once(timeout=1) == 9
+    assert transport.calls[3][1]["reply_markup"] == TelegramAccountantBot.date_keyboard()
+    assert transport.calls[4][1]["reply_markup"] == TelegramAccountantBot.reply_keyboard()
+    assert transport.calls[-1][1]["reply_markup"] == TelegramAccountantBot.reply_keyboard()
+    assert accounting_store.breakdown(1, "income", "2026-09-02", "2026-09-02") == [("@client", 10000)]
+    assert accounting_store.breakdown(2, "expense", "2026-09-01", "2026-09-01") == [("Реклама", 2500)]

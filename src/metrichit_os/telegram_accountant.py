@@ -12,7 +12,7 @@ import os
 import sqlite3
 import time
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Callable, Protocol
@@ -263,10 +263,17 @@ class UrllibTelegramTransport:
 class TelegramAccountantBot:
     """Polling adapter.  Constructing it does not contact Telegram."""
 
-    def __init__(self, store: AccountantStore, token: str | None = None, transport: TelegramTransport | None = None):
+    def __init__(
+        self,
+        store: AccountantStore,
+        token: str | None = None,
+        transport: TelegramTransport | None = None,
+        now: Callable[[], datetime] | None = None,
+    ):
         actual_token = token if token is not None else os.environ.get("TELEGRAM_ACCOUNTANT_BOT_TOKEN")
         self.transport = transport or UrllibTelegramTransport(actual_token or "")
         self.commands = AccountantCommands(store)
+        self._now = now or (lambda: datetime.now(UTC))
         self.offset: int | None = None
         self._flows: dict[int, dict[str, str]] = {}
 
@@ -277,22 +284,36 @@ class TelegramAccountantBot:
             "resize_keyboard": True,
         }
 
-    def _handle_message(self, chat_id: int, text: str) -> str:
+    @staticmethod
+    def date_keyboard() -> dict[str, object]:
+        return {
+            "keyboard": [[{"text": "Сегодня"}, {"text": "Вчера"}], [{"text": "Другая дата"}]],
+            "resize_keyboard": True,
+            "one_time_keyboard": True,
+        }
+
+    def _handle_message(self, chat_id: int, text: str) -> tuple[str, dict[str, object]]:
         if text == "Доход":
             self._flows[chat_id] = {"kind": "income", "step": "label"}
-            return "Введите ник клиента."
+            return "Введите ник клиента.", self.reply_keyboard()
         if text == "Расход":
             self._flows[chat_id] = {"kind": "expense", "step": "label"}
-            return "Введите, куда ушли деньги."
+            return "Введите, куда ушли деньги.", self.reply_keyboard()
         if text == "Отчёты":
-            return self.commands.handle(chat_id, "/report")
+            return self.commands.handle(chat_id, "/report"), self.reply_keyboard()
         if text.startswith("/"):
             self._flows.pop(chat_id, None)
-            return self.commands.handle(chat_id, text)
+            return self.commands.handle(chat_id, text), self.reply_keyboard()
         flow = self._flows.get(chat_id)
         if flow is None:
-            return self.commands.handle(chat_id, text)
-        return self._continue_flow(chat_id, text, flow)
+            return self.commands.handle(chat_id, text), self.reply_keyboard()
+        reply = self._continue_flow(chat_id, text, flow)
+        keyboard = (
+            self.date_keyboard()
+            if self._flows.get(chat_id) is flow and flow.get("step") in {"date", "manual_date"}
+            else self.reply_keyboard()
+        )
+        return reply, keyboard
 
     def _continue_flow(self, chat_id: int, text: str, flow: dict[str, str]) -> str:
         value = text.strip()
@@ -311,23 +332,37 @@ class TelegramAccountantBot:
                 return "Введите корректную сумму больше нуля."
             flow["amount"] = value
             flow["step"] = "date"
-            return "Введите дату в формате YYYY-MM-DD."
+            return "Выберите дату."
         if step == "date":
+            if value == "Сегодня":
+                flow["date"] = self._now().astimezone(UTC).date().isoformat()
+                return self._continue_after_date(chat_id, flow)
+            if value == "Вчера":
+                flow["date"] = (self._now().astimezone(UTC).date() - timedelta(days=1)).isoformat()
+                return self._continue_after_date(chat_id, flow)
+            if value == "Другая дата":
+                flow["step"] = "manual_date"
+                return "Введите дату в формате YYYY-MM-DD."
+            return "Выберите дату кнопкой или нажмите «Другая дата»."
+        if step == "manual_date":
             try:
                 validate_date(value)
             except ValueError:
                 return "Введите дату в формате YYYY-MM-DD."
             flow["date"] = value
-            if kind == "income":
-                flow["step"] = "details"
-                return "Введите вид пополнения."
-            return self._save_flow(chat_id, flow)
+            return self._continue_after_date(chat_id, flow)
         if step == "details":
             if not value:
                 return "Поле не может быть пустым. Введите вид пополнения."
             flow["details"] = value
             return self._save_flow(chat_id, flow)
         raise RuntimeError("unknown accountant flow step")
+
+    def _continue_after_date(self, chat_id: int, flow: dict[str, str]) -> str:
+        if flow["kind"] == "income":
+            flow["step"] = "details"
+            return "Введите вид пополнения."
+        return self._save_flow(chat_id, flow)
 
     def _save_flow(self, chat_id: int, flow: dict[str, str]) -> str:
         item = self.commands.store.add(
@@ -364,10 +399,10 @@ class TelegramAccountantBot:
             chat = message.get("chat")
             if not isinstance(chat, dict) or not isinstance(chat.get("id"), int):
                 continue
-            reply = self._handle_message(chat["id"], message["text"])
+            reply, reply_markup = self._handle_message(chat["id"], message["text"])
             self.transport.call(
                 "sendMessage",
-                {"chat_id": chat["id"], "text": reply, "reply_markup": self.reply_keyboard()},
+                {"chat_id": chat["id"], "text": reply, "reply_markup": reply_markup},
             )
             handled += 1
         return handled
