@@ -867,38 +867,73 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     page.get_by_test_id("editorial-platform-0").click()
     expect(page.get_by_test_id("page-title")).to_have_text("Telegram")
     expect(page.locator(".editorial-stat-card")).to_have_count(3)
-    expect(page.get_by_test_id("editorial-post-0")).to_contain_text("Как аналитика помогает командам расти быстрее")
-    stat = page.locator(".editorial-stat-card").first
-    assert stat.bounding_box()["height"] <= 90
-    post = page.get_by_test_id("editorial-post-1")
-    assert post.bounding_box()["height"] <= 100
-    url = page.get_by_test_id("editorial-url-1")
+    expected_titles = [
+        "Как подготовить сайт к запуску ПФ: 5 проверок для владельца бизнеса",
+        "Вы просили — мы услышали",
+        "Новая тарификация применена ко всем пользователям",
+        "Масштаб вырос. Цена за клик снизилась!",
+        "MetricHit расширил инфраструктуру",
+        "Позиции просели: что проверить до изменения ПФ",
+        "+20% к пополнению баланса",
+        "Работа MetricHit восстановлена",
+        "Три обновления Яндекса, которые стоит знать",
+        "Навигация по каналу MetricHit",
+        "Кто мы? И чем занимаемся?",
+        "Про посредников, абонентскую плату и честные цифры",
+        "Почему без ПФ коммерческий сайт обречён сидеть без трафика",
+        "Как гарантированно убить сайт накруткой ПФ: 3 главные ошибки",
+        "Почему нельзя останавливать ПФ сразу после выхода в ТОП",
+        "Какие запросы добавлять в первый проект MetricHit",
+        "Когда ПФ не помогут: что проверить на сайте до запуска",
+    ]
+    posts = page.locator('[data-testid^="editorial-post-"]')
+    expect(posts).to_have_count(17)
+    assert [post.locator("strong").inner_text() for post in posts.all()] == expected_titles
+    assert [card.locator(".editorial-stat-label").inner_text() for card in page.locator(".editorial-stat-card").all()] == ["Публикаций", "Черновиков", "В плане"]
+    assert [card.locator(".editorial-stat-value").inner_text() for card in page.locator(".editorial-stat-card").all()] == ["17", "1", "8"]
+    for card in page.locator(".editorial-stat-card").all():
+        label, value = card.locator(".editorial-stat-label").bounding_box(), card.locator(".editorial-stat-value").bounding_box()
+        assert value["x"] > label["x"] and abs((label["y"] + label["height"] / 2) - (value["y"] + value["height"] / 2)) <= 1
+    for index in range(10):
+        expect(page.get_by_test_id(f"editorial-post-{index}").get_by_test_id("editorial-url-missing")).to_have_text("Ссылка не сохранена")
+        expect(page.get_by_test_id(f"editorial-url-{index}")).to_have_count(0)
+        expect(page.get_by_test_id(f"editorial-url-copy-{index}")).to_have_count(0)
+        expect(page.get_by_test_id(f"editorial-short-url-{index}")).to_have_count(0)
+    known_ids = ["6", "7", "8", "9", "10", "11", "13"]
+    for index, message_id in enumerate(known_ids, start=10):
+        short_url = page.get_by_test_id(f"editorial-short-url-{index}")
+        expect(short_url).to_have_attribute("href", f"https://t.me/mtr_hit/{message_id}")
+        expect(short_url).to_have_attribute("target", "_blank")
+        expect(short_url).to_have_attribute("rel", "noopener noreferrer")
+    url = page.get_by_test_id("editorial-url-10")
     expect(url).to_have_attribute("aria-expanded", "false")
     expect(url.locator("svg")).to_have_count(1)
-    short_url = page.get_by_test_id("editorial-short-url-1")
-    expect(short_url).to_have_attribute("href", "https://t.me/mtr_hit/1244")
-    expect(short_url).to_have_attribute("target", "_blank")
-    expect(short_url).to_have_attribute("rel", "noopener noreferrer")
     url.click()
     expect(url).to_have_attribute("aria-expanded", "true")
     assert "is-expanded" in (url.get_attribute("class") or "")
-    expect(page.get_by_test_id("editorial-full-url-1")).to_be_visible()
+    expect(page.get_by_test_id("editorial-full-url-10")).to_be_visible()
     url.click()
-    expect(page.get_by_test_id("editorial-full-url-1")).to_be_hidden()
-    page.get_by_test_id("editorial-url-copy-1").click()
-    expect(page.get_by_test_id("editorial-url-status-1")).to_have_text("Скопировано")
+    expect(page.get_by_test_id("editorial-full-url-10")).to_be_hidden()
+    page.get_by_test_id("editorial-url-copy-10").click()
+    expect(page.get_by_test_id("editorial-url-status-10")).to_have_text("Скопировано")
     page.get_by_test_id("editorial-semantic-0").click()
     semantic = page.get_by_test_id("editorial-semantic-modal")
     expect(semantic).to_be_visible()
-    expect(semantic.locator("li")).to_have_count(12)
-    page.get_by_test_id("editorial-copy-all").click()
-    expect(page.get_by_test_id("editorial-copy-status")).to_contain_text("Скопировано")
+    expect(page.get_by_test_id("editorial-semantic-empty")).to_have_text("Семантика не сохранена")
+    expect(page.get_by_test_id("editorial-copy-all")).to_be_disabled()
     page.keyboard.press("Escape")
     expect(semantic).to_be_hidden()
     pf = page.get_by_test_id("editorial-pf-2")
+    expect(pf).not_to_be_checked()
+    off_geometry = pf.evaluate("""node => { const track = node.getBoundingClientRect(), thumb = getComputedStyle(node, '::after'), translateY = Number.parseFloat(thumb.transform.split(',')[5]); return { center: track.height / 2, thumbCenter: Number.parseFloat(thumb.top) + Number.parseFloat(thumb.height) / 2 + translateY, background: getComputedStyle(node).backgroundColor }; }""")
+    assert abs(off_geometry["center"] - off_geometry["thumbCenter"]) <= 1
     pf.focus()
     page.keyboard.press("Space")
     expect(pf).to_be_checked()
+    expect(page.get_by_test_id("editorial-post-2").locator(".editorial-pf-state")).to_have_text("Вкл")
+    on_geometry = pf.evaluate("""node => { const track = node.getBoundingClientRect(), thumb = getComputedStyle(node, '::after'), translateY = Number.parseFloat(thumb.transform.split(',')[5]); return { center: track.height / 2, thumbCenter: Number.parseFloat(thumb.top) + Number.parseFloat(thumb.height) / 2 + translateY, background: getComputedStyle(node).backgroundColor }; }""")
+    assert abs(on_geometry["center"] - on_geometry["thumbCenter"]) <= 1
+    assert on_geometry["background"] in {"rgb(247, 247, 244)", "rgb(255, 255, 255)"}
     page.screenshot(path="work/editorial-telegram-detail-verified.png", full_page=True)
 
     page.set_viewport_size({"width": 390, "height": 844})
