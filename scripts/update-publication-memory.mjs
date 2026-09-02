@@ -409,6 +409,48 @@ export const vkBusinessSiteLaunchReadinessPublicationUpdate = Object.freeze({
   },
 });
 
+export const oborotBusinessSiteLaunchReadinessPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.oborot_business_site_launch_readiness_2026_09_02', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Накрутка ПФ для бизнеса: как подготовить сайт к запуску',
+  content: 'Владелец подтвердил публикацию на Oborot.ru 02.09.2026 статьи «Накрутка ПФ для бизнеса: как подготовить сайт к запуску». Публичный URL владельцем не предоставлен. Для этой статьи зафиксированы обложка и точный список целевых запросов для будущего отдельного рассмотрения ПФ-продвижения; данная запись не подтверждает запуск кампании или независимую индексацию.',
+  platform: 'Oborot.ru', canonicalUrl: null,
+  publishedAt: '2026-09-02T00:00:00.000Z', reviewedAt: '2026-09-02T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: {
+    published: true, publication_date: '2026-09-02',
+    article_title: 'Накрутка ПФ для бизнеса: как подготовить сайт к запуску',
+    source_draft_path: 'work/articles/drafts/2026-09-02-oborot-pf-site-readiness-business.md',
+    cover_asset_path: 'work/articles/assets/2026-09-02-oborot-pf-site-readiness-business-cover.png',
+    cover_asset_sha256: '958998fa940536ef2858f55d966ce05462d736d561fee6b6323fec458a1e00b9',
+    public_url: null, public_url_status: 'not_provided_by_owner',
+    pf_promotion_target_queries: [
+      'накрутка ПФ сайта',
+      'накрутка поведенческих факторов сайта',
+      'продвижение сайта поведенческими факторами',
+      'сервис поведенческих факторов для бизнеса',
+      'платформа для управления поведенческими факторами',
+      'инструмент для продвижения в Яндексе',
+      'как выбрать запросы для накрутки ПФ',
+      'какие запросы продвигать ПФ',
+      'с каких запросов начинать продвижение сайта',
+      'как распределить запросы по страницам',
+      'один запрос — одна страница SEO',
+      'релевантная страница для запроса',
+      'как запустить накрутку ПФ',
+      'накрутка ПФ самостоятельно',
+      'настройка проекта ПФ',
+      'когда начинать накрутку ПФ',
+      'что проверить перед накруткой ПФ',
+      'аналитика накрутки ПФ',
+    ],
+    pf_promotion_recording_scope: 'this_article_only',
+    pf_campaign_execution_evidence: 'not_recorded_by_this_publication_confirmation',
+    independent_yandex_indexation: 'not_performed',
+    external_action_performed_in_this_update: false,
+  },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
@@ -423,9 +465,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
                   : command === 'vk-august-16-pf-services-incident-publication' ? vkAugust16PfServicesIncidentPublicationUpdate
                     : command === 'vk-metrichit-pf-product-overview-publication' ? vkMetricHitPfProductOverviewPublicationUpdate
                       : command === 'vk-internet-shop-category-first-launch-publication' ? vkInternetShopCategoryFirstLaunchPublicationUpdate
-                        : command === 'vk-business-site-launch-readiness-publication' ? vkBusinessSiteLaunchReadinessPublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication', 'vk-internet-shop-category-first-launch-publication', 'vk-business-site-launch-readiness-publication'].includes(command)) {
-    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication|vk-prelaunch-pf-checklist-publication|vk-august-16-pf-services-incident-publication|vk-metrichit-pf-product-overview-publication|vk-internet-shop-category-first-launch-publication|vk-business-site-launch-readiness-publication> [databasePath]');
+                        : command === 'vk-business-site-launch-readiness-publication' ? vkBusinessSiteLaunchReadinessPublicationUpdate
+                          : command === 'oborot-business-site-launch-readiness-publication' ? oborotBusinessSiteLaunchReadinessPublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication', 'vk-internet-shop-category-first-launch-publication', 'vk-business-site-launch-readiness-publication', 'oborot-business-site-launch-readiness-publication'].includes(command)) {
+    throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication|vk-prelaunch-pf-checklist-publication|vk-august-16-pf-services-incident-publication|vk-internet-shop-category-first-launch-publication|vk-business-site-launch-readiness-publication|oborot-business-site-launch-readiness-publication> [databasePath]');
   }
   console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
 }
