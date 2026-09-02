@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -34,6 +35,21 @@ function temporaryDatabase(t) {
     databasePath: join(directory, 'memory.db'),
     remove: () => rmSync(directory, { recursive: true, force: true }),
   };
+}
+
+function stableApprovedCoreCandidateId(revision) {
+  const hex = createHash('sha256').update(`metrichit-public-editorial-approved-core-target-queries:candidate:content.public_editorial_semantic_core_policy:${revision}`).digest('hex');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
+}
+
+function seedApprovedSemanticCoreRevisionFour(databasePath) {
+  const database = new DatabaseSync(databasePath);
+  const sourceId = '00000000-0000-4000-a000-000000000104';
+  const candidateId = stableApprovedCoreCandidateId(4);
+  database.prepare("INSERT INTO sources (id,type,title,content,status,author,access_level) VALUES (?, 'owner_decision', 'Semantic-core revision four', 'Test predecessor for the approved evolution chain', 'active', 'owner', 'internal')").run(sourceId);
+  database.prepare("INSERT INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,access_level) VALUES (?, 'editorial_rule', 'content.public_editorial_semantic_core_policy', 'Semantic-core revision four', 'Approved predecessor for revision five.', ?, 'pending', ?, 'owner', 'internal')").run(candidateId, JSON.stringify({ revision: 4 }), sourceId);
+  database.prepare("UPDATE memory_candidates SET status='approved', reviewed_by='owner', reviewed_at='2026-09-01T00:00:00.000Z' WHERE id=?").run(candidateId);
+  database.close();
 }
 
 function seedSource(database) {
@@ -1095,6 +1111,7 @@ test('approved-core target-query policy supersedes semantic revision two and is 
   applyPublicEditorialSemanticCorePolicy(databasePath);
   applyPublicEditorialIndexationPfPolicy(databasePath);
   applyPublicEditorialSemanticsIndexationCorrection(databasePath);
+  seedApprovedSemanticCoreRevisionFour(databasePath);
 
   const first = applyPublicEditorialApprovedCoreTargetQueries(databasePath);
   const second = applyPublicEditorialApprovedCoreTargetQueries(databasePath);
@@ -1107,12 +1124,17 @@ test('approved-core target-query policy supersedes semantic revision two and is 
   const data = JSON.parse(policy.data_json);
   assert.equal(policy.status, 'approved');
   assert.equal(policy.reviewed_by, 'owner');
-  assert.equal(policy.reviewed_at, '2026-09-01T00:00:00.000Z');
-  assert.equal(data.revision, 3);
+  assert.equal(policy.reviewed_at, '2026-09-02T00:00:00.000Z');
+  assert.equal(data.revision, 5);
   assert.equal(data.semantic_core.target_queries_must_be_verbatim_approved_core_entries, true);
+  assert.equal(data.semantic_core.article_semantics_source, 'approved_memory_or_local_editorial_registry_material_text');
+  assert.deepEqual(data.semantic_core.applies_to_article_states, ['being_created', 'written', 'published']);
+  assert.equal(data.semantic_core.published_article_public_page_navigation_for_semantic_selection_prohibited, true);
   assert.equal(data.semantic_core.invented_synonyms_lsi_geo_variants_and_target_terms_prohibited, true);
-  assert.deepEqual(data.execution_card, ['selected_cluster', 'primary_target_query', 'secondary_target_queries', 'user_intent', 'platform', 'format', 'core_reference']);
+  assert.deepEqual(data.execution_card, ['selected_clusters', 'adjacent_cluster_rationale', 'primary_target_query', 'secondary_target_queries', 'user_intent', 'platform', 'format', 'core_reference']);
   assert.match(policy.content, /вторичных целевых запросов/);
+  assert.match(policy.content, /сохранённому в утверждённой памяти либо локальном editorial-реестре/);
+  assert.match(policy.content, /запрещено открывать, посещать или иным образом переходить/);
   const exported = exportCurrentContext(databasePath, outputPath, '2026-09-01T00:00:00.000Z').content;
   assert.match(exported, /Целевые запросы публичных материалов только из утверждённого ядра/);
 });
