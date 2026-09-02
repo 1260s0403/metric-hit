@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkAugust16PfServicesIncidentPublicationUpdate, vkCommunityCoverPublicationUpdate, vkMetricHitPfProductOverviewPublicationUpdate, vkPfYandexServiceUpdate, vkPrelaunchPfChecklistPublicationUpdate, vkWebsiteCreationServicePublicationUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
+import { oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkAugust16PfServicesIncidentPublicationUpdate, vkBusinessSiteLaunchReadinessPublicationUpdate, vkCommunityCoverPublicationUpdate, vkMetricHitPfProductOverviewPublicationUpdate, vkPfYandexServiceUpdate, vkPrelaunchPfChecklistPublicationUpdate, vkWebsiteCreationServicePublicationUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
 
 test('publication memory update supersedes the existing revision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-publication-update-'));
@@ -305,6 +305,44 @@ test('owner-confirmed VK posts record dates without a URL and preserve the absen
     assert.equal(dataByKey['publication.vk_metrichit_pf_product_overview'].verified_facts.is_welcome_post, false);
     assert.equal(dataByKey['publication.vk_metrichit_pf_product_overview'].verified_facts.is_pinned, false);
     assert.equal(readOnly.prepare("SELECT count(*) AS count FROM memory_candidates WHERE semantic_key='publication.vk_welcome_post'").get().count, 0);
+    readOnly.close();
+  } finally {
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
+    catch (error) { if (error?.code !== 'EBUSY') throw error; }
+  }
+});
+
+test('owner-confirmed VK business readiness post stores its exact PF target queries without recording campaign execution', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-vk-business-readiness-publication-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    const first = updatePublicationMemory(databasePath, vkBusinessSiteLaunchReadinessPublicationUpdate);
+    const second = updatePublicationMemory(databasePath, vkBusinessSiteLaunchReadinessPublicationUpdate);
+    assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    const readOnly = new DatabaseSync(databasePath, { readOnly: true });
+    const current = readOnly.prepare(`SELECT content,data_json,status FROM memory_candidates
+      WHERE semantic_key='publication.vk_business_site_launch_readiness_2026_09_02'`).get();
+    const data = JSON.parse(current.data_json);
+    assert.equal(current.status, 'approved');
+    assert.equal(data.publication_status, 'owner_confirmed_published');
+    assert.equal(data.canonical_url, null);
+    assert.equal(data.public_url_status, 'not_provided_by_owner');
+    assert.equal(data.verified_facts.local_post_path, 'work/social/vk/drafts/2026-09-02-pf-business-site-launch-readiness.md');
+    assert.equal(data.verified_facts.cover_asset_path, 'work/social/vk/assets/2026-09-02-pf-business-site-launch-readiness-cover.png');
+    assert.equal(data.verified_facts.cover_asset_sha256, '8284cf0ab67b9fd8c9fc4390aa9cc015315ac675ab9cdbc6cdcee13d6eb2fe76');
+    assert.deepEqual(data.verified_facts.pf_promotion_target_queries, [
+      'как запустить накрутку ПФ', 'накрутка ПФ самостоятельно', 'настройка проекта ПФ',
+      'когда начинать накрутку ПФ', 'что проверить перед накруткой ПФ',
+      'как выбрать запросы для накрутки ПФ', 'какие запросы продвигать ПФ',
+      'релевантная страница для запроса', 'аналитика накрутки ПФ',
+    ]);
+    assert.equal(data.verified_facts.pf_promotion_recording_scope, 'this_article_only');
+    assert.equal(data.verified_facts.pf_campaign_execution_evidence, 'not_recorded_by_this_publication_confirmation');
+    assert.equal(data.verified_facts.independent_yandex_indexation, 'not_performed');
+    assert.equal(data.verified_facts.external_action_performed_in_this_update, false);
+    assert.match(current.content, /не подтверждает запуск кампании/u);
     readOnly.close();
   } finally {
     try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
