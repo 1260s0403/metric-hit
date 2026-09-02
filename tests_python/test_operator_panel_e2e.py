@@ -246,9 +246,9 @@ def _panel_post(page: Page, path: str, payload: dict[str, object]) -> dict[str, 
 def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
     page.goto(panel)
     assert page.locator(".global-nav > button span").all_text_contents() == [
-        "Обзор", "Поиск", "Проекты", "Задачи", "Решения", "Память", "Активность", "Рекомендации", "Мои идеи",
+        "Обзор", "Поиск", "Проекты", "Задачи", "Решения", "Память", "Активность", "Рекомендации", "Мои идеи", "Редакция",
     ]
-    for view in ("overview", "search", "artem", "idea", "tasks", "memory"):
+    for view in ("overview", "search", "artem", "idea", "tasks", "memory", "editorial"):
         page.get_by_test_id(f"tab-{view}").click()
         expect(page.get_by_test_id(f"tab-{view}")).to_have_class("active")
         expect(page.get_by_test_id(f"tab-{view}")).to_have_attribute("aria-current", "page")
@@ -265,6 +265,11 @@ def test_navigation_exposes_only_active_screen(page: Page, panel: str) -> None:
             expect(page.get_by_test_id("knowledge-screen")).to_be_visible()
             expect(page.get_by_test_id("memory-screen")).to_be_hidden()
         elif view == "tasks":
+            expect(page.get_by_test_id("knowledge-screen")).to_be_hidden()
+            expect(page.get_by_test_id("memory-screen")).to_be_hidden()
+        elif view == "editorial":
+            expect(page.get_by_test_id("editorial-screen")).to_be_visible()
+            expect(page.get_by_test_id("overview-screen")).to_be_hidden()
             expect(page.get_by_test_id("knowledge-screen")).to_be_hidden()
             expect(page.get_by_test_id("memory-screen")).to_be_hidden()
         else:
@@ -478,7 +483,7 @@ def test_reference_sidebar_exposes_the_full_navigation_without_footer_controls(p
         "nodes => nodes.map(node => node.getBoundingClientRect().y)",
     )
     assert [label for _, label in sorted(zip(positions, page.locator(".global-nav > button:not([data-testid='tab-decisions']) span").all_text_contents()))] == [
-        "Обзор", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память", "Поиск",
+        "Обзор", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память", "Поиск", "Редакция",
     ]
     assert page.locator(".panel-header").evaluate("node => getComputedStyle(node).width") == "350px"
     assert page.locator(".nav-footer").evaluate("node => getComputedStyle(node).display") == "none"
@@ -642,7 +647,7 @@ def test_subproject_workspace_keeps_global_menu_and_switches_real_scoped_tabs(pa
     expect(page.get_by_test_id("project-tab-overview")).to_have_attribute("aria-current", "page")
     nav = page.locator(".global-nav > button:not([data-testid='tab-decisions'])")
     positions = nav.evaluate_all("nodes => nodes.map(node => node.getBoundingClientRect().y)")
-    assert [label for _, label in sorted(zip(positions, nav.locator("span").all_text_contents()))] == ["Обзор", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память", "Поиск"]
+    assert [label for _, label in sorted(zip(positions, nav.locator("span").all_text_contents()))] == ["Обзор", "Проекты", "Активность", "Рекомендации", "Мои идеи", "Задачи", "Память", "Поиск", "Редакция"]
     expect(page.locator(".subproject-summary-card")).to_contain_text("1")
     expect(page.locator(".subproject-top-grid")).to_be_visible()
     expect(page.locator(".subproject-bottom-grid")).to_be_visible()
@@ -822,3 +827,38 @@ def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(pag
     expect(page.get_by_test_id("entries")).to_contain_text("brief")
     expect(page.get_by_test_id("entries")).to_contain_text("File input")
     expect(page.get_by_test_id("entries")).to_contain_text("Согласовать содержание файла")
+
+
+def test_editorial_uses_compact_project_rows_and_keyboard_platform_navigation(page: Page, panel: str) -> None:
+    browser_errors: list[str] = []
+    page.on("pageerror", lambda error: browser_errors.append(str(error)))
+    page.on("console", lambda message: browser_errors.append(message.text) if message.type == "error" else None)
+    page.goto(panel)
+    page.get_by_test_id("tab-editorial").focus()
+    page.keyboard.press("Enter")
+
+    expect(page.get_by_test_id("page-title")).to_have_text("Редакция")
+    expect(page.get_by_test_id("tab-editorial")).to_have_attribute("aria-current", "page")
+    project_rows = page.locator('[data-testid^="editorial-project-"]:not([data-testid="editorial-project-list"])')
+    expect(project_rows).to_have_count(4)
+    assert project_rows.all_text_contents() == [
+        "MMetricHitПлощадки и статусы публикаций›",
+        "–Тест 1Скоро будет доступен",
+        "–Тест 2Скоро будет доступен",
+        "–Тест 3Скоро будет доступен",
+    ]
+    expect(project_rows.nth(1)).to_be_disabled()
+    page.screenshot(path="work/editorial-projects-verified.png", full_page=True)
+
+    page.get_by_test_id("editorial-project-0").focus()
+    page.keyboard.press("Enter")
+    rows = page.locator('[data-testid^="editorial-platform-"]:not([data-testid="editorial-platform-list"])')
+    expect(rows).to_have_count(7)
+    assert [row.inner_text() for row in rows.all()] == [f"{name}\n—\n—\n—" for name in ["ТГ", "MAX", "ВК", "TenChat", "Sostav", "Oborot", "TenChat"]]
+    expect(page.get_by_test_id("editorial-back")).to_be_visible()
+    page.screenshot(path="work/editorial-platforms-verified.png", full_page=True)
+
+    page.set_viewport_size({"width": 390, "height": 844})
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    page.screenshot(path="work/editorial-platforms-mobile-verified.png", full_page=True)
+    assert browser_errors == []
