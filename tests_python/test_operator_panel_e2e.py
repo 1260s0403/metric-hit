@@ -890,7 +890,6 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     platform_focus = platform_back.evaluate("node => getComputedStyle(node).outlineStyle")
     assert platform_focus != "none"
     rows.first.hover()
-    page.screenshot(path="work/editorial-platforms-verified.png", full_page=True)
     page.keyboard.press("Enter")
     expect(page.get_by_test_id("editorial-project-list")).to_be_visible()
     page.get_by_test_id("editorial-project-0").click()
@@ -909,6 +908,12 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
     assert abs(platform_header["height"] - telegram_header["height"]) <= 2
     assert abs(platform_back_box["y"] - telegram_back_box["y"]) <= 2
     assert abs(platform_first_content["y"] - telegram_first_content["y"]) <= 2
+    telegram_geometry = {
+        "header_height": telegram_header["height"],
+        "back_y": telegram_back_box["y"],
+        "stat_grid_y": page.locator(".editorial-stat-grid").bounding_box()["y"],
+    }
+    assert page.locator(".page-header h2").evaluate("node => getComputedStyle(node, '::before').content") == '"MetricHit / Редакция"'
     telegram_back.focus()
     telegram_focus = telegram_back.evaluate("node => getComputedStyle(node).outlineStyle")
     assert telegram_focus != "none"
@@ -1036,6 +1041,14 @@ def test_editorial_matches_project_and_platform_references(page: Page, panel: st
         expect(detail_back.locator("svg")).to_have_count(1)
         expect(page.locator(".editorial-stat-card")).to_have_count(3)
         expect(page.locator(".editorial-post-row")).to_have_count(count)
+        detail_header = page.locator(".page-header").bounding_box()
+        detail_back_box = detail_back.bounding_box()
+        detail_stat_grid = page.locator(".editorial-stat-grid").bounding_box()
+        assert detail_header and detail_back_box and detail_stat_grid
+        assert abs(detail_header["height"] - telegram_geometry["header_height"]) <= 2
+        assert abs(detail_back_box["y"] - telegram_geometry["back_y"]) <= 2
+        assert abs(detail_stat_grid["y"] - telegram_geometry["stat_grid_y"]) <= 2
+        assert page.locator(".page-header h2").evaluate("node => getComputedStyle(node, '::before').content") == '"MetricHit / Редакция"'
         if index == 1:
             page.screenshot(path="work/editorial-max-detail-verified.png", full_page=True)
         elif index == 2:
