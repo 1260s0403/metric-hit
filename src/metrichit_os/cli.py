@@ -41,6 +41,7 @@ from .project_migration import (
     migration_plan_summary,
 )
 from .project_store import ProjectStore
+from .task_router import parse_short_task_command, route_project_task
 from .project_storage import ProjectStorage
 from .runtime import RoutedKnowledgeStore, RuntimeDatabases
 from .services import current_context, editorial_status, memory_summary
@@ -162,6 +163,10 @@ def workflow_parser() -> argparse.ArgumentParser:
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
     handoff_input.add_argument("--data", help="UTF-8 JSON object")
     handoff_input.add_argument("--stdin", action="store_true")
+    task_route = subparsers.add_parser("project-task-route")
+    task_route.add_argument("--db", required=True)
+    task_route.add_argument("--text", required=True)
+    task_route.add_argument("--worktree-root", default="tmp")
     handoff_next = subparsers.add_parser("handoff-next")
     handoff_next.add_argument("--db", required=True)
     handoff_next.add_argument("--format", choices=("json", "text"), default="json")
@@ -289,6 +294,12 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         print_json(storage.import_package(Path(arguments.package)))
         return 0
     database_path = Path(arguments.db)
+    if arguments.command == "project-task-route":
+        databases = RuntimeDatabases.resolve(database_path)
+        projects = ProjectStore(databases.central, tuple(path for _, path in databases.projects))
+        project_name, task = parse_short_task_command(arguments.text)
+        print_json(route_project_task(projects, project_name=project_name, task=task, worktree_root=arguments.worktree_root))
+        return 0
     if arguments.command == "project-editorial-init":
         print_json(initialize_editorial_domain(database_path, project_id=arguments.project_id))
         return 0

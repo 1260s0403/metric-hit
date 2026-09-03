@@ -59,6 +59,8 @@ Strategy и engineering-задачи могут открывать любые п
 
 ### Controlled parallel execution v1
 
+Короткий маршрут для любого числа проектов: `Ядро старт. Проект «Название»: задача`. Router ищет только активный проект или подпроект по точному нормализованному имени и возвращает proposal branch/worktree; до отдельной точной декларации path/SQLite/shared resources writer lease не выдаётся. Это один универсальный формат, а не набор команд по проектам; router read-only и не создаёт Git-объекты или проекты.
+
 Утверждённая v1-политика заменяет прежний глобальный запрет параллельных writer-ов только в этих пределах: максимум четыре независимых writer-а, каждый в отдельном неканоническом Git worktree и branch, с объявленными base HEAD, path, SQLite и shared resources. Handoff атомарно выдаёт leases и fail-closed отклоняет missing/invalid declaration, пятый writer, общий worktree/branch, ancestor/descendant path overlap, same SQLite и shared resource. Core/policy/config/migration/dependency/shared-runtime, central control-plane, context-pack и memory/policy mutations эксклюзивны; разные project SQLite совместимы. Integration lease всегда один, а stale base или конфликт блокирует merge без force/reset/delete. Подготовка и закрытие context pack, синхронизация approved memory и интеграция выполняются последовательно. Внутри каждого change set сохраняются один named writer, одна ветка, один commit и clean Git; read-only multi-agent pilot не меняется.
 
 ## Автономные отделы
