@@ -6,7 +6,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { oborotBusinessSiteLaunchReadinessPublicationUpdate, oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, sostavFirstArticleUpdate, telegramSiteReadinessBeforePfPublicationUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkAugust16PfServicesIncidentPublicationUpdate, vkBusinessSiteLaunchReadinessPublicationUpdate, vkCommunityCoverPublicationUpdate, vkMetricHitPfProductOverviewPublicationUpdate, vkPfYandexServiceUpdate, vkPrelaunchPfChecklistPublicationUpdate, vkWebsiteCreationServicePublicationUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
+import { applyOborotPreviewRule, oborotBusinessSiteLaunchReadinessPublicationUpdate, oborotEditorialIntegrationUpdate, oborotInternetShopPublicationUpdate, oborotPfYandexPublicationUpdate, sostavFirstArticleUpdate, telegramSiteReadinessBeforePfPublicationUpdate, tenchatInternetShopPublicationUpdate, updatePublicationMemory, vkAugust16PfServicesIncidentPublicationUpdate, vkBusinessSiteLaunchReadinessPublicationUpdate, vkCommunityCoverPublicationUpdate, vkMetricHitPfProductOverviewPublicationUpdate, vkPfYandexServiceUpdate, vkPrelaunchPfChecklistPublicationUpdate, vkWebsiteCreationServicePublicationUpdate, vkYandexMapsServicePublicationUpdate } from '../scripts/update-publication-memory.mjs';
 
 test('publication memory update supersedes the existing revision and is idempotent', () => {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-publication-update-'));
@@ -116,6 +116,37 @@ test('owner-confirmed Oborot publication is created once without unrelated workf
     assert.deepEqual(data.supersedes_semantic_revisions, []);
     assert.equal(/Chrome|расширен|автоматизац|изображен/iu.test(current.content), false);
     readOnly.close();
+  } finally {
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
+    catch (error) { if (error?.code !== 'EBUSY') throw error; }
+  }
+});
+
+test('owner-confirmed Oborot PF Yandex publication and square-preview rule are idempotent', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-oborot-pf-yandex-publication-'));
+  const databasePath = join(directory, 'memory.sqlite');
+  try {
+    execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+    assert.deepEqual(updatePublicationMemory(databasePath, oborotPfYandexPublicationUpdate).created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(updatePublicationMemory(databasePath, oborotPfYandexPublicationUpdate).created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    assert.deepEqual(applyOborotPreviewRule(databasePath).created, { sources: 1, documents: 1, versions: 1, candidates: 1 });
+    assert.deepEqual(applyOborotPreviewRule(databasePath).created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+    const database = new DatabaseSync(databasePath, { readOnly: true });
+    const publication = database.prepare("SELECT data_json,status FROM memory_candidates WHERE semantic_key='publication.oborot_pf_yandex_2026_09_03'").get();
+    const rule = database.prepare("SELECT content,data_json,status FROM memory_candidates WHERE semantic_key='editorial.oborot_preview_square_format'").get();
+    const publicationData = JSON.parse(publication.data_json);
+    const ruleData = JSON.parse(rule.data_json);
+    assert.equal(publication.status, 'approved');
+    assert.equal(publicationData.publication_status, 'owner_confirmed_published');
+    assert.equal(publicationData.canonical_url, null);
+    assert.equal(publicationData.verified_facts.local_draft_path, 'work/articles/drafts/2026-09-03-oborot-nakrutka-pf-yandex.md');
+    assert.equal(rule.status, 'approved');
+    assert.equal(ruleData.platform, 'Oborot.ru');
+    assert.equal(ruleData.preview.aspect_ratio, '1:1');
+    assert.equal(ruleData.preview.primary_subject_placement, 'central_safe_zone');
+    assert.deepEqual(ruleData.preview.unsuitable_aspect_ratios, ['16:9']);
+    assert.equal(ruleData.pixel_dimensions, 'not_confirmed_not_recorded');
+    database.close();
   } finally {
     try { rmSync(directory, { recursive: true, force: true, maxRetries: 2, retryDelay: 25 }); }
     catch (error) { if (error?.code !== 'EBUSY') throw error; }

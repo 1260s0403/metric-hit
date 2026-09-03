@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -128,6 +128,45 @@ export function updatePublicationMemory(databasePath = defaultDatabasePath, inpu
     }, `${update.semanticKey} candidate`);
     database.exec('COMMIT');
     return { databasePath: resolve(databasePath), created, candidateId, sourceId, documentId, versionId };
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  } finally {
+    database.close();
+  }
+}
+
+const oborotPreviewRuleDecisionPath = 'knowledge/decisions/oborot-preview-and-publication-2026-09-03.md';
+
+export function applyOborotPreviewRule(databasePath = defaultDatabasePath) {
+  const decisionBytes = readFileSync(join(repositoryRoot, oborotPreviewRuleDecisionPath));
+  const decision = new TextDecoder('utf-8', { fatal: true }).decode(decisionBytes);
+  const semanticKey = 'editorial.oborot_preview_square_format';
+  const revision = 1;
+  const title = 'Превью Oborot.ru: квадратный формат 1:1';
+  const content = 'Для превью статей на Oborot.ru используется только квадратная пропорция 1:1. Главный объект размещается в центральной safe zone; формат 16:9 не считается пригодным для превью Oborot.ru. Пиксельный размер не зафиксирован, потому что владельцем он не подтверждён.';
+  const reviewedAt = '2026-09-03T00:00:00.000Z';
+  const sourceId = stableUuid(`source:${semanticKey}:revision:${revision}`);
+  const documentId = stableUuid(`document:${semanticKey}:revision:${revision}`);
+  const versionId = stableUuid(`document-version:${semanticKey}:revision:${revision}`);
+  const candidateId = stableUuid(`candidate:${semanticKey}:revision:${revision}`);
+  const sourceData = json({ authority: 'direct_owner_confirmation', decision_path: oborotPreviewRuleDecisionPath, sha256: createHash('sha256').update(decisionBytes).digest('hex'), reviewed_at: reviewedAt });
+  const data = json({ revision, platform: 'Oborot.ru', applies_to: ['oborot_article_preview'], preview: { aspect_ratio: '1:1', primary_subject_placement: 'central_safe_zone', unsuitable_aspect_ratios: ['16:9'] }, pixel_dimensions: 'not_confirmed_not_recorded' });
+  const database = new DatabaseSync(resolve(databasePath));
+  const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
+  database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
+  try {
+    const existing = database.prepare(`SELECT id FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?`).all(semanticKey, candidateId);
+    if (existing.length) throw new Error('Semantic duplicate blocks Oborot preview rule');
+    created.sources += Number(database.prepare(`INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?,'owner_decision',?,?,?,'active','owner','2026-09-03','internal')`).run(sourceId, title, `Repository file: ${oborotPreviewRuleDecisionPath}`, sourceData).changes);
+    created.documents += Number(database.prepare(`INSERT OR IGNORE INTO documents (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?,'owner_decision',?,?,?,'active',?,'owner','2026-09-03','internal',1)`).run(documentId, title, decision, sourceData, sourceId).changes);
+    created.versions += Number(database.prepare(`INSERT OR IGNORE INTO document_versions (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?,?,'owner_decision',?,?,?,'active',?,'owner','2026-09-03','internal',1)`).run(versionId, documentId, title, decision, sourceData, sourceId).changes);
+    created.candidates += Number(database.prepare(`INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?,'editorial_rule',?,?,?,?, 'pending',?,'owner','2026-09-03','internal',1)`).run(candidateId, semanticKey, title, content, data, sourceId).changes);
+    const candidate = database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(candidateId);
+    if (candidate?.status === 'pending') database.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by='owner',reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(reviewedAt, 'Одобрено прямым уточнением владельца для Oborot.ru.', reviewedAt, candidateId);
+    assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(candidateId), { type: 'editorial_rule', semantic_key: semanticKey, title, content, data_json: data, status: 'approved', source_id: sourceId, reviewed_by: 'owner', reviewed_at: reviewedAt }, 'Oborot preview rule candidate');
+    database.exec('COMMIT');
+    return { databasePath: resolve(databasePath), created, sourceId, documentId, versionId, candidateId };
   } catch (error) {
     database.exec('ROLLBACK');
     throw error;
@@ -451,6 +490,22 @@ export const oborotBusinessSiteLaunchReadinessPublicationUpdate = Object.freeze(
   },
 });
 
+export const oborotPfYandexPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.oborot_pf_yandex_2026_09_03', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Накрутка ПФ Яндекс',
+  content: 'Владелец подтвердил публикацию на Oborot.ru 03.09.2026 статьи «Накрутка ПФ Яндекс». Публичный URL владельцем не предоставлен; независимая внешняя проверка не проводилась.',
+  platform: 'Oborot.ru', canonicalUrl: null,
+  publishedAt: '2026-09-03T00:00:00.000Z', reviewedAt: '2026-09-03T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: {
+    published: true, publication_date: '2026-09-03', article_title: 'Накрутка ПФ Яндекс',
+    local_draft_path: 'work/articles/drafts/2026-09-03-oborot-nakrutka-pf-yandex.md',
+    public_url: null, public_url_status: 'not_provided_by_owner',
+    independent_external_confirmation: 'not_performed', external_action_performed_in_this_update: false,
+  },
+});
+
 export const telegramSiteReadinessBeforePfPublicationUpdate = Object.freeze({
   semanticKey: 'publication.telegram_site_readiness_before_pf_2026_09_02', revision: 1, expectedPriorRevisions: [],
   allowCreate: true, publicationStatus: 'owner_confirmed_published',
@@ -475,7 +530,8 @@ export const telegramSiteReadinessBeforePfPublicationUpdate = Object.freeze({
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
-  const update = command === 'oborot-editorial-integration' ? oborotEditorialIntegrationUpdate
+  const update = command === 'oborot-preview-rule' ? null
+    : command === 'oborot-editorial-integration' ? oborotEditorialIntegrationUpdate
     : command === 'oborot-internet-shop-publication' ? oborotInternetShopPublicationUpdate
       : command === 'tenchat-internet-shop-publication' ? tenchatInternetShopPublicationUpdate
           : command === 'vk-community-cover-publication' ? vkCommunityCoverPublicationUpdate
@@ -488,9 +544,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
                       : command === 'vk-internet-shop-category-first-launch-publication' ? vkInternetShopCategoryFirstLaunchPublicationUpdate
                         : command === 'vk-business-site-launch-readiness-publication' ? vkBusinessSiteLaunchReadinessPublicationUpdate
                           : command === 'oborot-business-site-launch-readiness-publication' ? oborotBusinessSiteLaunchReadinessPublicationUpdate
-                            : command === 'telegram-site-readiness-before-pf-publication' ? telegramSiteReadinessBeforePfPublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication', 'vk-internet-shop-category-first-launch-publication', 'vk-business-site-launch-readiness-publication', 'oborot-business-site-launch-readiness-publication', 'telegram-site-readiness-before-pf-publication'].includes(command)) {
+                            : command === 'oborot-pf-yandex-publication' ? oborotPfYandexPublicationUpdate
+                              : command === 'telegram-site-readiness-before-pf-publication' ? telegramSiteReadinessBeforePfPublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication', 'vk-internet-shop-category-first-launch-publication', 'vk-business-site-launch-readiness-publication', 'oborot-business-site-launch-readiness-publication', 'oborot-pf-yandex-publication', 'oborot-preview-rule', 'telegram-site-readiness-before-pf-publication'].includes(command)) {
     throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication|vk-prelaunch-pf-checklist-publication|vk-august-16-pf-services-incident-publication|vk-internet-shop-category-first-launch-publication|vk-business-site-launch-readiness-publication|oborot-business-site-launch-readiness-publication> [databasePath]');
   }
-  console.log(JSON.stringify(updatePublicationMemory(databasePath, update)));
+  console.log(JSON.stringify(command === 'oborot-preview-rule'
+    ? applyOborotPreviewRule(databasePath) : updatePublicationMemory(databasePath, update)));
 }
