@@ -15,6 +15,11 @@ const semanticKey = 'automation.department_registration';
 const avitoScopeId = 'scope:task:automation:avito';
 const avitoApprovedAt = '2026-09-03T00:00:00.000Z';
 const avitoSourceRef = 'direct owner approval 2026-09-03: create isolated Avito scope';
+const avitoStartupRevision = 1;
+const avitoStartupSourceId = stableUuid('avito-startup-context-source');
+const avitoStartupDocumentId = stableUuid('avito-startup-context-document');
+const avitoStartupVersionId = stableUuid('avito-startup-context-version');
+const avitoStartupCandidateId = stableUuid('avito-startup-context-candidate');
 
 function stableUuid(key) {
   const hex = createHash('sha256').update(`metrichit-automation-department:${key}`).digest('hex');
@@ -66,7 +71,7 @@ function ensureAvitoScopedRecord(database, record) {
 
 export function applyAvitoScope(databasePath = defaultDatabase) {
   const database = new DatabaseSync(databasePath);
-  const created = { scope: 0, scopedRecords: 0, supersededRecords: 0 };
+  const created = { scope: 0, scopedRecords: 0, supersededRecords: 0, sources: 0, documents: 0, versions: 0, candidates: 0 };
   const passportMetadata = JSON.stringify({
     aliases: ['авито', 'avito'],
     working_root: 'work/automation/avito',
@@ -75,6 +80,21 @@ export function applyAvitoScope(databasePath = defaultDatabase) {
   });
   const registrationContent = '«Авито» — активный изолированный дочерний scope MetricHit → Автоматизация. Его единственный разрешённый рабочий корень — work/automation/avito. Память и материалы Авито не смешиваются с Freelance.ru и другими площадками.';
   const boundaryContent = 'Авито использует только work/automation/avito и собственную scoped memory. Материалы, правила, сессии и доступы Freelance.ru и других площадок не применяются к Авито и не читаются без отдельной прямой зависимости. В этом scope не разрешены доступ к площадке, login, запуск сценариев, scheduler, отправка форм, публикация, секреты, cookies, local session, отдельная база данных, schema или migration.';
+  const startupTitle = 'Контур «Авито» в Автоматизации';
+  const startupContent = 'MetricHit → Автоматизация → Авито — активный изолированный scope с единственным рабочим корнем work/automation/avito. До отдельной прямой задачи владельца запрещены доступ к площадке, login, scheduler, отправка форм, публикация, секреты, cookies, local sessions, отдельная база данных, schema и migrations.';
+  const startupData = JSON.stringify({
+    revision: avitoStartupRevision,
+    supersedes_semantic_revisions: [0],
+    scope_id: avitoScopeId,
+    working_root: 'work/automation/avito',
+    platform_access_authorized: false,
+    login_authorized: false,
+    scheduler_authorized: false,
+    forms_authorized: false,
+    publication_authorized: false,
+    secrets_or_sessions_authorized: false,
+    separate_database_or_schema_authorized: false,
+  });
   database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
   try {
     if (!database.prepare("SELECT id FROM scope_passports WHERE id=? AND status='active'").get(departmentScopeId)) {
@@ -127,6 +147,44 @@ export function applyAvitoScope(databasePath = defaultDatabase) {
       supersedes_id: 'memory:automation:platform-design', source_ref: avitoSourceRef,
     }, 'Avito platform design evolution');
 
+    const existingRevisions = database.prepare(`SELECT id,coalesce(json_extract(data_json, '$.revision'), 0) AS revision
+      FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?`)
+      .all(semanticKey, avitoStartupCandidateId);
+    const revisions = existingRevisions.map((row) => Number(row.revision)).sort((left, right) => left - right);
+    if (revisions.some((revision) => ![0].includes(revision))) {
+      throw new Error(`Unexpected semantic revision blocks ${semanticKey}: ${revisions.join(',')}`);
+    }
+    const sourceData = JSON.stringify({ authority: 'direct_owner_confirmation', approved_at: avitoApprovedAt, scope_id: avitoScopeId });
+    created.sources += Number(database.prepare(`INSERT OR IGNORE INTO sources
+      (id,type,title,content,data_json,status,author,valid_at,access_level)
+      VALUES (?,'owner_decision',?,?,?,'active',?,'2026-09-03','internal')`).run(
+      avitoStartupSourceId, startupTitle, avitoSourceRef, sourceData, owner,
+    ).changes);
+    created.documents += Number(database.prepare(`INSERT OR IGNORE INTO documents
+      (id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version)
+      VALUES (?,'owner_decision',?,?,?,'active',?,?,'2026-09-03','internal',1)`).run(
+      avitoStartupDocumentId, startupTitle, startupContent, startupData, avitoStartupSourceId, owner,
+    ).changes);
+    created.versions += Number(database.prepare(`INSERT OR IGNORE INTO document_versions
+      (id,document_id,type,title,content,data_json,status,source_id,author,valid_at,access_level,version)
+      VALUES (?,?,'owner_decision',?,?,?,'active',?,?,'2026-09-03','internal',1)`).run(
+      avitoStartupVersionId, avitoStartupDocumentId, startupTitle, startupContent, startupData, avitoStartupSourceId, owner,
+    ).changes);
+    created.candidates += Number(database.prepare(`INSERT OR IGNORE INTO memory_candidates
+      (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version)
+      VALUES (?,'decision',?,?,?,?, 'pending',?,'owner','2026-09-03','internal',1)`).run(
+      avitoStartupCandidateId, semanticKey, startupTitle, startupContent, startupData, avitoStartupSourceId,
+    ).changes);
+    if (database.prepare('SELECT status FROM memory_candidates WHERE id=?').get(avitoStartupCandidateId)?.status === 'pending') {
+      database.prepare(`UPDATE memory_candidates SET status='approved',reviewed_by=?,reviewed_at=?,review_note=?,updated_at=?,version=version+1 WHERE id=?`).run(
+        owner, avitoApprovedAt, 'Одобрено прямой командой владельца синхронизировать startup context с созданным scope «Авито».', avitoApprovedAt, avitoStartupCandidateId,
+      );
+    }
+    assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id=?').get(avitoStartupCandidateId), {
+      type: 'decision', semantic_key: semanticKey, title: startupTitle, content: startupContent, data_json: startupData,
+      status: 'approved', source_id: avitoStartupSourceId, reviewed_by: owner, reviewed_at: avitoApprovedAt,
+    }, 'Avito startup-context decision');
+
     database.exec('COMMIT');
     return { databasePath, avitoScopeId, created };
   } catch (error) {
@@ -160,7 +218,7 @@ export function applyAutomationDepartment(databasePath = defaultDatabase) {
 
   database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
   try {
-    const existing = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").all(semanticKey, candidateId);
+    const existing = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id NOT IN (?,?)").all(semanticKey, candidateId, avitoStartupCandidateId);
     if (existing.length) throw new Error(`Semantic duplicate or evolution requires review for ${semanticKey}`);
 
     created.projects += Number(database.prepare(`INSERT OR IGNORE INTO documents
