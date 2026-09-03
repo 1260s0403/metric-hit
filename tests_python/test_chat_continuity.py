@@ -70,6 +70,43 @@ def test_telegram_bots_keep_independent_checkpoints(tmp_path: Path) -> None:
     assert resumed_finance["scope"]["key"] != resumed_support["scope"]["key"]
 
 
+def test_active_scope_passport_without_project_can_resume_its_checkpoint(tmp_path: Path) -> None:
+    path, projects, continuity = fixture(tmp_path)
+    timestamp = "2026-09-03T00:00:00.000Z"
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "INSERT INTO scope_passports "
+            "(id,scope_kind,parent_scope_id,name,summary,status,metadata_json,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,'active','{}',?,?)",
+            (
+                "scope:subproject:automation", "subproject", "scope:project:metrichit", "Автоматизация",
+                "Площадочные сценарии.", timestamp, timestamp,
+            ),
+        )
+        db.execute(
+            "INSERT INTO scope_passports "
+            "(id,scope_kind,parent_scope_id,name,summary,status,metadata_json,created_at,updated_at) "
+            "VALUES (?,?,?,?,?,'active','{}',?,?)",
+            (
+                "scope:task:automation:avito", "task", "scope:subproject:automation", "Авито",
+                "Изолированный контур Авито.", timestamp, timestamp,
+            ),
+        )
+    assert not any(project["name"] == "Авито" for project in projects.list())
+
+    first = continuity.resume("Ядро старт. Авито.")
+    assert first["status"] == "no_active_task"
+    assert first["scope"]["label"] == "Авито"
+    assert first["copy_command"] == "Ядро старт. Авито."
+
+    saved = continuity.transition(
+        scope_label="Авито", branch="codex/automation/avito", worktree="tmp/automation-avito",
+        head="e" * 40, task_name="Авито",
+    )
+    resumed = continuity.resume("Ядро старт. Авито.")
+    assert saved["checkpoint"] == resumed["checkpoint"]
+
+
 def test_unknown_scope_is_blocked(tmp_path: Path) -> None:
     _, _, continuity = fixture(tmp_path)
     with pytest.raises(KnowledgeError, match="not found"):

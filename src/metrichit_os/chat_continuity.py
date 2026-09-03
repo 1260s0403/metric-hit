@@ -74,6 +74,21 @@ class ChatContinuityStore:
                 "project_id": str(parent or item["id"]),
                 "subproject_id": str(item["id"]) if parent else None,
             }
+        with sqlite3.connect(self.path) as db:
+            passports = [
+                row for row in db.execute(
+                    "SELECT id,scope_kind,name FROM scope_passports WHERE status='active'",
+                ).fetchall()
+                if _normal(str(row[2])) == normalized
+            ]
+        if len(passports) > 1:
+            raise KnowledgeError("scope name is ambiguous")
+        if passports:
+            passport_id, scope_kind, name = passports[0]
+            return {
+                "key": _scope_key(f"passport:{passport_id}"), "kind": str(scope_kind), "label": str(name),
+                "project_id": None, "subproject_id": None,
+            }
         raise KnowledgeError("active scope was not found")
 
     @staticmethod
