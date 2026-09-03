@@ -15,6 +15,15 @@ def store(tmp_path):
     return AccountantStore(tmp_path / "accountant.sqlite", now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC))
 
 
+def shared_store(tmp_path):
+    """Create the live migration shape: ten legacy rows owned by one chat."""
+    database_path = tmp_path / "shared-accountant.sqlite"
+    legacy = AccountantStore(database_path, now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC))
+    for index in range(10):
+        legacy.add(101, "income", "100", f"Клиент {index + 1}")
+    return AccountantStore(database_path, now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC))
+
+
 def test_amounts_are_precise_and_positive():
     assert parse_amount("12.345") == 1235
     assert parse_amount("1,20") == 120
@@ -74,6 +83,86 @@ class FakeTransport:
         if method == "sendMessage":
             return {"ok": True, "result": {"message_id": 100 + sum(call[0] == "sendMessage" for call in self.calls)}}
         return {"ok": True, "result": True}
+
+
+def private_message(update_id, user_id, text, username=None):
+    sender = {"id": user_id}
+    if username is not None:
+        sender["username"] = username
+    return {
+        "update_id": update_id,
+        "message": {
+            "chat": {"id": user_id, "type": "private"},
+            "from": sender,
+            "text": text,
+        },
+    }
+
+
+def test_shared_ledger_migrates_legacy_owner_and_persists_two_user_access(tmp_path):
+    accounting_store = shared_store(tmp_path)
+    assert accounting_store.shared_ledger_enabled()
+    assert accounting_store.totals(101) == (100000, 0)
+
+    transport = FakeTransport([
+        private_message(1, 202, "/balance", "Ametric_hit"),
+        private_message(2, 202, "/start", "Ametric_hit"),
+        private_message(3, 202, "/income 25 Новый клиент", "Ametric_hit"),
+        private_message(4, 101, "/balance", "renamed_owner"),
+    ])
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    assert bot.poll_once(timeout=1) == 4
+    sent = [payload for method, payload in transport.calls if method == "sendMessage"]
+    assert sent[0]["text"] == "Доступ к бухгалтерии закрыт."
+    assert "Команды:" in sent[1]["text"]
+    assert sent[2]["text"] == "Доход добавлен: 25.00 ₽ — Новый клиент."
+    assert sent[3]["text"] == "Остаток: 1 025.00 ₽."
+    assert accounting_store.totals(101) == accounting_store.totals(202) == (102500, 0)
+
+    restarted = AccountantStore(accounting_store.database_path)
+    assert restarted.authorize_private_user(202, 202, "changed_username")
+    assert restarted.totals(202) == (102500, 0)
+
+
+def test_shared_ledger_rejects_outsiders_and_prevents_role_rebinding(tmp_path):
+    accounting_store = shared_store(tmp_path)
+    assert accounting_store.authorize_private_user(
+        202, 202, "Ametric_hit", allow_collaborator_binding=True
+    )
+    assert not accounting_store.authorize_private_user(
+        303, 303, "Ametric_hit", allow_collaborator_binding=True
+    )
+    assert not accounting_store.authorize_private_user(
+        404, 404, "outsider", allow_collaborator_binding=True
+    )
+    with pytest.raises(PermissionError):
+        accounting_store.balance_cents(303)
+    with pytest.raises(PermissionError):
+        accounting_store.add(303, "expense", "10", "Чужой расход")
+
+    transport = FakeTransport([
+        private_message(1, 303, "/start", "Ametric_hit"),
+        {
+            "update_id": 2,
+            "callback_query": {
+                "id": "forbidden-callback",
+                "from": {"id": 404, "username": "outsider"},
+                "data": "report:summary",
+                "message": {"message_id": 9, "chat": {"id": 404, "type": "private"}},
+            },
+        },
+    ])
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    assert bot.poll_once(timeout=1) == 2
+    assert transport.calls[1][1]["text"] == "Доступ к бухгалтерии закрыт."
+    assert transport.calls[-1] == (
+        "answerCallbackQuery",
+        {
+            "callback_query_id": "forbidden-callback",
+            "text": "Доступ к бухгалтерии закрыт.",
+            "show_alert": True,
+        },
+    )
 
 
 def test_polling_handles_text_and_skips_non_text_updates(tmp_path):

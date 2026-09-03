@@ -19,6 +19,8 @@ from typing import Callable, Protocol
 from urllib.request import Request, urlopen
 
 EXPENSE_CATEGORIES = ("Бытовые", "Сервисы", "Продвижение", "Выплаты")
+COLLABORATOR_USERNAME = "ametric_hit"
+ACCESS_DENIED_MESSAGE = "Доступ к бухгалтерии закрыт."
 
 
 class TelegramTransport(Protocol):
@@ -36,7 +38,7 @@ class Transaction:
 
 
 class AccountantStore:
-    """Transaction storage scoped by Telegram ``chat_id``."""
+    """Transaction storage with an optional two-user shared ledger."""
 
     def __init__(self, database_path: str | Path, now: Callable[[], datetime] | None = None):
         self.database_path = str(database_path)
@@ -77,6 +79,89 @@ class AccountantStore:
                 "CREATE INDEX IF NOT EXISTS idx_accountant_chat_date "
                 "ON accountant_transactions(chat_id, occurred_at)"
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS accountant_access (
+                    role TEXT PRIMARY KEY CHECK(role IN ('owner', 'collaborator')),
+                    chat_id INTEGER UNIQUE,
+                    expected_username TEXT NOT NULL DEFAULT '',
+                    bound_username TEXT NOT NULL DEFAULT '',
+                    bound_at TEXT
+                )"""
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO accountant_access(role, expected_username) "
+                "VALUES ('collaborator', ?)",
+                (COLLABORATOR_USERNAME,),
+            )
+            owner = connection.execute(
+                "SELECT chat_id FROM accountant_access WHERE role = 'owner'"
+            ).fetchone()
+            if owner is None:
+                legacy_chat_ids = connection.execute(
+                    "SELECT DISTINCT chat_id FROM accountant_transactions ORDER BY chat_id"
+                ).fetchall()
+                if len(legacy_chat_ids) == 1:
+                    connection.execute(
+                        "INSERT INTO accountant_access(role, chat_id, bound_at) VALUES ('owner', ?, ?)",
+                        (int(legacy_chat_ids[0]["chat_id"]), self._now().astimezone(UTC).isoformat()),
+                    )
+
+    def shared_ledger_enabled(self) -> bool:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM accountant_access WHERE role = 'owner' AND chat_id IS NOT NULL"
+            ).fetchone()
+        return row is not None
+
+    def authorize_private_user(
+        self,
+        chat_id: int,
+        user_id: int,
+        username: str | None,
+        *,
+        allow_collaborator_binding: bool = False,
+    ) -> bool:
+        """Authorize a private-chat user and atomically bind the invited username once."""
+        if not self.shared_ledger_enabled():
+            return True
+        if chat_id != user_id:
+            return False
+        normalized_username = (username or "").strip().lstrip("@").casefold()
+        with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT 1 FROM accountant_access WHERE chat_id = ?", (user_id,)
+            ).fetchone()
+            if existing is not None:
+                return True
+            if not allow_collaborator_binding or normalized_username != COLLABORATOR_USERNAME:
+                return False
+            changed = connection.execute(
+                "UPDATE accountant_access SET chat_id = ?, bound_username = ?, bound_at = ? "
+                "WHERE role = 'collaborator' AND chat_id IS NULL AND expected_username = ?",
+                (
+                    user_id,
+                    normalized_username,
+                    self._now().astimezone(UTC).isoformat(),
+                    COLLABORATOR_USERNAME,
+                ),
+            ).rowcount
+            return changed == 1
+
+    def is_authorized(self, chat_id: int) -> bool:
+        if not self.shared_ledger_enabled():
+            return True
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM accountant_access WHERE chat_id = ?", (chat_id,)
+            ).fetchone()
+        return row is not None
+
+    def _scope_filter(self, chat_id: int) -> tuple[str, tuple[object, ...]]:
+        if not self.shared_ledger_enabled():
+            return "chat_id = ?", (chat_id,)
+        if not self.is_authorized(chat_id):
+            raise PermissionError("Telegram user is not allowed to access the shared ledger")
+        return "1 = 1", ()
 
     def add(
         self,
@@ -103,6 +188,7 @@ class AccountantStore:
         cleaned_category = category.strip()
         if kind == "expense" and cleaned_category and cleaned_category not in EXPENSE_CATEGORIES:
             raise ValueError("unknown expense category")
+        self._scope_filter(chat_id)
         with self._connect() as connection:
             connection.execute(
                 "INSERT INTO accountant_transactions(chat_id, kind, amount_cents, label, occurred_at, details, category) "
@@ -112,11 +198,12 @@ class AccountantStore:
         return Transaction(chat_id, kind, cents, cleaned_label, occurred_at, cleaned_details)
 
     def balance_cents(self, chat_id: int) -> int:
+        where, parameters = self._scope_filter(chat_id)
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT COALESCE(SUM(CASE kind WHEN 'income' THEN amount_cents ELSE -amount_cents END), 0) "
-                "AS total FROM accountant_transactions WHERE chat_id = ?",
-                (chat_id,),
+                f"AS total FROM accountant_transactions WHERE {where}",
+                parameters,
             ).fetchone()
         return int(row["total"])
 
@@ -159,15 +246,16 @@ class AccountantStore:
         return [(str(row["value"]), int(row["total"])) for row in rows]
 
     def latest(self, chat_id: int, kind: str, limit: int = 5) -> list[sqlite3.Row]:
-        """Return the most recent operations for one chat only."""
+        """Return the most recent operations visible in the caller's ledger."""
         if kind not in {"income", "expense"}:
             raise ValueError("kind must be income or expense")
+        where, parameters = self._scope_filter(chat_id)
         with self._connect() as connection:
             return connection.execute(
                 "SELECT amount_cents, label, occurred_at, details, category "
-                "FROM accountant_transactions WHERE chat_id = ? AND kind = ? "
+                f"FROM accountant_transactions WHERE {where} AND kind = ? "
                 "ORDER BY occurred_at DESC, id DESC LIMIT ?",
-                (chat_id, kind, limit),
+                (*parameters, kind, limit),
             ).fetchall()
 
     def expense_category_totals(
@@ -183,10 +271,10 @@ class AccountantStore:
         totals = {str(row["category"]): int(row["total"]) for row in rows}
         return [(category, totals.get(category, 0)) for category in EXPENSE_CATEGORIES]
 
-    @staticmethod
-    def _date_filter(chat_id: int, start: str | None, end: str | None) -> tuple[str, tuple[object, ...]]:
-        conditions = ["chat_id = ?"]
-        parameters: list[object] = [chat_id]
+    def _date_filter(self, chat_id: int, start: str | None, end: str | None) -> tuple[str, tuple[object, ...]]:
+        scope, scope_parameters = self._scope_filter(chat_id)
+        conditions = [scope]
+        parameters: list[object] = list(scope_parameters)
         if start:
             validate_date(start)
             conditions.append("occurred_at >= ?")
@@ -590,16 +678,25 @@ class TelegramAccountantBot:
         callback_id = callback.get("id")
         if not isinstance(callback_id, str):
             return False
-        self.transport.call("answerCallbackQuery", {"callback_query_id": callback_id})
         message = callback.get("message")
         data = callback.get("data")
         if not isinstance(message, dict) or not isinstance(data, str):
+            self.transport.call("answerCallbackQuery", {"callback_query_id": callback_id})
             return True
         chat = message.get("chat")
+        sender = callback.get("from")
         message_id = message.get("message_id")
         if not isinstance(chat, dict) or not isinstance(chat.get("id"), int) or not isinstance(message_id, int):
+            self.transport.call("answerCallbackQuery", {"callback_query_id": callback_id})
             return True
         chat_id = chat["id"]
+        if not self._is_allowed_private_user(chat, sender):
+            self.transport.call(
+                "answerCallbackQuery",
+                {"callback_query_id": callback_id, "text": ACCESS_DENIED_MESSAGE, "show_alert": True},
+            )
+            return True
+        self.transport.call("answerCallbackQuery", {"callback_query_id": callback_id})
         if data.startswith("section:"):
             return self._handle_section_callback(chat_id, message_id, data)
         action = data.removeprefix("report:") if data.startswith("report:") else ""
@@ -658,6 +755,29 @@ class TelegramAccountantBot:
             {"chat_id": chat_id, "message_id": message_id, "text": self._render_dashboard(chat_id, state), "reply_markup": self.report_keyboard()},
         )
         return True
+
+    def _is_allowed_private_user(
+        self,
+        chat: dict[str, object],
+        sender: object,
+        *,
+        allow_collaborator_binding: bool = False,
+    ) -> bool:
+        if not self.commands.store.shared_ledger_enabled():
+            return True
+        if chat.get("type") != "private" or not isinstance(sender, dict):
+            return False
+        chat_id = chat.get("id")
+        user_id = sender.get("id")
+        username = sender.get("username")
+        if not isinstance(chat_id, int) or not isinstance(user_id, int):
+            return False
+        return self.commands.store.authorize_private_user(
+            chat_id,
+            user_id,
+            username if isinstance(username, str) else None,
+            allow_collaborator_binding=allow_collaborator_binding,
+        )
 
     def _handle_custom_period(self, chat_id: int, text: str) -> bool:
         state = self._report_states.get(chat_id)
@@ -858,6 +978,23 @@ class TelegramAccountantBot:
                 continue
             chat_id = chat["id"]
             text = message["text"]
+            sender = message.get("from")
+            command = text.strip().split(maxsplit=1)[0].split("@", 1)[0].lower()
+            if not self._is_allowed_private_user(
+                chat,
+                sender,
+                allow_collaborator_binding=command == "/start",
+            ):
+                self.transport.call(
+                    "sendMessage",
+                    {
+                        "chat_id": chat_id,
+                        "text": ACCESS_DENIED_MESSAGE,
+                        "reply_markup": {"remove_keyboard": True},
+                    },
+                )
+                handled += 1
+                continue
             if text in {"Назад в меню", "Отменить и в меню"}:
                 self._return_to_main_menu(chat_id)
                 handled += 1
