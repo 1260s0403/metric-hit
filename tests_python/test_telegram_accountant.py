@@ -218,7 +218,11 @@ def test_expense_dashboard_includes_all_categories_and_custom_period_replaces_da
     )
     assert transport.calls[-1] == (
         "sendMessage",
-        {"chat_id": 5, "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.", "reply_markup": TelegramAccountantBot.reply_keyboard()},
+        {
+            "chat_id": 5,
+            "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.",
+            "reply_markup": TelegramAccountantBot.custom_period_keyboard(),
+        },
     )
     transport.updates = [{"update_id": 4, "message": {"chat": {"id": 5}, "text": "2026-09-01 2026-09-02"}}]
     assert bot.poll_once(timeout=1) == 1
@@ -238,3 +242,130 @@ def test_malformed_or_unknown_callbacks_are_acknowledged_without_editing(tmp_pat
     bot = TelegramAccountantBot(store(tmp_path), transport=transport)
     assert bot.poll_once(timeout=1) == 2
     assert [call[0] for call in transport.calls] == ["getUpdates", "answerCallbackQuery", "answerCallbackQuery"]
+
+
+def test_unknown_report_callback_keeps_custom_period_state(tmp_path):
+    transport = FakeTransport([])
+    bot = TelegramAccountantBot(store(tmp_path), transport=transport)
+    bot._report_states[5] = {"message_id": 10, "awaiting_custom": True}
+    transport.updates = [
+        {
+            "update_id": 1,
+            "callback_query": {
+                "id": "q-unknown-report",
+                "data": "report:unknown",
+                "message": {"message_id": 10, "chat": {"id": 5}},
+            },
+        }
+    ]
+    assert bot.poll_once(timeout=1) == 1
+    assert bot._report_states[5]["awaiting_custom"] is True
+    assert [method for method, _ in transport.calls] == ["getUpdates", "answerCallbackQuery"]
+
+
+def test_report_tabs_and_periods_edit_the_original_dashboard(tmp_path):
+    accounting_store = store(tmp_path)
+    accounting_store.add(9, "income", "100", "Сегодня", "2026-09-02")
+    accounting_store.add(9, "income", "50", "Ранее", "2026-08-30")
+    accounting_store.add(9, "expense", "20", "Реклама", "2026-09-02", category="Продвижение")
+    transport = FakeTransport([{"update_id": 1, "message": {"chat": {"id": 9}, "text": "Отчёты"}}])
+    bot = TelegramAccountantBot(
+        accounting_store, transport=transport, now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC)
+    )
+    bot.poll_once(timeout=1)
+    dashboard_id = bot._report_states[9]["message_id"]
+    actions = ["summary", "income", "expense", "today", "week", "month"]
+    transport.updates = [
+        {
+            "update_id": index + 2,
+            "callback_query": {
+                "id": f"q-{action}",
+                "data": f"report:{action}",
+                "message": {"message_id": dashboard_id, "chat": {"id": 9}},
+            },
+        }
+        for index, action in enumerate(actions)
+    ]
+    assert bot.poll_once(timeout=1) == len(actions)
+    edits = [payload for method, payload in transport.calls if method == "editMessageText"]
+    assert len(edits) == len(actions)
+    assert all(edit["chat_id"] == 9 and edit["message_id"] == dashboard_id for edit in edits)
+    assert "Финансы · За всё время" in edits[0]["text"]
+    assert "Доходы · За всё время" in edits[1]["text"]
+    assert "Расходы · За всё время" in edits[2]["text"]
+    assert "Расходы · Сегодня" in edits[3]["text"]
+    assert "Расходы · Эта неделя" in edits[4]["text"]
+    assert "Расходы · Этот месяц" in edits[5]["text"]
+    assert [method for method, _ in transport.calls[-12:]][::2] == ["answerCallbackQuery"] * len(actions)
+
+
+def test_report_back_removes_inline_dashboard_and_restores_main_keyboard(tmp_path):
+    transport = FakeTransport([{"update_id": 1, "message": {"chat": {"id": 7}, "text": "Отчёты"}}])
+    bot = TelegramAccountantBot(store(tmp_path), transport=transport)
+    bot.poll_once(timeout=1)
+    dashboard_id = bot._report_states[7]["message_id"]
+    bot._flows[7] = {"kind": "income", "step": "amount"}
+    transport.updates = [
+        {
+            "update_id": 2,
+            "callback_query": {
+                "id": "q-back",
+                "data": "report:back",
+                "message": {"message_id": dashboard_id, "chat": {"id": 7}},
+            },
+        }
+    ]
+    assert bot.poll_once(timeout=1) == 1
+    assert 7 not in bot._report_states and 7 not in bot._flows
+    assert transport.calls[-3:] == [
+        ("answerCallbackQuery", {"callback_query_id": "q-back"}),
+        (
+            "editMessageText",
+            {
+                "chat_id": 7,
+                "message_id": dashboard_id,
+                "text": "Возвращаю в главное меню.",
+                "reply_markup": {"inline_keyboard": []},
+            },
+        ),
+        ("sendMessage", {"chat_id": 7, "text": "Главное меню.", "reply_markup": TelegramAccountantBot.reply_keyboard()}),
+    ]
+
+
+def test_back_to_menu_cancels_every_wizard_and_custom_period(tmp_path):
+    steps = ("category", "label", "amount", "date", "manual_date", "details")
+    transport = FakeTransport(
+        [
+            {"update_id": index + 1, "message": {"chat": {"id": index}, "text": "Назад в меню"}}
+            for index in range(1, len(steps) + 2)
+        ]
+    )
+    bot = TelegramAccountantBot(store(tmp_path), transport=transport)
+    for chat_id, step in enumerate(steps, start=1):
+        bot._flows[chat_id] = {"kind": "income", "step": step}
+    bot._report_states[len(steps) + 1] = {"message_id": 999, "awaiting_custom": True}
+    assert bot.poll_once(timeout=1) == len(steps) + 1
+    assert not bot._flows
+    assert not bot._report_states
+    replies = [payload for method, payload in transport.calls if method == "sendMessage"]
+    assert len(replies) == len(steps) + 1
+    assert all(reply["text"] == "Главное меню." for reply in replies)
+    assert all(reply["reply_markup"] == TelegramAccountantBot.reply_keyboard() for reply in replies)
+
+
+def test_all_wizard_keyboards_include_back_to_menu():
+    keyboards = (
+        TelegramAccountantBot.reply_keyboard(),
+        TelegramAccountantBot.date_keyboard(),
+        TelegramAccountantBot.expense_category_keyboard(),
+        TelegramAccountantBot.custom_period_keyboard(),
+    )
+    assert all(
+        any(button["text"] == "Назад в меню" for row in keyboard["keyboard"] for button in row)
+        for keyboard in keyboards
+    )
+    assert any(
+        button["text"] == "Назад в меню"
+        for row in TelegramAccountantBot.report_keyboard()["inline_keyboard"]
+        for button in row
+    )

@@ -310,14 +310,21 @@ class TelegramAccountantBot:
     @staticmethod
     def reply_keyboard() -> dict[str, object]:
         return {
-            "keyboard": [[{"text": "Доход"}, {"text": "Расход"}, {"text": "Отчёты"}]],
+            "keyboard": [
+                [{"text": "Доход"}, {"text": "Расход"}, {"text": "Отчёты"}],
+                [{"text": "Назад в меню"}],
+            ],
             "resize_keyboard": True,
         }
 
     @staticmethod
     def date_keyboard() -> dict[str, object]:
         return {
-            "keyboard": [[{"text": "Сегодня"}, {"text": "Вчера"}], [{"text": "Другая дата"}]],
+            "keyboard": [
+                [{"text": "Сегодня"}, {"text": "Вчера"}],
+                [{"text": "Другая дата"}],
+                [{"text": "Назад в меню"}],
+            ],
             "resize_keyboard": True,
             "one_time_keyboard": True,
         }
@@ -325,7 +332,18 @@ class TelegramAccountantBot:
     @staticmethod
     def expense_category_keyboard() -> dict[str, object]:
         return {
-            "keyboard": [[{"text": category}] for category in EXPENSE_CATEGORIES],
+            "keyboard": [
+                *[[{"text": category}] for category in EXPENSE_CATEGORIES],
+                [{"text": "Назад в меню"}],
+            ],
+            "resize_keyboard": True,
+            "one_time_keyboard": True,
+        }
+
+    @staticmethod
+    def custom_period_keyboard() -> dict[str, object]:
+        return {
+            "keyboard": [[{"text": "Назад в меню"}]],
             "resize_keyboard": True,
             "one_time_keyboard": True,
         }
@@ -345,6 +363,7 @@ class TelegramAccountantBot:
                     {"text": "Месяц", "callback_data": "report:month"},
                 ],
                 [{"text": "Выбрать период", "callback_data": "report:custom"}],
+                [{"text": "Назад в меню", "callback_data": "report:back"}],
             ]
         }
 
@@ -413,15 +432,42 @@ class TelegramAccountantBot:
         if state is None or state.get("message_id") != message_id:
             return True
         action = data.removeprefix("report:") if data.startswith("report:") else ""
+        if action == "back":
+            self._report_states.pop(chat_id, None)
+            self._flows.pop(chat_id, None)
+            self.transport.call(
+                "editMessageText",
+                {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": "Возвращаю в главное меню.",
+                    "reply_markup": {"inline_keyboard": []},
+                },
+            )
+            self.transport.call(
+                "sendMessage",
+                {
+                    "chat_id": chat_id,
+                    "text": "Главное меню.",
+                    "reply_markup": self.reply_keyboard(),
+                },
+            )
+            return True
         if action in {"summary", "income", "expense"}:
+            state["awaiting_custom"] = False
             state["tab"] = action
         elif action in {"today", "week", "month"}:
+            state["awaiting_custom"] = False
             state["start"], state["end"], state["period"] = self._report_period(action)
         elif action == "custom":
             state["awaiting_custom"] = True
             self.transport.call(
                 "sendMessage",
-                {"chat_id": chat_id, "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.", "reply_markup": self.reply_keyboard()},
+                {
+                    "chat_id": chat_id,
+                    "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.",
+                    "reply_markup": self.custom_period_keyboard(),
+                },
             )
             return True
         else:
@@ -441,7 +487,11 @@ class TelegramAccountantBot:
         except ValueError:
             self.transport.call(
                 "sendMessage",
-                {"chat_id": chat_id, "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.", "reply_markup": self.reply_keyboard()},
+                {
+                    "chat_id": chat_id,
+                    "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.",
+                    "reply_markup": self.custom_period_keyboard(),
+                },
             )
             return True
         state.update({"start": start, "end": end, "period": f"{start} — {end}", "awaiting_custom": False})
@@ -475,6 +525,15 @@ class TelegramAccountantBot:
             else self.reply_keyboard()
         )
         return reply, keyboard
+
+    def _return_to_main_menu(self, chat_id: int) -> None:
+        """Cancel an unfinished form or custom report period for one chat."""
+        self._flows.pop(chat_id, None)
+        self._report_states.pop(chat_id, None)
+        self.transport.call(
+            "sendMessage",
+            {"chat_id": chat_id, "text": "Главное меню.", "reply_markup": self.reply_keyboard()},
+        )
 
     def _continue_flow(self, chat_id: int, text: str, flow: dict[str, str]) -> str:
         value = text.strip()
@@ -572,18 +631,24 @@ class TelegramAccountantBot:
             chat = message.get("chat")
             if not isinstance(chat, dict) or not isinstance(chat.get("id"), int):
                 continue
-            if self._handle_custom_period(chat["id"], message["text"]):
+            chat_id = chat["id"]
+            text = message["text"]
+            if text == "Назад в меню":
+                self._return_to_main_menu(chat_id)
                 handled += 1
                 continue
-            reply, reply_markup = self._handle_message(chat["id"], message["text"])
+            if self._handle_custom_period(chat_id, text):
+                handled += 1
+                continue
+            reply, reply_markup = self._handle_message(chat_id, text)
             result = self.transport.call(
                 "sendMessage",
-                {"chat_id": chat["id"], "text": reply, "reply_markup": reply_markup},
+                {"chat_id": chat_id, "text": reply, "reply_markup": reply_markup},
             )
-            if message["text"] == "Отчёты":
+            if text == "Отчёты":
                 sent = result.get("result")
                 if isinstance(sent, dict) and isinstance(sent.get("message_id"), int):
-                    self._report_states[chat["id"]] = self._new_report_state(sent["message_id"])
+                    self._report_states[chat_id] = self._new_report_state(sent["message_id"])
             handled += 1
         return handled
 
