@@ -12,6 +12,9 @@ const metrichitProjectId = '00000000-0000-4000-a000-000000000102';
 const departmentScopeId = 'scope:subproject:automation';
 const departmentProjectId = 'a9f37b82-0ab9-4e7d-83c5-17c6b9136bf0';
 const semanticKey = 'automation.department_registration';
+const avitoScopeId = 'scope:task:automation:avito';
+const avitoApprovedAt = '2026-09-03T00:00:00.000Z';
+const avitoSourceRef = 'direct owner approval 2026-09-03: create isolated Avito scope';
 
 function stableUuid(key) {
   const hex = createHash('sha256').update(`metrichit-automation-department:${key}`).digest('hex');
@@ -41,6 +44,97 @@ function ensureScopedRecord(database, record) {
     record_type: record.recordType, lifecycle_status: 'active', title: record.title,
     content: record.content, source_ref: sourceRef, rule_effect: record.ruleEffect,
   }, `scoped record ${record.semanticKey}`);
+}
+
+function ensureAvitoScopedRecord(database, record) {
+  const existing = database.prepare('SELECT * FROM scoped_memory_records WHERE id=?').get(record.id);
+  if (!existing) {
+    database.prepare(`INSERT INTO scoped_memory_records
+      (id,semantic_key,scope_id,layer,record_type,lifecycle_status,title,content,source_ref,valid_from,supersedes_id,rule_effect,task_types_json,metadata_json,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+      record.id, record.semanticKey, avitoScopeId, record.layer, record.recordType, 'active',
+      record.title, record.content, avitoSourceRef, avitoApprovedAt, null, record.ruleEffect,
+      JSON.stringify(['all']), JSON.stringify({ authority: 'direct_owner_confirmation', platform: 'avito', working_root: 'work/automation/avito' }), avitoApprovedAt, avitoApprovedAt,
+    );
+  }
+  assertFields(database.prepare('SELECT * FROM scoped_memory_records WHERE id=?').get(record.id), {
+    semantic_key: record.semanticKey, scope_id: avitoScopeId, layer: record.layer,
+    record_type: record.recordType, lifecycle_status: 'active', title: record.title,
+    content: record.content, source_ref: avitoSourceRef, rule_effect: record.ruleEffect,
+  }, `Avito scoped record ${record.semanticKey}`);
+}
+
+export function applyAvitoScope(databasePath = defaultDatabase) {
+  const database = new DatabaseSync(databasePath);
+  const created = { scope: 0, scopedRecords: 0, supersededRecords: 0 };
+  const passportMetadata = JSON.stringify({
+    aliases: ['авито', 'avito'],
+    working_root: 'work/automation/avito',
+    platform_access_authorized: false,
+    separate_database: false,
+  });
+  const registrationContent = '«Авито» — активный изолированный дочерний scope MetricHit → Автоматизация. Его единственный разрешённый рабочий корень — work/automation/avito. Память и материалы Авито не смешиваются с Freelance.ru и другими площадками.';
+  const boundaryContent = 'Авито использует только work/automation/avito и собственную scoped memory. Материалы, правила, сессии и доступы Freelance.ru и других площадок не применяются к Авито и не читаются без отдельной прямой зависимости. В этом scope не разрешены доступ к площадке, login, запуск сценариев, scheduler, отправка форм, публикация, секреты, cookies, local session, отдельная база данных, schema или migration.';
+  database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
+  try {
+    if (!database.prepare("SELECT id FROM scope_passports WHERE id=? AND status='active'").get(departmentScopeId)) {
+      throw new Error('Automation scope is not active');
+    }
+    created.scope += Number(database.prepare(`INSERT OR IGNORE INTO scope_passports
+      (id,scope_kind,parent_scope_id,name,summary,status,metadata_json,created_at,updated_at)
+      VALUES (?,'task',?,'Авито',?,'active',?,?,?)`).run(
+      avitoScopeId, departmentScopeId, 'Изолированный контур Авито без доступа к площадке.', passportMetadata, avitoApprovedAt, avitoApprovedAt,
+    ).changes);
+    assertFields(database.prepare('SELECT * FROM scope_passports WHERE id=?').get(avitoScopeId), {
+      scope_kind: 'task', parent_scope_id: departmentScopeId, name: 'Авито',
+      summary: 'Изолированный контур Авито без доступа к площадке.', status: 'active', metadata_json: passportMetadata,
+    }, 'Avito scope passport');
+
+    const existingRecords = database.prepare('SELECT count(*) AS count FROM scoped_memory_records WHERE id IN (?,?)').get(
+      'memory:automation:avito:registration', 'memory:automation:avito:boundaries',
+    ).count;
+    ensureAvitoScopedRecord(database, {
+      id: 'memory:automation:avito:registration', semanticKey: 'automation.avito.registration',
+      layer: 'permanent', recordType: 'decision', ruleEffect: null,
+      title: 'Изолированный scope «Авито»', content: registrationContent,
+    });
+    ensureAvitoScopedRecord(database, {
+      id: 'memory:automation:avito:boundaries', semanticKey: 'automation.avito.isolation',
+      layer: 'permanent', recordType: 'rule', ruleEffect: 'require',
+      title: 'Границы scope «Авито»', content: boundaryContent,
+    });
+    created.scopedRecords = 2 - Number(existingRecords);
+
+    const superseded = database.prepare('SELECT * FROM scoped_memory_records WHERE id=?').get('memory:automation:platform-design');
+    const current = database.prepare('SELECT * FROM scoped_memory_records WHERE id=?').get('memory:automation:platform-design-avito-created');
+    if (!current) {
+      if (!superseded || superseded.lifecycle_status !== 'active') throw new Error('Automation platform design record is not active');
+      database.prepare("UPDATE scoped_memory_records SET lifecycle_status='superseded',updated_at=? WHERE id=? AND lifecycle_status='active'")
+        .run(avitoApprovedAt, superseded.id);
+      database.prepare(`INSERT INTO scoped_memory_records
+        (id,semantic_key,scope_id,layer,record_type,lifecycle_status,title,content,source_ref,valid_from,supersedes_id,rule_effect,task_types_json,metadata_json,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        'memory:automation:platform-design-avito-created', 'automation.platform_scope_design',
+        departmentScopeId, 'working', 'decision', 'active', 'Площадочные направления автоматизации',
+        'Freelance.ru, FL.ru и Kwork остаются будущими самостоятельными направлениями. Авито создан как отдельный активный изолированный scope с рабочим корнем work/automation/avito; доступ к площадке, сценарии и публикация не разрешены.',
+        avitoSourceRef, avitoApprovedAt, superseded.id, null,
+        JSON.stringify(['all']), JSON.stringify({ authority: 'direct_owner_confirmation', avito_scope_id: avitoScopeId }), avitoApprovedAt, avitoApprovedAt,
+      );
+      created.supersededRecords = 1;
+    }
+    assertFields(database.prepare('SELECT * FROM scoped_memory_records WHERE id=?').get('memory:automation:platform-design-avito-created'), {
+      semantic_key: 'automation.platform_scope_design', scope_id: departmentScopeId, layer: 'working', record_type: 'decision', lifecycle_status: 'active',
+      supersedes_id: 'memory:automation:platform-design', source_ref: avitoSourceRef,
+    }, 'Avito platform design evolution');
+
+    database.exec('COMMIT');
+    return { databasePath, avitoScopeId, created };
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
+  } finally {
+    database.close();
+  }
 }
 
 export function applyAutomationDepartment(databasePath = defaultDatabase) {
@@ -132,11 +226,13 @@ export function applyAutomationDepartment(databasePath = defaultDatabase) {
       title: 'Границы автоматизации',
       content: 'Рабочие материалы площадки размещаются только в work/automation/<platform>. Секреты, локальные сессии, токены, cookies и клиентские данные исключены из repository. Login, запуск сценариев, отправка форм и внешняя публикация требуют отдельного утверждённого scope владельца.',
     });
-    ensureScopedRecord(database, {
-      id: 'memory:automation:platform-design', semanticKey: 'automation.platform_scope_design', layer: 'working', recordType: 'decision', ruleEffect: null,
-      title: 'Будущие площадочные направления',
-      content: 'Freelance.ru, FL.ru, Kwork и Avito — будущие самостоятельные рабочие направления отдела. Сейчас они не созданы как scope и не имеют файлов, сценариев или доступов. Для каждой площадки будущая отдельная задача определяет точный scope, изолированную память, разрешённые пути и проверки без изменения других площадок.',
-    });
+    if (!database.prepare('SELECT id FROM scoped_memory_records WHERE id=?').get('memory:automation:platform-design-avito-created')) {
+      ensureScopedRecord(database, {
+        id: 'memory:automation:platform-design', semanticKey: 'automation.platform_scope_design', layer: 'working', recordType: 'decision', ruleEffect: null,
+        title: 'Будущие площадочные направления',
+        content: 'Freelance.ru, FL.ru, Kwork и Avito — будущие самостоятельные рабочие направления отдела. Сейчас они не созданы как scope и не имеют файлов, сценариев или доступов. Для каждой площадки будущая отдельная задача определяет точный scope, изолированную память, разрешённые пути и проверки без изменения других площадок.',
+      });
+    }
     created.scopedRecords = 3 - Number(recordCountBefore);
 
     database.exec('COMMIT');
@@ -150,5 +246,7 @@ export function applyAutomationDepartment(databasePath = defaultDatabase) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  console.log(`Applied automation department: ${JSON.stringify(applyAutomationDepartment(process.argv[2] ? resolve(process.argv[2]) : defaultDatabase))}`);
+  const databasePath = process.argv[2] ? resolve(process.argv[2]) : defaultDatabase;
+  console.log(`Applied automation department: ${JSON.stringify(applyAutomationDepartment(databasePath))}`);
+  console.log(`Applied Avito scope: ${JSON.stringify(applyAvitoScope(databasePath))}`);
 }
