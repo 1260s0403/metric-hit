@@ -24,8 +24,12 @@ def _same(left: Path, right: Path) -> bool:
 
 
 def _git(cwd: Path, *arguments: str) -> str:
+    # Worktrees can be created by an elevated process and resumed by the
+    # desktop process.  Do not change the user's global Git configuration:
+    # trust only this resolved path for this one Git invocation.
     result = subprocess.run(
-        ["git", "-C", str(cwd), *arguments], text=True, encoding="utf-8",
+        ["git", "-c", f"safe.directory={cwd}", "-C", str(cwd), *arguments],
+        text=True, encoding="utf-8",
         capture_output=True, check=False,
     )
     if result.returncode:

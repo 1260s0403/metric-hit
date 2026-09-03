@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+import metrichit_os.isolated_worktree as isolated_worktree
 from metrichit_os.isolated_worktree import IsolatedWorktree, scope_slug
 from metrichit_os.knowledge_store import KnowledgeError
 
@@ -62,3 +63,19 @@ def test_rejects_canonical_and_non_direct_managed_paths(tmp_path: Path) -> None:
     service = IsolatedWorktree(canonical, root)
     with pytest.raises(KnowledgeError, match="isolated"):
         service.verify(canonical, "codex/test", "f" * 40)
+
+
+def test_git_allows_only_the_resolved_invocation_directory(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    worktree = (tmp_path / "managed" / "scope").resolve()
+    captured: list[list[str]] = []
+
+    def fake_run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(isolated_worktree.subprocess, "run", fake_run)
+
+    assert isolated_worktree._git(worktree, "status", "--porcelain") == "ok"
+    assert captured == [[
+        "git", "-c", f"safe.directory={worktree}", "-C", str(worktree), "status", "--porcelain",
+    ]]
