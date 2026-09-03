@@ -38,16 +38,36 @@ def test_transition_saves_checkpoint_and_resume_is_read_only(tmp_path: Path) -> 
         assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == before
 
 
-def test_strategy_and_builtin_scopes_use_copyable_russian_commands(tmp_path: Path) -> None:
+def test_strategy_and_telegram_direction_use_copyable_russian_commands(tmp_path: Path) -> None:
     _, _, continuity = fixture(tmp_path)
     strategy = continuity.transition(scope_label="Strategy", branch="codex/strategy", worktree="workspace", head="b" * 40)
     assert strategy["copy_command"] == "Ядро старт."
     assert continuity.resume("Ядро старт.")["status"] == "resuming"
-    telegram = continuity.resume("Ядро старт. ТГ-бот.")
+    telegram = continuity.resume("Ядро старт. ТГ-боты.")
     assert telegram["status"] == "no_active_task"
     assert telegram["scope"]["kind"] == "workflow"
-    assert telegram["scope"]["label"] == "ТГ-бот"
-    assert telegram["copy_command"] == "Ядро старт. ТГ-бот."
+    assert telegram["scope"]["label"] == "ТГ-боты"
+    assert telegram["copy_command"] == "Ядро старт. ТГ-боты."
+    assert continuity.resume("Ядро старт. ТГ-бот.")["scope"]["key"] == telegram["scope"]["key"]
+
+
+def test_telegram_bots_keep_independent_checkpoints(tmp_path: Path) -> None:
+    _, _, continuity = fixture(tmp_path)
+    finance = continuity.transition(
+        scope_label="ТГ-боты. Финансы", branch="codex/telegram-finance", worktree="tmp/telegram-finance",
+        head="c" * 40, task_name="Финансовый бот",
+    )
+    support = continuity.transition(
+        scope_label="ТГ-боты. Поддержка", branch="codex/telegram-support", worktree="tmp/telegram-support",
+        head="d" * 40, task_name="Бот поддержки",
+    )
+    assert finance["copy_command"] == "Ядро старт. ТГ-боты. Финансы."
+    assert support["copy_command"] == "Ядро старт. ТГ-боты. Поддержка."
+    resumed_finance = continuity.resume("Ядро старт. ТГ-боты. Финансы.")
+    resumed_support = continuity.resume("Ядро старт. ТГ-боты. Поддержка.")
+    assert resumed_finance["checkpoint"]["branch"] == "codex/telegram-finance"
+    assert resumed_support["checkpoint"]["branch"] == "codex/telegram-support"
+    assert resumed_finance["scope"]["key"] != resumed_support["scope"]["key"]
 
 
 def test_unknown_scope_is_blocked(tmp_path: Path) -> None:

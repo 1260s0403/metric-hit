@@ -11,7 +11,8 @@ from .knowledge_store import KnowledgeError
 from .project_store import ProjectStore
 
 
-BUILTIN_SCOPES = {"тг бот": "ТГ-бот", "редакция": "Редакция"}
+BUILTIN_SCOPES = {"редакция": "Редакция"}
+TELEGRAM_DIRECTION = "ТГ-боты"
 
 
 def _utc() -> str:
@@ -42,6 +43,21 @@ class ChatContinuityStore:
         normalized = _normal(label)
         if normalized in {"strategy", "стратегия", "ядро"}:
             return {"key": _scope_key("strategy"), "kind": "strategy", "label": "Strategy", "project_id": None, "subproject_id": None}
+        telegram_parts = [part.strip() for part in re.split(r"\s*\.\s*", label) if part.strip()]
+        if telegram_parts and _normal(telegram_parts[0]) in {"тг бот", "тг боты"}:
+            if len(telegram_parts) > 2:
+                raise KnowledgeError("use: Ядро старт. ТГ-боты. Название.")
+            bot_name = telegram_parts[1] if len(telegram_parts) == 2 else None
+            if bot_name:
+                return {
+                    "key": _scope_key(f"workflow:telegram-bots:{_normal(bot_name)}"),
+                    "kind": "telegram_bot", "label": f"{TELEGRAM_DIRECTION}. {bot_name}",
+                    "project_id": None, "subproject_id": None,
+                }
+            return {
+                "key": _scope_key("workflow:telegram-bots"), "kind": "workflow",
+                "label": TELEGRAM_DIRECTION, "project_id": None, "subproject_id": None,
+            }
         display = BUILTIN_SCOPES.get(normalized)
         search = "Потсты/Статьи" if normalized == "редакция" else label
         matches = [
@@ -58,8 +74,6 @@ class ChatContinuityStore:
                 "project_id": str(parent or item["id"]),
                 "subproject_id": str(item["id"]) if parent else None,
             }
-        if display == "ТГ-бот":
-            return {"key": _scope_key("workflow:telegram-bot"), "kind": "workflow", "label": display, "project_id": None, "subproject_id": None}
         raise KnowledgeError("active scope was not found")
 
     @staticmethod
