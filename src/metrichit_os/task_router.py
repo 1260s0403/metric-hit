@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from pathlib import Path
+from uuid import NAMESPACE_URL, uuid5
 
 from .knowledge_store import KnowledgeError
 from .project_store import ProjectStore
@@ -51,4 +52,20 @@ def route_project_task(store: ProjectStore, *, project_name: str, task: str, wor
         "requires_resource_declaration": True,
         "creates_worktree": False,
         "next_step": "declare exact paths, SQLite and shared resources before claiming a writer lease",
+    }
+
+
+def project_task_scope(store: ProjectStore, *, project_name: str, task: str) -> dict[str, object]:
+    """Resolve one registered project task to its stable parallel chat identity."""
+    route = route_project_task(store, project_name=project_name, task=task)
+    project = route["project"]
+    normalized_task = _normal(str(route["task"]))
+    return {
+        "key": str(uuid5(NAMESPACE_URL, f"metrichit-project-task:{project['id']}:{normalized_task}")),
+        "kind": "project_task",
+        "label": f"Проект «{project['name']}»: {route['task']}",
+        "project_id": project["id"],
+        "subproject_id": project["subproject_id"],
+        "task_name": route["task"],
+        "branch": route["branch"],
     }

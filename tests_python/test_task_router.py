@@ -7,7 +7,7 @@ import pytest
 
 from metrichit_os.knowledge_store import KnowledgeError
 from metrichit_os.project_store import ProjectStore
-from metrichit_os.task_router import parse_short_task_command, route_project_task
+from metrichit_os.task_router import parse_short_task_command, project_task_scope, route_project_task
 
 
 def database(tmp_path: Path) -> Path:
@@ -33,3 +33,14 @@ def test_short_command_rejects_unknown_or_incomplete_project(tmp_path: Path) -> 
         parse_short_task_command("Работаем с лендингом")
     with pytest.raises(KnowledgeError, match="not found"):
         route_project_task(projects, project_name="Лендинг", task="тарифы")
+
+
+def test_project_task_scope_is_stable_per_normalized_task(tmp_path: Path) -> None:
+    projects = ProjectStore(database(tmp_path))
+    landing, _ = projects.create(name="Лендинг", description="")
+    first = project_task_scope(projects, project_name="Лендинг", task="Добавь блок тарифов")
+    same = project_task_scope(projects, project_name="лендинг", task="добавь   блок тарифов")
+    second = project_task_scope(projects, project_name="Лендинг", task="Добавь FAQ")
+    assert first["key"] == same["key"]
+    assert first["key"] != second["key"]
+    assert first["project_id"] == landing["id"]

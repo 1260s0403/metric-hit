@@ -10,6 +10,7 @@ from uuid import NAMESPACE_URL, uuid4, uuid5
 from .knowledge_store import KnowledgeError
 from .isolated_worktree import IsolatedWorktree
 from .project_store import ProjectStore
+from .task_router import parse_short_task_command, project_task_scope
 
 
 BUILTIN_SCOPES = {"редакция": "Редакция"}
@@ -44,6 +45,9 @@ class ChatContinuityStore:
         normalized = _normal(label)
         if normalized in {"strategy", "стратегия", "ядро"}:
             return {"key": _scope_key("strategy"), "kind": "strategy", "label": "Strategy", "project_id": None, "subproject_id": None}
+        if normalized.startswith("проект "):
+            project_name, task = parse_short_task_command(label)
+            return project_task_scope(self.projects, project_name=project_name, task=task)
         telegram_parts = [part.strip() for part in re.split(r"\s*\.\s*", label) if part.strip()]
         if telegram_parts and _normal(telegram_parts[0]) in {"тг бот", "тг боты"}:
             if len(telegram_parts) > 2:
@@ -146,6 +150,26 @@ class ChatContinuityStore:
                 (str(uuid4()), command, json.dumps(checkpoint, ensure_ascii=False, sort_keys=True), timestamp, timestamp, timestamp, scope["key"]),
             )
         return {"status": "checkpoint_saved", "checkpoint": checkpoint, "copy_command": command}
+
+    def prepare_parallel_start(self, *, text: str, canonical_worktree: str,
+                               worktree_root: str, base: str | None = None) -> dict[str, object]:
+        """Prepare the managed workspace required by one fresh parallel work chat."""
+        scope_label = parse_start_command(text)
+        scope = self._scope(scope_label)
+        if scope["kind"] not in {"telegram_bot", "project_task"}:
+            raise KnowledgeError(
+                "parallel start supports: Ядро старт. ТГ-боты. Имя. or Ядро старт. Проект «Название»: задача"
+            )
+        prepared = IsolatedWorktree(canonical_worktree, worktree_root).prepare(
+            scope_key=str(scope["key"]), branch=str(scope["branch"]) if scope.get("branch") else None,
+            base=base,
+        )
+        return self.transition(
+            scope_label=scope_label, branch=prepared["branch"],
+            canonical_worktree=prepared["canonical_worktree"],
+            execution_worktree=prepared["execution_worktree"], head=prepared["head"],
+            task_name=str(scope.get("task_name") or scope["label"]),
+        )
 
     def resume(self, command: str) -> dict[str, object]:
         scope = self._scope(parse_start_command(command))

@@ -188,6 +188,12 @@ def workflow_parser() -> argparse.ArgumentParser:
     workspace_prepare.add_argument("--base")
     workspace_prepare.add_argument("--task")
     workspace_prepare.add_argument("--context-pack")
+    parallel_start = subparsers.add_parser("chat-parallel-start")
+    parallel_start.add_argument("--db", required=True)
+    parallel_start.add_argument("--text", required=True)
+    parallel_start.add_argument("--canonical-worktree", required=True)
+    parallel_start.add_argument("--worktree-root", required=True)
+    parallel_start.add_argument("--base")
     resume = subparsers.add_parser("chat-resume")
     resume.add_argument("--db", required=True)
     resume.add_argument("--text", required=True)
@@ -318,7 +324,7 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         print_json(storage.import_package(Path(arguments.package)))
         return 0
     database_path = Path(arguments.db)
-    if arguments.command in {"chat-transition", "chat-resume", "chat-workspace-prepare"}:
+    if arguments.command in {"chat-transition", "chat-resume", "chat-workspace-prepare", "chat-parallel-start"}:
         databases = RuntimeDatabases.resolve(database_path)
         projects = ProjectStore(databases.central, tuple(path for _, path in databases.projects))
         continuity = ChatContinuityStore(databases.central, projects)
@@ -338,6 +344,11 @@ def run_workflow_command(arguments_list: list[str]) -> int:
                 scope_label=arguments.scope, branch=prepared["branch"],
                 canonical_worktree=prepared["canonical_worktree"], execution_worktree=prepared["execution_worktree"],
                 head=prepared["head"], task_name=arguments.task, context_pack_id=arguments.context_pack,
+            ))
+        elif arguments.command == "chat-parallel-start":
+            print_json(continuity.prepare_parallel_start(
+                text=arguments.text, canonical_worktree=arguments.canonical_worktree,
+                worktree_root=arguments.worktree_root, base=arguments.base,
             ))
         else:
             print_json(continuity.resume(arguments.text))

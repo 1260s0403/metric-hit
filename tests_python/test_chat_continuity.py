@@ -103,3 +103,43 @@ def test_cli_prepares_workspace_and_immediately_saves_checkpoint(tmp_path: Path,
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "checkpoint_saved"
     assert continuity.resume("Ядро старт. Лендинг.")["status"] == "resuming"
+
+
+def test_parallel_start_isolates_each_telegram_bot(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path, _, continuity = fixture(tmp_path)
+    canonical, root = repository(tmp_path)
+    for bot in ("Финансы", "Поддержка"):
+        assert cli.run_workflow_command([
+            "chat-parallel-start", "--db", str(path), "--text", f"Ядро старт. ТГ-боты. {bot}.",
+            "--canonical-worktree", str(canonical), "--worktree-root", str(root),
+        ]) == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "checkpoint_saved"
+        assert continuity.resume(f"Ядро старт. ТГ-боты. {bot}.")["status"] == "resuming"
+    finance = continuity.resume("Ядро старт. ТГ-боты. Финансы.")
+    support = continuity.resume("Ядро старт. ТГ-боты. Поддержка.")
+    assert finance["execution_worktree"] != support["execution_worktree"]
+
+
+def test_parallel_start_isolates_named_project_tasks_and_rejects_unknown(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path, _, continuity = fixture(tmp_path)
+    canonical, root = repository(tmp_path)
+    commands = (
+        "Ядро старт. Проект «Лендинг»: добавь блок тарифов.",
+        "Ядро старт. Проект «Лендинг»: добавь FAQ.",
+    )
+    worktrees: list[str] = []
+    for command in commands:
+        assert cli.run_workflow_command([
+            "chat-parallel-start", "--db", str(path), "--text", command,
+            "--canonical-worktree", str(canonical), "--worktree-root", str(root),
+        ]) == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["copy_command"] == command
+        worktrees.append(continuity.resume(command)["execution_worktree"])
+    assert worktrees[0] != worktrees[1]
+    with pytest.raises(KnowledgeError, match="not found"):
+        cli.run_workflow_command([
+            "chat-parallel-start", "--db", str(path), "--text", "Ядро старт. Проект «Нет»: задача.",
+            "--canonical-worktree", str(canonical), "--worktree-root", str(root),
+        ])
