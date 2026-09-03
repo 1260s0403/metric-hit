@@ -104,16 +104,17 @@ def test_bot_requires_token_without_injected_transport(tmp_path, monkeypatch):
 def test_income_button_flow_saves_client_date_and_top_up_type(tmp_path):
     transport = FakeTransport([
         {"update_id": 1, "message": {"chat": {"id": 9}, "text": "Доход"}},
-        {"update_id": 2, "message": {"chat": {"id": 9}, "text": "@client"}},
-        {"update_id": 3, "message": {"chat": {"id": 9}, "text": "1250.50"}},
-        {"update_id": 4, "message": {"chat": {"id": 9}, "text": "Другая дата"}},
-        {"update_id": 5, "message": {"chat": {"id": 9}, "text": "2026-08-31"}},
-        {"update_id": 6, "message": {"chat": {"id": 9}, "text": "Перевод"}},
-        {"update_id": 7, "message": {"chat": {"id": 9}, "text": "Отчёты"}},
+        {"update_id": 2, "callback_query": {"id": "add", "data": "section:income:add", "message": {"message_id": 101, "chat": {"id": 9}}}},
+        {"update_id": 3, "message": {"chat": {"id": 9}, "text": "@client"}},
+        {"update_id": 4, "message": {"chat": {"id": 9}, "text": "1250.50"}},
+        {"update_id": 5, "message": {"chat": {"id": 9}, "text": "Другая дата"}},
+        {"update_id": 6, "message": {"chat": {"id": 9}, "text": "2026-08-31"}},
+        {"update_id": 7, "message": {"chat": {"id": 9}, "text": "Перевод"}},
+        {"update_id": 8, "message": {"chat": {"id": 9}, "text": "Отчёты"}},
     ])
     accounting_store = store(tmp_path)
     bot = TelegramAccountantBot(accounting_store, transport=transport)
-    assert bot.poll_once(timeout=1) == 7
+    assert bot.poll_once(timeout=1) == 8
     assert transport.calls[-2][1]["text"] == "Доход добавлен: 1 250.50 ₽ — @client (Перевод), дата 2026-08-31."
     assert transport.calls[-1][1]["text"] == (
         "Финансы · За всё время\n\nБаланс  1 250.50 ₽\nДоходы  1 250.50 ₽\n"
@@ -129,18 +130,20 @@ def test_expense_flow_is_isolated_between_chats(tmp_path):
     transport = FakeTransport([
         {"update_id": 1, "message": {"chat": {"id": 1}, "text": "Расход"}},
         {"update_id": 2, "message": {"chat": {"id": 2}, "text": "Расход"}},
-        {"update_id": 3, "message": {"chat": {"id": 1}, "text": "Продвижение"}},
-        {"update_id": 4, "message": {"chat": {"id": 2}, "text": "Сервисы"}},
-        {"update_id": 5, "message": {"chat": {"id": 1}, "text": "Реклама"}},
-        {"update_id": 6, "message": {"chat": {"id": 2}, "text": "Хостинг"}},
-        {"update_id": 7, "message": {"chat": {"id": 1}, "text": "300"}},
-        {"update_id": 8, "message": {"chat": {"id": 2}, "text": "50"}},
-        {"update_id": 9, "message": {"chat": {"id": 1}, "text": "Сегодня"}},
-        {"update_id": 10, "message": {"chat": {"id": 2}, "text": "Вчера"}},
+        {"update_id": 3, "callback_query": {"id": "add-1", "data": "section:expense:add", "message": {"message_id": 101, "chat": {"id": 1}}}},
+        {"update_id": 4, "callback_query": {"id": "add-2", "data": "section:expense:add", "message": {"message_id": 102, "chat": {"id": 2}}}},
+        {"update_id": 5, "message": {"chat": {"id": 1}, "text": "Продвижение"}},
+        {"update_id": 6, "message": {"chat": {"id": 2}, "text": "Сервисы"}},
+        {"update_id": 7, "message": {"chat": {"id": 1}, "text": "Реклама"}},
+        {"update_id": 8, "message": {"chat": {"id": 2}, "text": "Хостинг"}},
+        {"update_id": 9, "message": {"chat": {"id": 1}, "text": "300"}},
+        {"update_id": 10, "message": {"chat": {"id": 2}, "text": "50"}},
+        {"update_id": 11, "message": {"chat": {"id": 1}, "text": "Сегодня"}},
+        {"update_id": 12, "message": {"chat": {"id": 2}, "text": "Вчера"}},
     ])
     accounting_store = store(tmp_path)
     bot = TelegramAccountantBot(accounting_store, transport=transport)
-    assert bot.poll_once(timeout=1) == 10
+    assert bot.poll_once(timeout=1) == 12
     assert accounting_store.breakdown(1, "expense") == [("Реклама", 30000)]
     assert accounting_store.breakdown(2, "expense") == [("Хостинг", 5000)]
     assert accounting_store.expense_category_totals(1) == [("Бытовые", 0), ("Сервисы", 0), ("Продвижение", 30000), ("Выплаты", 0)]
@@ -149,15 +152,17 @@ def test_expense_flow_is_isolated_between_chats(tmp_path):
 def test_date_buttons_save_current_or_previous_date_and_restore_main_keyboard(tmp_path):
     transport = FakeTransport([
         {"update_id": 1, "message": {"chat": {"id": 1}, "text": "Доход"}},
-        {"update_id": 2, "message": {"chat": {"id": 1}, "text": "@client"}},
-        {"update_id": 3, "message": {"chat": {"id": 1}, "text": "100"}},
-        {"update_id": 4, "message": {"chat": {"id": 1}, "text": "Сегодня"}},
-        {"update_id": 5, "message": {"chat": {"id": 1}, "text": "Перевод"}},
-        {"update_id": 6, "message": {"chat": {"id": 2}, "text": "Расход"}},
-        {"update_id": 7, "message": {"chat": {"id": 2}, "text": "Продвижение"}},
-        {"update_id": 8, "message": {"chat": {"id": 2}, "text": "Реклама"}},
-        {"update_id": 9, "message": {"chat": {"id": 2}, "text": "25"}},
-        {"update_id": 10, "message": {"chat": {"id": 2}, "text": "Вчера"}},
+        {"update_id": 2, "callback_query": {"id": "add-income", "data": "section:income:add", "message": {"message_id": 101, "chat": {"id": 1}}}},
+        {"update_id": 3, "message": {"chat": {"id": 1}, "text": "@client"}},
+        {"update_id": 4, "message": {"chat": {"id": 1}, "text": "100"}},
+        {"update_id": 5, "message": {"chat": {"id": 1}, "text": "Сегодня"}},
+        {"update_id": 6, "message": {"chat": {"id": 1}, "text": "Перевод"}},
+        {"update_id": 7, "message": {"chat": {"id": 2}, "text": "Расход"}},
+        {"update_id": 8, "callback_query": {"id": "add-expense", "data": "section:expense:add", "message": {"message_id": 108, "chat": {"id": 2}}}},
+        {"update_id": 9, "message": {"chat": {"id": 2}, "text": "Продвижение"}},
+        {"update_id": 10, "message": {"chat": {"id": 2}, "text": "Реклама"}},
+        {"update_id": 11, "message": {"chat": {"id": 2}, "text": "25"}},
+        {"update_id": 12, "message": {"chat": {"id": 2}, "text": "Вчера"}},
     ])
     accounting_store = store(tmp_path)
     bot = TelegramAccountantBot(
@@ -165,9 +170,9 @@ def test_date_buttons_save_current_or_previous_date_and_restore_main_keyboard(tm
         transport=transport,
         now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC),
     )
-    assert bot.poll_once(timeout=1) == 10
-    assert transport.calls[3][1]["reply_markup"] == TelegramAccountantBot.date_keyboard()
-    assert transport.calls[4][1]["reply_markup"] == TelegramAccountantBot.reply_keyboard()
+    assert bot.poll_once(timeout=1) == 12
+    sent = [payload for method, payload in transport.calls if method == "sendMessage"]
+    assert any(payload["reply_markup"] == TelegramAccountantBot.date_keyboard() for payload in sent)
     assert transport.calls[-1][1]["reply_markup"] == TelegramAccountantBot.reply_keyboard()
     assert accounting_store.breakdown(1, "income", "2026-09-02", "2026-09-02") == [("@client", 10000)]
     assert accounting_store.breakdown(2, "expense", "2026-09-01", "2026-09-01") == [("Реклама", 2500)]
@@ -478,13 +483,14 @@ def test_back_to_menu_cancels_every_wizard_and_custom_period(tmp_path):
 
 def test_all_wizard_keyboards_include_back_to_menu():
     keyboards = (
-        TelegramAccountantBot.reply_keyboard(),
         TelegramAccountantBot.date_keyboard(),
         TelegramAccountantBot.expense_category_keyboard(),
-        TelegramAccountantBot.custom_period_keyboard(),
+        TelegramAccountantBot.wizard_keyboard(),
     )
     assert all(
-        any(button["text"] == "Назад в меню" for row in keyboard["keyboard"] for button in row)
+        {"Назад", "Отменить и в меню"}.issubset(
+            {button["text"] for row in keyboard["keyboard"] for button in row}
+        )
         for keyboard in keyboards
     )
     assert any(
@@ -492,3 +498,137 @@ def test_all_wizard_keyboards_include_back_to_menu():
         for row in TelegramAccountantBot.report_keyboard()["inline_keyboard"]
         for button in row
     )
+
+
+def test_income_and_expense_sections_have_exact_root_buttons_and_month_metrics(tmp_path):
+    accounting_store = store(tmp_path)
+    accounting_store.add(7, "income", "100", "@one", "2026-09-01", details="СБП")
+    accounting_store.add(7, "income", "50", "@two", "2026-09-02", details="Карта")
+    accounting_store.add(7, "expense", "20", "Реклама", "2026-09-02", category="Продвижение")
+    transport = FakeTransport([
+        {"update_id": 1, "message": {"chat": {"id": 7}, "text": "Доход"}},
+        {"update_id": 2, "message": {"chat": {"id": 7}, "text": "Расход"}},
+    ])
+    bot = TelegramAccountantBot(
+        accounting_store, transport=transport, now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC)
+    )
+    assert bot.poll_once(timeout=1) == 2
+    sections = [payload for method, payload in transport.calls if method == "sendMessage"]
+    assert sections[0]["text"] == "Доходы · Этот месяц\n\nВсего: 150.00 ₽\nКлиентов: 2"
+    assert sections[1]["text"] == "Расходы · Этот месяц\n\nВсего: 20.00 ₽\nКрупнее всего: Продвижение"
+    assert [row[0]["text"] for row in sections[0]["reply_markup"]["inline_keyboard"]] == [
+        "Добавить доход", "Последние поступления", "По клиентам", "По способу оплаты", "Назад в меню"
+    ]
+    assert [row[0]["text"] for row in sections[1]["reply_markup"]["inline_keyboard"]] == [
+        "Добавить расход", "Последние расходы", "По категориям", "По получателям", "Назад в меню"
+    ]
+
+
+def test_every_section_view_edits_same_message_with_real_chat_scoped_data(tmp_path):
+    accounting_store = store(tmp_path)
+    accounting_store.add(7, "income", "100", "@client", "2026-09-02", details="СБП")
+    accounting_store.add(7, "income", "25", "@client", "2026-09-01")
+    accounting_store.add(7, "expense", "30", "Яндекс", "2026-09-02", category="Сервисы")
+    accounting_store.add(8, "income", "999", "Чужой", "2026-09-02", details="Чужой способ")
+    accounting_store.add(8, "expense", "999", "Чужой расход", "2026-09-02", category="Выплаты")
+    callbacks = [
+        ("income", "latest"), ("income", "labels"), ("income", "details"),
+        ("expense", "latest"), ("expense", "categories"), ("expense", "labels"),
+    ]
+    transport = FakeTransport([
+        {
+            "update_id": index,
+            "callback_query": {
+                "id": f"q-{kind}-{view}",
+                "data": f"section:{kind}:{view}",
+                "message": {"message_id": 500 if kind == "income" else 600, "chat": {"id": 7}},
+            },
+        }
+        for index, (kind, view) in enumerate(callbacks, start=1)
+    ])
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    assert bot.poll_once(timeout=1) == len(callbacks)
+    edits = [payload for method, payload in transport.calls if method == "editMessageText"]
+    assert [edit["message_id"] for edit in edits] == [500, 500, 500, 600, 600, 600]
+    combined = "\n".join(str(edit["text"]) for edit in edits)
+    assert "2026-09-02 · 100.00 ₽ · @client · СБП" in combined
+    assert "@client — 125.00 ₽" in combined
+    assert "СБП — 100.00 ₽" in combined and "Не указан — 25.00 ₽" in combined
+    assert "2026-09-02 · 30.00 ₽ · Яндекс · Сервисы" in combined
+    assert all(category in combined for category in ("Бытовые", "Сервисы", "Продвижение", "Выплаты"))
+    assert "Яндекс — 30.00 ₽" in combined
+    assert "Чужой" not in combined and "999.00 ₽" not in combined
+    assert all(
+        [row[0]["text"] for row in edit["reply_markup"]["inline_keyboard"]] == ["Назад", "Назад в меню"]
+        for edit in edits
+    )
+    assert len([method for method, _ in transport.calls if method == "answerCallbackQuery"]) == len(callbacks)
+
+
+def test_section_callbacks_recover_after_restart_and_active_child_button_is_idempotent(tmp_path):
+    accounting_store = store(tmp_path)
+    accounting_store.add(4, "income", "10", "Клиент", "2026-09-02", details="СБП")
+    transport = FakeTransport([
+        {"update_id": 1, "callback_query": {"id": "latest", "data": "section:income:latest", "message": {"message_id": 404, "chat": {"id": 4}}}},
+        {"update_id": 2, "callback_query": {"id": "latest-again", "data": "section:income:latest", "message": {"message_id": 404, "chat": {"id": 4}}}},
+        {"update_id": 3, "callback_query": {"id": "root", "data": "section:income:root", "message": {"message_id": 404, "chat": {"id": 4}}}},
+    ])
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    assert bot.poll_once(timeout=1) == 3
+    assert len([method for method, _ in transport.calls if method == "answerCallbackQuery"]) == 3
+    edits = [payload for method, payload in transport.calls if method == "editMessageText"]
+    assert len(edits) == 2
+    assert "Последние 5" in edits[0]["text"]
+    assert "Доходы · Этот месяц" in edits[1]["text"]
+
+
+def test_section_back_to_menu_clears_states_and_restores_main_keyboard(tmp_path):
+    transport = FakeTransport([
+        {"update_id": 1, "callback_query": {"id": "back", "data": "section:expense:back", "message": {"message_id": 55, "chat": {"id": 4}}}},
+    ])
+    bot = TelegramAccountantBot(store(tmp_path), transport=transport)
+    bot._flows[4] = {"kind": "expense", "step": "label"}
+    bot._report_states[4] = {"message_id": 12}
+    bot._section_states[4] = {"message_id": 55, "kind": "expense", "view": "root"}
+    assert bot.poll_once(timeout=1) == 1
+    assert 4 not in bot._flows and 4 not in bot._report_states and 4 not in bot._section_states
+    assert transport.calls[-2][1]["reply_markup"] == {"inline_keyboard": []}
+    assert transport.calls[-1] == (
+        "sendMessage",
+        {"chat_id": 4, "text": "Главное меню.", "reply_markup": TelegramAccountantBot.reply_keyboard()},
+    )
+
+
+def test_wizard_backtracks_retains_values_and_cancel_never_saves_incomplete_operation(tmp_path):
+    accounting_store = store(tmp_path)
+    transport = FakeTransport([])
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    bot._section_states[3] = {"message_id": 300, "kind": "income", "view": "root"}
+    bot._flows[3] = {
+        "kind": "income", "step": "details", "label": "@client", "amount": "100",
+        "date": "2026-09-02", "origin_kind": "income", "origin_message_id": 300,
+    }
+    transport.updates = [
+        {"update_id": 1, "message": {"chat": {"id": 3}, "text": "Назад"}},
+        {"update_id": 2, "message": {"chat": {"id": 3}, "text": "Назад"}},
+        {"update_id": 3, "message": {"chat": {"id": 3}, "text": "Назад"}},
+    ]
+    assert bot.poll_once(timeout=1) == 3
+    assert bot._flows[3]["step"] == "label"
+    assert bot._flows[3]["amount"] == "100" and bot._flows[3]["date"] == "2026-09-02"
+    transport.updates = [
+        {"update_id": 4, "message": {"chat": {"id": 3}, "text": "Назад"}},
+    ]
+    assert bot.poll_once(timeout=1) == 1
+    assert 3 not in bot._flows
+    assert accounting_store.totals(3) == (0, 0)
+    assert transport.calls[-1][1]["reply_markup"] == TelegramAccountantBot.reply_keyboard()
+
+    bot._flows[3] = {"kind": "expense", "step": "amount", "category": "Сервисы", "label": "Хостинг"}
+    bot._report_states[3] = {"message_id": 999, "awaiting_custom": True}
+    transport.updates = [
+        {"update_id": 5, "message": {"chat": {"id": 3}, "text": "Отменить и в меню"}},
+    ]
+    assert bot.poll_once(timeout=1) == 1
+    assert 3 not in bot._flows and 3 not in bot._section_states and 3 not in bot._report_states
+    assert accounting_store.totals(3) == (0, 0)

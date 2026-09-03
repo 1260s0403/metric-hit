@@ -142,6 +142,34 @@ class AccountantStore:
             ).fetchall()
         return [(str(row["label"]), int(row["total"])) for row in rows]
 
+    def details_breakdown(
+        self, chat_id: int, kind: str, start: str | None = None, end: str | None = None
+    ) -> list[tuple[str, int]]:
+        """Aggregate operations by their optional details value."""
+        if kind not in {"income", "expense"}:
+            raise ValueError("kind must be income or expense")
+        where, parameters = self._date_filter(chat_id, start, end)
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT CASE WHEN TRIM(details) = '' THEN 'Не указан' ELSE details END AS value, "
+                "SUM(amount_cents) AS total FROM accountant_transactions "
+                f"WHERE {where} AND kind = ? GROUP BY value ORDER BY total DESC, value ASC",
+                (*parameters, kind),
+            ).fetchall()
+        return [(str(row["value"]), int(row["total"])) for row in rows]
+
+    def latest(self, chat_id: int, kind: str, limit: int = 5) -> list[sqlite3.Row]:
+        """Return the most recent operations for one chat only."""
+        if kind not in {"income", "expense"}:
+            raise ValueError("kind must be income or expense")
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT amount_cents, label, occurred_at, details, category "
+                "FROM accountant_transactions WHERE chat_id = ? AND kind = ? "
+                "ORDER BY occurred_at DESC, id DESC LIMIT ?",
+                (chat_id, kind, limit),
+            ).fetchall()
+
     def expense_category_totals(
         self, chat_id: int, start: str | None = None, end: str | None = None
     ) -> list[tuple[str, int]]:
@@ -308,8 +336,9 @@ class TelegramAccountantBot:
         self._sleep = sleep or time.sleep
         self._retry_delay = max(0.0, min(retry_delay, 30.0))
         self.offset: int | None = None
-        self._flows: dict[int, dict[str, str]] = {}
+        self._flows: dict[int, dict[str, object]] = {}
         self._report_states: dict[int, dict[str, object]] = {}
+        self._section_states: dict[int, dict[str, object]] = {}
 
     @staticmethod
     def reply_keyboard() -> dict[str, object]:
@@ -327,7 +356,7 @@ class TelegramAccountantBot:
             "keyboard": [
                 [{"text": "Сегодня"}, {"text": "Вчера"}],
                 [{"text": "Другая дата"}],
-                [{"text": "Назад в меню"}],
+                [{"text": "Назад"}, {"text": "Отменить и в меню"}],
             ],
             "resize_keyboard": True,
             "one_time_keyboard": True,
@@ -338,7 +367,7 @@ class TelegramAccountantBot:
         return {
             "keyboard": [
                 *[[{"text": category}] for category in EXPENSE_CATEGORIES],
-                [{"text": "Назад в меню"}],
+                [{"text": "Назад"}, {"text": "Отменить и в меню"}],
             ],
             "resize_keyboard": True,
             "one_time_keyboard": True,
@@ -351,6 +380,37 @@ class TelegramAccountantBot:
             "resize_keyboard": True,
             "one_time_keyboard": True,
         }
+
+    @staticmethod
+    def wizard_keyboard() -> dict[str, object]:
+        return {
+            "keyboard": [[{"text": "Назад"}, {"text": "Отменить и в меню"}]],
+            "resize_keyboard": True,
+            "one_time_keyboard": True,
+        }
+
+    @staticmethod
+    def section_keyboard(kind: str, child: bool = False) -> dict[str, object]:
+        if kind == "income":
+            rows = [
+                [{"text": "Добавить доход", "callback_data": "section:income:add"}],
+                [{"text": "Последние поступления", "callback_data": "section:income:latest"}],
+                [{"text": "По клиентам", "callback_data": "section:income:labels"}],
+                [{"text": "По способу оплаты", "callback_data": "section:income:details"}],
+            ]
+        elif kind == "expense":
+            rows = [
+                [{"text": "Добавить расход", "callback_data": "section:expense:add"}],
+                [{"text": "Последние расходы", "callback_data": "section:expense:latest"}],
+                [{"text": "По категориям", "callback_data": "section:expense:categories"}],
+                [{"text": "По получателям", "callback_data": "section:expense:labels"}],
+            ]
+        else:
+            raise ValueError("unknown section kind")
+        if child:
+            rows = [[{"text": "Назад", "callback_data": f"section:{kind}:root"}]]
+        rows.append([{"text": "Назад в меню", "callback_data": f"section:{kind}:back"}])
+        return {"inline_keyboard": rows}
 
     @staticmethod
     def report_keyboard() -> dict[str, object]:
@@ -418,6 +478,114 @@ class TelegramAccountantBot:
         state = self._new_report_state(0)
         return self._render_dashboard(chat_id, state), self.report_keyboard()
 
+    def _month_dates(self) -> tuple[str, str]:
+        today = self._now().astimezone(UTC).date()
+        return today.replace(day=1).isoformat(), today.isoformat()
+
+    def _render_section(self, chat_id: int, kind: str, view: str = "root") -> str:
+        start, end = self._month_dates()
+        income, expense = self.commands.store.totals(chat_id, start, end)
+        title = "Доходы" if kind == "income" else "Расходы"
+        if view == "root":
+            if kind == "income":
+                clients = len(self.commands.store.breakdown(chat_id, "income", start, end))
+                return f"{title} · Этот месяц\n\nВсего: {format_money(income)}\nКлиентов: {clients}"
+            categories = self.commands.store.expense_category_totals(chat_id, start, end)
+            largest_category, largest_amount = max(categories, key=lambda item: item[1])
+            largest = largest_category if largest_amount else "нет расходов"
+            return f"{title} · Этот месяц\n\nВсего: {format_money(expense)}\nКрупнее всего: {largest}"
+        if view == "latest":
+            rows = self.commands.store.latest(chat_id, kind)
+            lines = []
+            for row in rows:
+                date = str(row["occurred_at"])[:10]
+                extra = str(row["details"] if kind == "income" else row["category"]).strip()
+                suffix = f" · {extra}" if extra else ""
+                lines.append(f"{date} · {format_money(int(row['amount_cents']))} · {row['label']}{suffix}")
+            return f"{title} · Последние 5\n\n" + ("\n".join(lines) if lines else "Операций пока нет.")
+        if view == "labels":
+            values = self.commands.store.breakdown(chat_id, kind)
+            heading = "По клиентам" if kind == "income" else "По получателям"
+        elif view == "details" and kind == "income":
+            values = self.commands.store.details_breakdown(chat_id, "income")
+            heading = "По способу оплаты"
+        elif view == "categories" and kind == "expense":
+            values = self.commands.store.expense_category_totals(chat_id)
+            heading = "По категориям"
+        else:
+            raise ValueError("unknown section view")
+        lines = [f"{label} — {format_money(amount)}" for label, amount in values]
+        return f"{title} · {heading}\n\n" + ("\n".join(lines) if lines else "Операций пока нет.")
+
+    def _show_section(self, chat_id: int, kind: str) -> tuple[str, dict[str, object]]:
+        return self._render_section(chat_id, kind), self.section_keyboard(kind)
+
+    def _return_section_to_menu(self, chat_id: int, message_id: int) -> None:
+        self._section_states.pop(chat_id, None)
+        self._flows.pop(chat_id, None)
+        self._report_states.pop(chat_id, None)
+        self.transport.call(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": "Возвращаю в главное меню.",
+                "reply_markup": {"inline_keyboard": []},
+            },
+        )
+        self.transport.call(
+            "sendMessage",
+            {"chat_id": chat_id, "text": "Главное меню.", "reply_markup": self.reply_keyboard()},
+        )
+
+    def _handle_section_callback(self, chat_id: int, message_id: int, data: str) -> bool:
+        parts = data.split(":")
+        if len(parts) != 3 or parts[0] != "section" or parts[1] not in {"income", "expense"}:
+            return False
+        kind, action = parts[1], parts[2]
+        allowed = {"root", "add", "latest", "labels", "details", "categories", "back"}
+        if action not in allowed:
+            return True
+        if (kind == "income" and action == "categories") or (kind == "expense" and action == "details"):
+            return True
+        state = self._section_states.get(chat_id)
+        recovered = state is None or state.get("message_id") != message_id or state.get("kind") != kind
+        if recovered:
+            state = {"message_id": message_id, "kind": kind, "view": "root"}
+            self._section_states[chat_id] = state
+        if action == "back":
+            self._return_section_to_menu(chat_id, message_id)
+            return True
+        if action == "add":
+            first_step = "label" if kind == "income" else "category"
+            self._flows[chat_id] = {
+                "kind": kind,
+                "step": first_step,
+                "origin_kind": kind,
+                "origin_message_id": message_id,
+            }
+            prompt = "Введите ник клиента." if kind == "income" else "Выберите категорию расхода."
+            keyboard = self.wizard_keyboard() if kind == "income" else self.expense_category_keyboard()
+            self.transport.call(
+                "sendMessage",
+                {"chat_id": chat_id, "text": prompt, "reply_markup": keyboard},
+            )
+            return True
+        view = action
+        if state.get("view") == view and not (recovered and view == "root"):
+            return True
+        state["view"] = view
+        self.transport.call(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": self._render_section(chat_id, kind, view),
+                "reply_markup": self.section_keyboard(kind, child=view != "root"),
+            },
+        )
+        return True
+
     def _handle_callback(self, callback: dict[str, object]) -> bool:
         callback_id = callback.get("id")
         if not isinstance(callback_id, str):
@@ -432,6 +600,8 @@ class TelegramAccountantBot:
         if not isinstance(chat, dict) or not isinstance(chat.get("id"), int) or not isinstance(message_id, int):
             return True
         chat_id = chat["id"]
+        if data.startswith("section:"):
+            return self._handle_section_callback(chat_id, message_id, data)
         action = data.removeprefix("report:") if data.startswith("report:") else ""
         if action not in {"summary", "income", "expense", "today", "week", "month", "custom", "back"}:
             return True
@@ -514,11 +684,11 @@ class TelegramAccountantBot:
 
     def _handle_message(self, chat_id: int, text: str) -> tuple[str, dict[str, object]]:
         if text == "Доход":
-            self._flows[chat_id] = {"kind": "income", "step": "label"}
-            return "Введите ник клиента.", self.reply_keyboard()
+            self._flows.pop(chat_id, None)
+            return self._show_section(chat_id, "income")
         if text == "Расход":
-            self._flows[chat_id] = {"kind": "expense", "step": "category"}
-            return "Выберите категорию расхода.", self.expense_category_keyboard()
+            self._flows.pop(chat_id, None)
+            return self._show_section(chat_id, "expense")
         if text == "Отчёты":
             return self._show_dashboard(chat_id)
         if text.startswith("/"):
@@ -527,12 +697,14 @@ class TelegramAccountantBot:
         flow = self._flows.get(chat_id)
         if flow is None:
             return self.commands.handle(chat_id, text), self.reply_keyboard()
-        reply = self._continue_flow(chat_id, text, flow)
+        reply = self._wizard_back(chat_id, flow) if text == "Назад" else self._continue_flow(chat_id, text, flow)
         keyboard = (
             self.date_keyboard()
             if self._flows.get(chat_id) is flow and flow.get("step") in {"date", "manual_date"}
             else self.expense_category_keyboard()
             if self._flows.get(chat_id) is flow and flow.get("step") == "category"
+            else self.wizard_keyboard()
+            if self._flows.get(chat_id) is flow
             else self.reply_keyboard()
         )
         return reply, keyboard
@@ -541,15 +713,39 @@ class TelegramAccountantBot:
         """Cancel an unfinished form or custom report period for one chat."""
         self._flows.pop(chat_id, None)
         self._report_states.pop(chat_id, None)
+        self._section_states.pop(chat_id, None)
         self.transport.call(
             "sendMessage",
             {"chat_id": chat_id, "text": "Главное меню.", "reply_markup": self.reply_keyboard()},
         )
 
-    def _continue_flow(self, chat_id: int, text: str, flow: dict[str, str]) -> str:
+    def _wizard_back(self, chat_id: int, flow: dict[str, object]) -> str:
+        kind = str(flow["kind"])
+        step = str(flow["step"])
+        first = "label" if kind == "income" else "category"
+        if step == first:
+            self._flows.pop(chat_id, None)
+            return "Вы вернулись в раздел доходов." if kind == "income" else "Вы вернулись в раздел расходов."
+        previous = {
+            "label": "category",
+            "amount": "label",
+            "date": "amount",
+            "manual_date": "date",
+            "details": "date",
+        }[step]
+        flow["step"] = previous
+        prompts = {
+            "category": "Выберите категорию расхода.",
+            "label": "Введите ник клиента." if kind == "income" else "Введите, куда ушли деньги.",
+            "amount": "Введите сумму.",
+            "date": "Выберите дату.",
+        }
+        return prompts[previous]
+
+    def _continue_flow(self, chat_id: int, text: str, flow: dict[str, object]) -> str:
         value = text.strip()
-        kind = flow["kind"]
-        step = flow["step"]
+        kind = str(flow["kind"])
+        step = str(flow["step"])
         if step == "category":
             if value not in EXPENSE_CATEGORIES:
                 return "Выберите категорию кнопкой."
@@ -595,23 +791,41 @@ class TelegramAccountantBot:
             return self._save_flow(chat_id, flow)
         raise RuntimeError("unknown accountant flow step")
 
-    def _continue_after_date(self, chat_id: int, flow: dict[str, str]) -> str:
+    def _continue_after_date(self, chat_id: int, flow: dict[str, object]) -> str:
         if flow["kind"] == "income":
             flow["step"] = "details"
             return "Введите вид пополнения."
         return self._save_flow(chat_id, flow)
 
-    def _save_flow(self, chat_id: int, flow: dict[str, str]) -> str:
+    def _save_flow(self, chat_id: int, flow: dict[str, object]) -> str:
         item = self.commands.store.add(
             chat_id,
-            flow["kind"],
-            flow["amount"],
-            flow["label"],
-            occurred_date=flow["date"],
-            details=flow.get("details", ""),
-            category=flow.get("category", ""),
+            str(flow["kind"]),
+            str(flow["amount"]),
+            str(flow["label"]),
+            occurred_date=str(flow["date"]),
+            details=str(flow.get("details", "")),
+            category=str(flow.get("category", "")),
         )
         self._flows.pop(chat_id, None)
+        origin_message_id = flow.get("origin_message_id")
+        origin_kind = flow.get("origin_kind")
+        if isinstance(origin_message_id, int) and origin_kind in {"income", "expense"}:
+            kind = str(origin_kind)
+            self._section_states[chat_id] = {
+                "message_id": origin_message_id,
+                "kind": kind,
+                "view": "root",
+            }
+            self.transport.call(
+                "editMessageText",
+                {
+                    "chat_id": chat_id,
+                    "message_id": origin_message_id,
+                    "text": self._render_section(chat_id, kind),
+                    "reply_markup": self.section_keyboard(kind),
+                },
+            )
         action = "Доход добавлен" if item.kind == "income" else "Расход добавлен"
         suffix = f" ({item.details})" if item.details else ""
         return f"{action}: {format_money(item.amount_cents)} — {item.label}{suffix}, дата {flow['date']}."
@@ -644,7 +858,7 @@ class TelegramAccountantBot:
                 continue
             chat_id = chat["id"]
             text = message["text"]
-            if text == "Назад в меню":
+            if text in {"Назад в меню", "Отменить и в меню"}:
                 self._return_to_main_menu(chat_id)
                 handled += 1
                 continue
@@ -660,6 +874,15 @@ class TelegramAccountantBot:
                 sent = result.get("result")
                 if isinstance(sent, dict) and isinstance(sent.get("message_id"), int):
                     self._report_states[chat_id] = self._new_report_state(sent["message_id"])
+            elif text in {"Доход", "Расход"}:
+                sent = result.get("result")
+                if isinstance(sent, dict) and isinstance(sent.get("message_id"), int):
+                    kind = "income" if text == "Доход" else "expense"
+                    self._section_states[chat_id] = {
+                        "message_id": sent["message_id"],
+                        "kind": kind,
+                        "view": "root",
+                    }
             handled += 1
         return handled
 
