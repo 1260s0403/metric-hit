@@ -428,10 +428,13 @@ class TelegramAccountantBot:
         if not isinstance(chat, dict) or not isinstance(chat.get("id"), int) or not isinstance(message_id, int):
             return True
         chat_id = chat["id"]
+        action = data.removeprefix("report:") if data.startswith("report:") else ""
+        if action not in {"summary", "income", "expense", "today", "week", "month", "custom", "back"}:
+            return True
         state = self._report_states.get(chat_id)
         if state is None or state.get("message_id") != message_id:
-            return True
-        action = data.removeprefix("report:") if data.startswith("report:") else ""
+            state = self._new_report_state(message_id)
+            self._report_states[chat_id] = state
         if action == "back":
             self._report_states.pop(chat_id, None)
             self._flows.pop(chat_id, None)

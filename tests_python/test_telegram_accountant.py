@@ -299,6 +299,70 @@ def test_report_tabs_and_periods_edit_the_original_dashboard(tmp_path):
     assert [method for method, _ in transport.calls[-12:]][::2] == ["answerCallbackQuery"] * len(actions)
 
 
+def test_report_callback_recovers_dashboard_after_bot_restart(tmp_path):
+    accounting_store = store(tmp_path)
+    accounting_store.add(9, "income", "100", "Клиент", "2026-09-02")
+    dashboard_id = 404
+    transport = FakeTransport(
+        [
+            {
+                "update_id": 1,
+                "callback_query": {
+                    "id": "q-income",
+                    "data": "report:income",
+                    "message": {"message_id": dashboard_id, "chat": {"id": 9}},
+                },
+            },
+            {
+                "update_id": 2,
+                "callback_query": {
+                    "id": "q-month",
+                    "data": "report:month",
+                    "message": {"message_id": dashboard_id, "chat": {"id": 9}},
+                },
+            },
+            {
+                "update_id": 3,
+                "callback_query": {
+                    "id": "q-custom",
+                    "data": "report:custom",
+                    "message": {"message_id": dashboard_id, "chat": {"id": 9}},
+                },
+            },
+            {
+                "update_id": 4,
+                "callback_query": {
+                    "id": "q-summary-new-message",
+                    "data": "report:summary",
+                    "message": {"message_id": dashboard_id + 1, "chat": {"id": 9}},
+                },
+            },
+        ]
+    )
+    bot = TelegramAccountantBot(
+        accounting_store, transport=transport, now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC)
+    )
+
+    assert bot.poll_once(timeout=1) == 4
+    assert [method for method, _ in transport.calls] == [
+        "getUpdates",
+        "answerCallbackQuery",
+        "editMessageText",
+        "answerCallbackQuery",
+        "editMessageText",
+        "answerCallbackQuery",
+        "sendMessage",
+        "answerCallbackQuery",
+        "editMessageText",
+    ]
+    edits = [payload for method, payload in transport.calls if method == "editMessageText"]
+    assert [edit["message_id"] for edit in edits] == [dashboard_id, dashboard_id, dashboard_id + 1]
+    assert "Доходы · За всё время" in edits[0]["text"]
+    assert "Доходы · Этот месяц" in edits[1]["text"]
+    assert bot._report_states[9]["message_id"] == dashboard_id + 1
+    assert bot._report_states[9].get("awaiting_custom") is not True
+
+
 def test_report_back_removes_inline_dashboard_and_restores_main_keyboard(tmp_path):
     transport = FakeTransport([{"update_id": 1, "message": {"chat": {"id": 7}, "text": "Отчёты"}}])
     bot = TelegramAccountantBot(store(tmp_path), transport=transport)
