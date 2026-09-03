@@ -298,11 +298,15 @@ class TelegramAccountantBot:
         token: str | None = None,
         transport: TelegramTransport | None = None,
         now: Callable[[], datetime] | None = None,
+        sleep: Callable[[float], None] | None = None,
+        retry_delay: float = 1.0,
     ):
         actual_token = token if token is not None else os.environ.get("TELEGRAM_ACCOUNTANT_BOT_TOKEN")
         self.transport = transport or UrllibTelegramTransport(actual_token or "")
         self.commands = AccountantCommands(store)
         self._now = now or (lambda: datetime.now(UTC))
+        self._sleep = sleep or time.sleep
+        self._retry_delay = max(0.0, min(retry_delay, 30.0))
         self.offset: int | None = None
         self._flows: dict[int, dict[str, str]] = {}
         self._report_states: dict[int, dict[str, object]] = {}
@@ -456,6 +460,7 @@ class TelegramAccountantBot:
                 },
             )
             return True
+        previous_view = (state.get("tab"), state.get("start"), state.get("end"), state.get("period"))
         if action in {"summary", "income", "expense"}:
             state["awaiting_custom"] = False
             state["tab"] = action
@@ -474,6 +479,9 @@ class TelegramAccountantBot:
             )
             return True
         else:
+            return True
+        current_view = (state.get("tab"), state.get("start"), state.get("end"), state.get("period"))
+        if current_view == previous_view:
             return True
         self.transport.call(
             "editMessageText",
@@ -657,5 +665,9 @@ class TelegramAccountantBot:
 
     def run_forever(self) -> None:
         while True:
-            self.poll_once()
-            time.sleep(0.2)
+            try:
+                self.poll_once()
+            except Exception:
+                self._sleep(self._retry_delay)
+                continue
+            self._sleep(0.2)

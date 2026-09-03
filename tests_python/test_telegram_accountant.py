@@ -288,15 +288,14 @@ def test_report_tabs_and_periods_edit_the_original_dashboard(tmp_path):
     ]
     assert bot.poll_once(timeout=1) == len(actions)
     edits = [payload for method, payload in transport.calls if method == "editMessageText"]
-    assert len(edits) == len(actions)
+    assert len(edits) == len(actions) - 1
     assert all(edit["chat_id"] == 9 and edit["message_id"] == dashboard_id for edit in edits)
-    assert "Финансы · За всё время" in edits[0]["text"]
-    assert "Доходы · За всё время" in edits[1]["text"]
-    assert "Расходы · За всё время" in edits[2]["text"]
-    assert "Расходы · Сегодня" in edits[3]["text"]
-    assert "Расходы · Эта неделя" in edits[4]["text"]
-    assert "Расходы · Этот месяц" in edits[5]["text"]
-    assert [method for method, _ in transport.calls[-12:]][::2] == ["answerCallbackQuery"] * len(actions)
+    assert "Доходы · За всё время" in edits[0]["text"]
+    assert "Расходы · За всё время" in edits[1]["text"]
+    assert "Расходы · Сегодня" in edits[2]["text"]
+    assert "Расходы · Эта неделя" in edits[3]["text"]
+    assert "Расходы · Этот месяц" in edits[4]["text"]
+    assert len([method for method, _ in transport.calls if method == "answerCallbackQuery"]) == len(actions)
 
 
 def test_report_callback_recovers_dashboard_after_bot_restart(tmp_path):
@@ -353,14 +352,74 @@ def test_report_callback_recovers_dashboard_after_bot_restart(tmp_path):
         "answerCallbackQuery",
         "sendMessage",
         "answerCallbackQuery",
-        "editMessageText",
     ]
     edits = [payload for method, payload in transport.calls if method == "editMessageText"]
-    assert [edit["message_id"] for edit in edits] == [dashboard_id, dashboard_id, dashboard_id + 1]
+    assert [edit["message_id"] for edit in edits] == [dashboard_id, dashboard_id]
     assert "Доходы · За всё время" in edits[0]["text"]
     assert "Доходы · Этот месяц" in edits[1]["text"]
     assert bot._report_states[9]["message_id"] == dashboard_id + 1
     assert bot._report_states[9].get("awaiting_custom") is not True
+
+
+def test_active_report_buttons_are_acknowledged_without_identical_edit(tmp_path):
+    transport = FakeTransport([])
+    bot = TelegramAccountantBot(
+        store(tmp_path), transport=transport, now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC)
+    )
+    dashboard_id = 404
+    bot._report_states[9] = bot._new_report_state(dashboard_id)
+
+    for update_id, action in enumerate(("summary", "month", "month", "income"), start=1):
+        transport.updates = [
+            {
+                "update_id": update_id,
+                "callback_query": {
+                    "id": f"q-{update_id}",
+                    "data": f"report:{action}",
+                    "message": {"message_id": dashboard_id, "chat": {"id": 9}},
+                },
+            }
+        ]
+        assert bot.poll_once(timeout=1) == 1
+
+    assert len([method for method, _ in transport.calls if method == "answerCallbackQuery"]) == 4
+    edits = [payload for method, payload in transport.calls if method == "editMessageText"]
+    assert len(edits) == 2
+    assert "Финансы · Этот месяц" in edits[0]["text"]
+    assert "Доходы · Этот месяц" in edits[1]["text"]
+
+
+def test_run_forever_recovers_after_polling_exception(tmp_path):
+    class RecoveringTransport(FakeTransport):
+        def __init__(self):
+            super().__init__([{"update_id": 1, "message": {"chat": {"id": 9}, "text": "/balance"}}])
+            self.failed = False
+
+        def call(self, method, payload):
+            if method == "getUpdates" and not self.failed:
+                self.failed = True
+                self.calls.append((method, payload))
+                raise RuntimeError("temporary Telegram failure")
+            return super().call(method, payload)
+
+    delays = []
+
+    def stop_after_recovery(delay):
+        delays.append(delay)
+        if len(delays) == 2:
+            raise SystemExit
+
+    transport = RecoveringTransport()
+    bot = TelegramAccountantBot(
+        store(tmp_path), transport=transport, sleep=stop_after_recovery, retry_delay=2.5
+    )
+
+    with pytest.raises(SystemExit):
+        bot.run_forever()
+
+    assert [method for method, _ in transport.calls].count("getUpdates") == 2
+    assert any(method == "sendMessage" for method, _ in transport.calls)
+    assert delays == [2.5, 0.2]
 
 
 def test_report_back_removes_inline_dashboard_and_restores_main_keyboard(tmp_path):
