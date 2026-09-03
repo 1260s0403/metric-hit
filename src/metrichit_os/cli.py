@@ -172,6 +172,7 @@ def workflow_parser() -> argparse.ArgumentParser:
     transition.add_argument("--db", required=True)
     transition.add_argument("--scope", required=True)
     transition.add_argument("--branch", required=True)
+    transition.add_argument("--canonical-worktree", required=True)
     transition.add_argument("--worktree", required=True)
     transition.add_argument("--head", required=True)
     transition.add_argument("--task")
@@ -313,7 +314,8 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         continuity = ChatContinuityStore(databases.central, projects)
         if arguments.command == "chat-transition":
             print_json(continuity.transition(
-                scope_label=arguments.scope, branch=arguments.branch, worktree=arguments.worktree,
+                scope_label=arguments.scope, branch=arguments.branch,
+                canonical_worktree=arguments.canonical_worktree, execution_worktree=arguments.worktree,
                 head=arguments.head, task_name=arguments.task, context_pack_id=arguments.context_pack,
                 dirty_files=arguments.dirty_file,
             ))

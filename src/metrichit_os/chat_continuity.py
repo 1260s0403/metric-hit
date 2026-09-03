@@ -95,7 +95,20 @@ class ChatContinuityStore:
     def _command(scope: dict[str, object]) -> str:
         return "Ядро старт." if scope["kind"] == "strategy" else f"Ядро старт. {scope['label']}."
 
-    def transition(self, *, scope_label: str, branch: str, worktree: str, head: str,
+    @staticmethod
+    def _worktree_contract(canonical_worktree: str, execution_worktree: str) -> tuple[str, str]:
+        canonical = Path(canonical_worktree)
+        execution = Path(execution_worktree)
+        if not canonical.is_absolute() or not execution.is_absolute():
+            raise KnowledgeError("canonical and execution worktrees must be absolute paths")
+        canonical_path = str(canonical.resolve())
+        execution_path = str(execution.resolve())
+        if canonical_path == execution_path:
+            raise KnowledgeError("execution worktree must be isolated from the canonical worktree")
+        return canonical_path, execution_path
+
+    def transition(self, *, scope_label: str, branch: str, canonical_worktree: str,
+                   execution_worktree: str, head: str,
                    task_name: str | None = None, context_pack_id: str | None = None,
                    dirty_files: list[str] | None = None) -> dict[str, object]:
         scope = self._scope(scope_label)
@@ -103,18 +116,20 @@ class ChatContinuityStore:
             raise KnowledgeError("branch has an invalid format")
         if not re.fullmatch(r"[0-9a-fA-F]{7,64}", head):
             raise KnowledgeError("HEAD must be a Git commit hash")
-        if not worktree.strip():
-            raise KnowledgeError("worktree must not be empty")
+        canonical_path, execution_path = self._worktree_contract(
+            canonical_worktree, execution_worktree,
+        )
         files = dirty_files or []
         if any(not isinstance(item, str) or not item.strip() for item in files):
             raise KnowledgeError("dirty files must contain paths")
         timestamp = _utc()
         command = self._command(scope)
         checkpoint = {
-            "schema_version": 1, "scope_key": scope["key"], "scope_label": scope["label"],
+            "schema_version": 2, "scope_key": scope["key"], "scope_label": scope["label"],
             "project_id": scope["project_id"], "subproject_id": scope["subproject_id"],
             "task_name": (task_name or str(scope["label"])).strip(), "branch": branch,
-            "worktree": str(Path(worktree)), "head": head.lower(), "dirty_files": files,
+            "canonical_worktree": canonical_path, "execution_worktree": execution_path,
+            "requires_worktree_activation": True, "head": head.lower(), "dirty_files": files,
             "context_pack_id": context_pack_id, "continuation_command": command,
             "recorded_at": timestamp,
         }
@@ -140,7 +155,24 @@ class ChatContinuityStore:
                 "status": "strategy_startup" if scope["kind"] == "strategy" else "no_active_task",
                 "scope": scope, "copy_command": self._command(scope),
             }
-        checkpoint = json.loads(str(row["data_json"]))
+        try:
+            checkpoint = json.loads(str(row["data_json"]))
+        except json.JSONDecodeError as error:
+            raise KnowledgeError("saved chat checkpoint is invalid") from error
         if not isinstance(checkpoint, dict) or checkpoint.get("scope_key") != scope["key"]:
             raise KnowledgeError("saved chat checkpoint is invalid")
-        return {"status": "resuming", "scope": scope, "checkpoint": checkpoint, "copy_command": self._command(scope)}
+        if checkpoint.get("schema_version") != 2 or checkpoint.get("requires_worktree_activation") is not True:
+            raise KnowledgeError("saved checkpoint lacks the isolated worktree contract; start a new isolated task and create a new checkpoint")
+        try:
+            canonical_path, execution_path = self._worktree_contract(
+                str(checkpoint["canonical_worktree"]), str(checkpoint["execution_worktree"]),
+            )
+        except (KeyError, KnowledgeError) as error:
+            raise KnowledgeError("saved checkpoint lacks the isolated worktree contract; start a new isolated task and create a new checkpoint") from error
+        if canonical_path != checkpoint["canonical_worktree"] or execution_path != checkpoint["execution_worktree"]:
+            raise KnowledgeError("saved checkpoint has a non-canonical isolated worktree contract")
+        return {
+            "status": "resuming", "scope": scope, "checkpoint": checkpoint,
+            "execution_worktree": execution_path, "requires_worktree_activation": True,
+            "copy_command": self._command(scope),
+        }
