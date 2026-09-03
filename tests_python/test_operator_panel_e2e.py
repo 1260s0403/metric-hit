@@ -124,6 +124,30 @@ def publication_panel(tmp_path: Path) -> str:
 
 
 @pytest.fixture
+def empty_publication_panel(tmp_path: Path) -> str:
+    database = _temporary_database(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE project_storage_metadata (singleton INTEGER PRIMARY KEY CHECK(singleton=1), project_id TEXT NOT NULL UNIQUE, storage_format INTEGER NOT NULL)")
+        connection.execute("INSERT INTO project_storage_metadata VALUES(1,'00000000-0000-4000-a000-000000000102',1)")
+    initialize_editorial_domain(database)
+    port = _free_port()
+    process = subprocess.Popen([sys.executable, "-m", "metrichit_os", "operator-panel", "--db", str(database), "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                break
+        except OSError:
+            time.sleep(0.1)
+    else:
+        process.terminate(); raise RuntimeError(process.stderr.read())
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        process.terminate(); process.wait(timeout=5)
+
+
+@pytest.fixture
 def page(browser: Browser, panel: str, tmp_path: Path) -> Page:
     page = browser.new_page(viewport={"width": 1200, "height": 700})
     try:
@@ -886,6 +910,32 @@ def test_editorial_panel_shows_only_recorded_publications(browser: Browser, publ
     expect(page.locator(".editorial-short-url")).to_have_attribute("href", "https://example.test/article")
     expect(page.locator(".editorial-stat-value").first).to_have_text("1")
     page.screenshot(path=str(tmp_path / "editorial-publication-projection.png"), full_page=True)
+    assert not errors
+    page.close()
+
+
+def test_editorial_panel_keeps_empty_platforms_navigable(browser: Browser, empty_publication_panel: str, tmp_path: Path) -> None:
+    page = browser.new_page(viewport={"width": 1200, "height": 700})
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
+    page.goto(empty_publication_panel)
+    assert page.evaluate("""async () => (await fetch('/api/editorial-publications')).json()""") == {"total": 0, "platforms": []}
+    page.get_by_test_id("tab-editorial").click()
+    page.get_by_test_id("editorial-project-0").click()
+    rows = page.locator('[data-testid^="editorial-platform-"]:not([data-testid="editorial-platform-list"])')
+    expect(rows).to_have_count(7)
+    for index, name in enumerate(["Telegram", "MAX", "VK", "TenChat", "Sostav", "Oborot", "TenChat"]):
+        row = page.get_by_test_id(f"editorial-platform-{index}")
+        expect(row.locator(".editorial-metric b")).to_have_text(["0", "0", "0"])
+        row.click()
+        expect(page.get_by_test_id("page-title")).to_have_text(name)
+        expect(page.locator(".editorial-stat-value")).to_have_text(["0", "0", "0"])
+        expect(page.get_by_text("Публикаций пока нет.")).to_be_visible()
+        if index == 5:
+            page.screenshot(path=str(tmp_path / "editorial-empty-oborot.png"), full_page=True)
+        page.get_by_test_id("editorial-back").click()
+        expect(page.get_by_test_id("editorial-platform-list")).to_be_visible()
     assert not errors
     page.close()
 
