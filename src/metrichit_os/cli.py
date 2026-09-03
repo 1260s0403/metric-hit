@@ -10,6 +10,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .checks import check_editorial_database, check_memory_database
+from .chat_continuity import ChatContinuityStore
 from .editorial_models import (
     AddMaterialVersionInput,
     AddResearchItemInput,
@@ -167,6 +168,18 @@ def workflow_parser() -> argparse.ArgumentParser:
     task_route.add_argument("--db", required=True)
     task_route.add_argument("--text", required=True)
     task_route.add_argument("--worktree-root", default="tmp")
+    transition = subparsers.add_parser("chat-transition")
+    transition.add_argument("--db", required=True)
+    transition.add_argument("--scope", required=True)
+    transition.add_argument("--branch", required=True)
+    transition.add_argument("--worktree", required=True)
+    transition.add_argument("--head", required=True)
+    transition.add_argument("--task")
+    transition.add_argument("--context-pack")
+    transition.add_argument("--dirty-file", action="append", default=[])
+    resume = subparsers.add_parser("chat-resume")
+    resume.add_argument("--db", required=True)
+    resume.add_argument("--text", required=True)
     handoff_next = subparsers.add_parser("handoff-next")
     handoff_next.add_argument("--db", required=True)
     handoff_next.add_argument("--format", choices=("json", "text"), default="json")
@@ -294,6 +307,19 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         print_json(storage.import_package(Path(arguments.package)))
         return 0
     database_path = Path(arguments.db)
+    if arguments.command in {"chat-transition", "chat-resume"}:
+        databases = RuntimeDatabases.resolve(database_path)
+        projects = ProjectStore(databases.central, tuple(path for _, path in databases.projects))
+        continuity = ChatContinuityStore(databases.central, projects)
+        if arguments.command == "chat-transition":
+            print_json(continuity.transition(
+                scope_label=arguments.scope, branch=arguments.branch, worktree=arguments.worktree,
+                head=arguments.head, task_name=arguments.task, context_pack_id=arguments.context_pack,
+                dirty_files=arguments.dirty_file,
+            ))
+        else:
+            print_json(continuity.resume(arguments.text))
+        return 0
     if arguments.command == "project-task-route":
         databases = RuntimeDatabases.resolve(database_path)
         projects = ProjectStore(databases.central, tuple(path for _, path in databases.projects))
