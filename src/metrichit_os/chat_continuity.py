@@ -8,6 +8,7 @@ from pathlib import Path
 from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from .knowledge_store import KnowledgeError
+from .isolated_worktree import IsolatedWorktree
 from .project_store import ProjectStore
 
 
@@ -107,29 +108,33 @@ class ChatContinuityStore:
             raise KnowledgeError("execution worktree must be isolated from the canonical worktree")
         return canonical_path, execution_path
 
+    def scope_info(self, label: str) -> dict[str, object]:
+        return self._scope(label)
+
     def transition(self, *, scope_label: str, branch: str, canonical_worktree: str,
                    execution_worktree: str, head: str,
                    task_name: str | None = None, context_pack_id: str | None = None,
                    dirty_files: list[str] | None = None) -> dict[str, object]:
         scope = self._scope(scope_label)
-        if not re.fullmatch(r"(?!.*\.\.)(?!.*//)[A-Za-z0-9][A-Za-z0-9._/-]{0,127}", branch):
-            raise KnowledgeError("branch has an invalid format")
-        if not re.fullmatch(r"[0-9a-fA-F]{7,64}", head):
-            raise KnowledgeError("HEAD must be a Git commit hash")
         canonical_path, execution_path = self._worktree_contract(
             canonical_worktree, execution_worktree,
         )
         files = dirty_files or []
+        if files:
+            raise KnowledgeError("an isolated continuation checkpoint requires a clean worktree")
         if any(not isinstance(item, str) or not item.strip() for item in files):
             raise KnowledgeError("dirty files must contain paths")
+        verified = IsolatedWorktree(canonical_path, str(Path(execution_path).parent)).verify(
+            execution_path, branch, head,
+        )
         timestamp = _utc()
         command = self._command(scope)
         checkpoint = {
-            "schema_version": 2, "scope_key": scope["key"], "scope_label": scope["label"],
+            "schema_version": 3, "scope_key": scope["key"], "scope_label": scope["label"],
             "project_id": scope["project_id"], "subproject_id": scope["subproject_id"],
-            "task_name": (task_name or str(scope["label"])).strip(), "branch": branch,
-            "canonical_worktree": canonical_path, "execution_worktree": execution_path,
-            "requires_worktree_activation": True, "head": head.lower(), "dirty_files": files,
+            "task_name": (task_name or str(scope["label"])).strip(), "branch": verified["branch"],
+            "canonical_worktree": verified["canonical_worktree"], "execution_worktree": verified["execution_worktree"],
+            "requires_worktree_activation": True, "head": verified["head"], "dirty_files": files,
             "context_pack_id": context_pack_id, "continuation_command": command,
             "recorded_at": timestamp,
         }
@@ -161,7 +166,7 @@ class ChatContinuityStore:
             raise KnowledgeError("saved chat checkpoint is invalid") from error
         if not isinstance(checkpoint, dict) or checkpoint.get("scope_key") != scope["key"]:
             raise KnowledgeError("saved chat checkpoint is invalid")
-        if checkpoint.get("schema_version") != 2 or checkpoint.get("requires_worktree_activation") is not True:
+        if checkpoint.get("schema_version") != 3 or checkpoint.get("requires_worktree_activation") is not True:
             raise KnowledgeError("saved checkpoint lacks the isolated worktree contract; start a new isolated task and create a new checkpoint")
         try:
             canonical_path, execution_path = self._worktree_contract(
@@ -171,8 +176,14 @@ class ChatContinuityStore:
             raise KnowledgeError("saved checkpoint lacks the isolated worktree contract; start a new isolated task and create a new checkpoint") from error
         if canonical_path != checkpoint["canonical_worktree"] or execution_path != checkpoint["execution_worktree"]:
             raise KnowledgeError("saved checkpoint has a non-canonical isolated worktree contract")
+        try:
+            verified = IsolatedWorktree(canonical_path, str(Path(execution_path).parent)).verify(
+                execution_path, str(checkpoint["branch"]), str(checkpoint["head"]),
+            )
+        except (KeyError, KnowledgeError) as error:
+            raise KnowledgeError("saved checkpoint workspace is no longer safe to resume") from error
         return {
             "status": "resuming", "scope": scope, "checkpoint": checkpoint,
-            "execution_worktree": execution_path, "requires_worktree_activation": True,
+            "execution_worktree": verified["execution_worktree"], "requires_worktree_activation": True,
             "copy_command": self._command(scope),
         }
