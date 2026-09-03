@@ -51,7 +51,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.multi_agent_pilot.parallel_writers_allowed, false);
       assert.equal(data.execution.multi_agent_pilot.owner_approval_channel, 'current_owner_chat');
       assert.equal(data.execution.multi_agent_pilot.managed_sandbox_bypass_claim_allowed, false);
-      assert.equal(data.execution.controlled_parallel_execution_v1.maximum_active_writers, 2);
+      assert.equal(data.execution.controlled_parallel_execution_v1.maximum_active_writers, 4);
       assert.equal(data.execution.controlled_parallel_execution_v1.canonical_worktree_allowed, false);
       assert.equal(data.execution.controlled_parallel_execution_v1.distinct_project_sqlite_allowed, true);
       assert.equal(data.execution.controlled_parallel_execution_v1.invalid_or_missing_declaration, 'fail_closed');
@@ -116,7 +116,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 18);
+      assert.equal(operations.revision, 19);
       assert.equal(operations.startup_surface.agents_is_compact_contract, true);
       assert.equal(operations.startup_surface.safety_gates_preserved, true);
       assert.deepEqual(operations.context_routing_target.hierarchy, ['core', 'project', 'subproject', 'task']);
@@ -151,7 +151,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operations.strategy.read_only, true);
       assert.equal(operations.repository_mutation.responsible_executors_per_change_set, 1);
       assert.equal(operations.repository_mutation.commits_per_change_set, 1);
-      assert.equal(operations.repository_mutation.maximum_parallel_writers, 2);
+      assert.equal(operations.repository_mutation.maximum_parallel_writers, 4);
       assert.equal(operations.repository_mutation.parallel_writers_allowed, true);
       assert.equal(operations.repository_mutation.resource_leases_required, true);
       assert.equal(operations.repository_mutation.integration_serialized, true);
@@ -192,14 +192,14 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.new_engineering_task_requires_new_native_thread, true);
       assert.equal(data.handoff.strategy_may_replace_existing_or_completed_thread_scope, false);
       assert.equal(data.handoff.active_engineering_thread_blocks_second_writer_thread, false);
-      assert.equal(data.handoff.maximum_active_writer_executors, 2);
+      assert.equal(data.handoff.maximum_active_writer_executors, 4);
       assert.equal(data.handoff.resource_conflict_requires_wait, true);
       assert.equal(data.handoff.integration_is_serialized, true);
       assert.equal(data.handoff.maximum_parallel_read_only_branches, 3);
       assert.equal(data.handoff.active_writer_thread_requires_wait_or_owner_explicit_cancellation, false);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 31);
+      assert.equal(data.revision, 32);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();

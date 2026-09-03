@@ -984,8 +984,8 @@ class HandoffStore:
         active = [item for item in self._active_results(connection) if item["handoff_id"] != candidate["handoff_id"]]
         if not active:
             return None
-        if len(active) >= 2:
-            return "maximum active writer leases is two"
+        if len(active) >= 4:
+            return "maximum active writer leases is four"
         resources = candidate.get("execution_resources")
         if resources is None:
             return "another developer handoff is already in progress: missing execution resource declaration blocks concurrent writer"

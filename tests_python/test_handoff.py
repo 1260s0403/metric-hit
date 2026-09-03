@@ -275,7 +275,7 @@ def test_lifecycle_is_idempotent_and_allows_only_one_active_developer_handoff(tm
     assert store.next()["handoff_id"] == second["handoff_id"]
 
 
-def test_parallel_v1_allows_two_isolated_writers_blocks_third_and_serializes_integration(tmp_path):
+def test_parallel_v1_allows_four_isolated_writers_blocks_fifth_and_serializes_integration(tmp_path):
     store = HandoffStore(temporary_database(tmp_path))
     first = store.create_approved(parallel_payload(
         tmp_path, "articles", sqlite_resources=["data/projects/project-a/project.sqlite"],
@@ -284,12 +284,16 @@ def test_parallel_v1_allows_two_isolated_writers_blocks_third_and_serializes_int
         tmp_path, "landing", sqlite_resources=["data/projects/project-b/project.sqlite"],
     ))
     third = store.create_approved(parallel_payload(tmp_path, "project-c"))
+    fourth = store.create_approved(parallel_payload(tmp_path, "project-d"))
+    fifth = store.create_approved(parallel_payload(tmp_path, "project-e"))
     first_claim = store.claim(first["handoff_id"], "writer-a")
     assert store.claim(first["handoff_id"], "writer-a") == first_claim
     second_claim = store.claim(second["handoff_id"], "writer-b")
     assert second_claim["status"] == "in_progress"
-    with pytest.raises(HandoffError, match="maximum active writer leases is two"):
-        store.claim(third["handoff_id"], "writer-c")
+    assert store.claim(third["handoff_id"], "writer-c")["status"] == "in_progress"
+    assert store.claim(fourth["handoff_id"], "writer-d")["status"] == "in_progress"
+    with pytest.raises(HandoffError, match="maximum active writer leases is four"):
+        store.claim(fifth["handoff_id"], "writer-e")
 
     integration = store.begin_integration(first["handoff_id"], "writer-a", "b" * 40, "b" * 40, True)
     assert integration["lifecycle"]["integration"]["status"] == "integrating"
@@ -303,7 +307,7 @@ def test_parallel_v1_allows_two_isolated_writers_blocks_third_and_serializes_int
     store.complete(first["handoff_id"], "1" * 40, "writer-a")
     store.begin_integration(second["handoff_id"], "writer-b", "c" * 40, "c" * 40, True)
     store.complete(second["handoff_id"], "2" * 40, "writer-b")
-    assert store.claim(third["handoff_id"], "writer-c")["status"] == "in_progress"
+    assert store.claim(fifth["handoff_id"], "writer-e")["status"] == "in_progress"
 
 
 @pytest.mark.parametrize(
