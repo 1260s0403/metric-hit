@@ -11,14 +11,32 @@ import json
 import os
 import sqlite3
 import time
+from calendar import monthcalendar
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Callable, Protocol
 from urllib.request import Request, urlopen
 
 EXPENSE_CATEGORIES = ("Бытовые", "Сервисы", "Продвижение", "Выплаты")
+PAYMENT_METHODS = ("СБП", "Оплата по счёту", "USDT", "BTC")
+PAYMENT_METHOD_SLUGS = {"sbp": "СБП", "invoice": "Оплата по счёту", "usdt": "USDT", "btc": "BTC"}
+MONTH_NAMES = (
+    "",
+    "Январь",
+    "Февраль",
+    "Март",
+    "Апрель",
+    "Май",
+    "Июнь",
+    "Июль",
+    "Август",
+    "Сентябрь",
+    "Октябрь",
+    "Ноябрь",
+    "Декабрь",
+)
 COLLABORATOR_USERNAME = "ametric_hit"
 ACCESS_DENIED_MESSAGE = "Доступ к бухгалтерии закрыт."
 
@@ -431,23 +449,52 @@ class TelegramAccountantBot:
     @staticmethod
     def reply_keyboard() -> dict[str, object]:
         return {
-            "keyboard": [
-                [{"text": "Доход"}, {"text": "Расход"}, {"text": "Отчёты"}],
-                [{"text": "Назад в меню"}],
-            ],
+            "keyboard": [[{"text": "Доход"}, {"text": "Расход"}, {"text": "Отчёты"}]],
             "resize_keyboard": True,
         }
 
+    def calendar_keyboard(self, target: str, shown: date | None = None) -> dict[str, object]:
+        """Build a compact inline calendar; all callback payloads stay below Telegram's limit."""
+        shown = shown or self._now().astimezone(UTC).date().replace(day=1)
+        shown = shown.replace(day=1)
+        previous = (shown - timedelta(days=1)).replace(day=1)
+        following = (shown.replace(day=28) + timedelta(days=4)).replace(day=1)
+        rows: list[list[dict[str, str]]] = [
+            [{"text": f"{MONTH_NAMES[shown.month]} {shown.year}", "callback_data": f"cal:{target}:noop"}],
+            [{"text": value, "callback_data": f"cal:{target}:noop"} for value in ("Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс")],
+        ]
+        for week in monthcalendar(shown.year, shown.month):
+            rows.append([
+                {
+                    "text": str(day_number) if day_number else " ",
+                    "callback_data": (
+                        f"cal:{target}:d:{shown.year:04d}-{shown.month:02d}-{day_number:02d}"
+                        if day_number
+                        else f"cal:{target}:noop"
+                    ),
+                }
+                for day_number in week
+            ])
+        rows.extend(
+            [
+                [
+                    {"text": "‹", "callback_data": f"cal:{target}:n:{previous.year:04d}-{previous.month:02d}"},
+                    {"text": "Сегодня", "callback_data": f"cal:{target}:today"},
+                    {"text": "›", "callback_data": f"cal:{target}:n:{following.year:04d}-{following.month:02d}"},
+                ],
+                [{"text": "Назад", "callback_data": f"cal:{target}:back"}],
+            ]
+        )
+        return {"inline_keyboard": rows}
+
     @staticmethod
-    def date_keyboard() -> dict[str, object]:
+    def payment_method_keyboard() -> dict[str, object]:
         return {
-            "keyboard": [
-                [{"text": "Сегодня"}, {"text": "Вчера"}],
-                [{"text": "Другая дата"}],
-                [{"text": "Назад"}, {"text": "Отменить и в меню"}],
-            ],
-            "resize_keyboard": True,
-            "one_time_keyboard": True,
+            "inline_keyboard": [
+                [{"text": "СБП", "callback_data": "pay:sbp"}, {"text": "Оплата по счёту", "callback_data": "pay:invoice"}],
+                [{"text": "USDT", "callback_data": "pay:usdt"}, {"text": "BTC", "callback_data": "pay:btc"}],
+                [{"text": "Назад", "callback_data": "pay:back"}],
+            ]
         }
 
     @staticmethod
@@ -457,14 +504,6 @@ class TelegramAccountantBot:
                 *[[{"text": category}] for category in EXPENSE_CATEGORIES],
                 [{"text": "Назад"}, {"text": "Отменить и в меню"}],
             ],
-            "resize_keyboard": True,
-            "one_time_keyboard": True,
-        }
-
-    @staticmethod
-    def custom_period_keyboard() -> dict[str, object]:
-        return {
-            "keyboard": [[{"text": "Назад в меню"}]],
             "resize_keyboard": True,
             "one_time_keyboard": True,
         }
@@ -674,6 +713,221 @@ class TelegramAccountantBot:
         )
         return True
 
+    def _calendar_prompt(self, target: str, *, invalid_end: bool = False) -> str:
+        if target == "f":
+            return "Выберите дату операции."
+        if target == "rs":
+            return "Выберите начало периода."
+        if invalid_end:
+            return "Конечная дата не может быть раньше начальной. Выберите другую дату."
+        return "Выберите конец периода."
+
+    def _edit_calendar(self, chat_id: int, message_id: int, target: str, shown: date) -> None:
+        self.transport.call(
+            "editMessageText",
+            {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": self._calendar_prompt(target),
+                "reply_markup": self.calendar_keyboard(target, shown),
+            },
+        )
+
+    def _refresh_section_after_save(self, chat_id: int, completed: dict[str, object]) -> None:
+        kind = str(completed["kind"])
+        origin_message_id = completed.get("origin_message_id")
+        if isinstance(origin_message_id, int):
+            try:
+                self.transport.call(
+                    "editMessageText",
+                    {
+                        "chat_id": chat_id,
+                        "message_id": origin_message_id,
+                        "text": self._render_section(chat_id, kind),
+                        "reply_markup": self.section_keyboard(kind),
+                    },
+                )
+                self._section_states[chat_id] = {
+                    "message_id": origin_message_id,
+                    "kind": kind,
+                    "view": "root",
+                }
+                return
+            except Exception:
+                # The original section message can be too old or already changed.  Confirmation
+                # has already been delivered, so fall back to a fresh internal section menu.
+                pass
+        result = self.transport.call(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": self._render_section(chat_id, kind),
+                "reply_markup": self.section_keyboard(kind),
+            },
+        )
+        sent = result.get("result")
+        if isinstance(sent, dict) and isinstance(sent.get("message_id"), int):
+            self._section_states[chat_id] = {
+                "message_id": sent["message_id"],
+                "kind": kind,
+                "view": "root",
+            }
+
+    def _send_saved_confirmation(self, chat_id: int, text: str, completed: dict[str, object]) -> None:
+        payload = {"chat_id": chat_id, "text": text, "reply_markup": self.reply_keyboard()}
+        try:
+            self.transport.call("sendMessage", payload)
+        except Exception:
+            # A retry cannot duplicate the transaction: the form is removed before any API call.
+            self.transport.call("sendMessage", payload)
+        self._refresh_section_after_save(chat_id, completed)
+
+    def _handle_payment_callback(self, chat_id: int, message_id: int, data: str) -> bool:
+        action = data.removeprefix("pay:")
+        flow = self._flows.get(chat_id)
+        if flow is None or flow.get("kind") != "income" or flow.get("step") != "details":
+            return True
+        if action == "back":
+            flow["step"] = "date"
+            self._edit_calendar(chat_id, message_id, "f", date.fromisoformat(str(flow["date"])).replace(day=1))
+            return True
+        method = PAYMENT_METHOD_SLUGS.get(action)
+        if method is None:
+            return True
+        flow["details"] = method
+        confirmation, completed = self._save_flow(chat_id, flow)
+        self._send_saved_confirmation(chat_id, confirmation, completed)
+        try:
+            self.transport.call(
+                "editMessageText",
+                {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": f"Способ пополнения: {method}.",
+                    "reply_markup": {"inline_keyboard": []},
+                },
+            )
+        except Exception:
+            pass
+        return True
+
+    def _handle_calendar_callback(self, chat_id: int, message_id: int, data: str) -> bool:
+        parts = data.split(":")
+        if len(parts) < 3 or parts[0] != "cal" or parts[1] not in {"f", "rs", "re"}:
+            return True
+        target, action = parts[1], parts[2]
+        if action == "noop":
+            return True
+        if action == "n" and len(parts) == 4:
+            try:
+                shown = datetime.strptime(parts[3], "%Y-%m").date()
+            except ValueError:
+                return True
+            self._edit_calendar(chat_id, message_id, target, shown)
+            return True
+        if action == "back":
+            if target == "f":
+                flow = self._flows.get(chat_id)
+                if flow is None or flow.get("step") != "date":
+                    return True
+                flow["step"] = "amount"
+                self.transport.call(
+                    "editMessageText",
+                    {"chat_id": chat_id, "message_id": message_id, "text": "Вернулись к сумме.", "reply_markup": {"inline_keyboard": []}},
+                )
+                self.transport.call(
+                    "sendMessage",
+                    {"chat_id": chat_id, "text": "Введите сумму.", "reply_markup": self.wizard_keyboard()},
+                )
+                return True
+            state = self._report_states.get(chat_id)
+            if state is None or not state.get("awaiting_custom"):
+                return True
+            if target == "re":
+                state.pop("custom_start", None)
+                state["custom_stage"] = "start"
+                self._edit_calendar(chat_id, message_id, "rs", self._now().astimezone(UTC).date().replace(day=1))
+            else:
+                state.update({"awaiting_custom": False})
+                state.pop("custom_stage", None)
+                state.pop("custom_start", None)
+                self.transport.call(
+                    "editMessageText",
+                    {"chat_id": chat_id, "message_id": message_id, "text": "Выбор периода отменён.", "reply_markup": {"inline_keyboard": []}},
+                )
+            return True
+        if action == "today":
+            selected = self._now().astimezone(UTC).date()
+        elif action == "d" and len(parts) == 4:
+            try:
+                selected = date.fromisoformat(parts[3])
+            except ValueError:
+                return True
+        else:
+            return True
+        selected_text = selected.isoformat()
+        if target == "f":
+            flow = self._flows.get(chat_id)
+            if flow is None or flow.get("step") != "date":
+                return True
+            flow["date"] = selected_text
+            self.transport.call(
+                "editMessageText",
+                {"chat_id": chat_id, "message_id": message_id, "text": f"Дата: {selected_text}.", "reply_markup": {"inline_keyboard": []}},
+            )
+            if flow["kind"] == "income":
+                flow["step"] = "details"
+                self.transport.call(
+                    "sendMessage",
+                    {"chat_id": chat_id, "text": "Выберите способ пополнения.", "reply_markup": self.payment_method_keyboard()},
+                )
+            else:
+                confirmation, completed = self._save_flow(chat_id, flow)
+                self._send_saved_confirmation(chat_id, confirmation, completed)
+            return True
+        state = self._report_states.get(chat_id)
+        if state is None or not state.get("awaiting_custom"):
+            return True
+        if target == "rs":
+            state["custom_start"] = selected_text
+            state["custom_stage"] = "end"
+            self.transport.call(
+                "editMessageText",
+                {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": f"Начало: {selected_text}. Теперь выберите конец периода.",
+                    "reply_markup": self.calendar_keyboard("re", selected.replace(day=1)),
+                },
+            )
+            return True
+        start = state.get("custom_start")
+        if not isinstance(start, str):
+            return True
+        if selected_text < start:
+            self.transport.call(
+                "editMessageText",
+                {
+                    "chat_id": chat_id,
+                    "message_id": message_id,
+                    "text": self._calendar_prompt("re", invalid_end=True),
+                    "reply_markup": self.calendar_keyboard("re", selected.replace(day=1)),
+                },
+            )
+            return True
+        state.update({"start": start, "end": selected_text, "period": f"{start} — {selected_text}", "awaiting_custom": False})
+        state.pop("custom_stage", None)
+        state.pop("custom_start", None)
+        self.transport.call(
+            "editMessageText",
+            {"chat_id": chat_id, "message_id": state["message_id"], "text": self._render_dashboard(chat_id, state), "reply_markup": self.report_keyboard()},
+        )
+        self.transport.call(
+            "editMessageText",
+            {"chat_id": chat_id, "message_id": message_id, "text": f"Период выбран: {start} — {selected_text}.", "reply_markup": {"inline_keyboard": []}},
+        )
+        return True
+
     def _handle_callback(self, callback: dict[str, object]) -> bool:
         callback_id = callback.get("id")
         if not isinstance(callback_id, str):
@@ -699,6 +953,10 @@ class TelegramAccountantBot:
         self.transport.call("answerCallbackQuery", {"callback_query_id": callback_id})
         if data.startswith("section:"):
             return self._handle_section_callback(chat_id, message_id, data)
+        if data.startswith("cal:"):
+            return self._handle_calendar_callback(chat_id, message_id, data)
+        if data.startswith("pay:"):
+            return self._handle_payment_callback(chat_id, message_id, data)
         action = data.removeprefix("report:") if data.startswith("report:") else ""
         if action not in {"summary", "income", "expense", "today", "week", "month", "custom", "back"}:
             return True
@@ -736,12 +994,13 @@ class TelegramAccountantBot:
             state["start"], state["end"], state["period"] = self._report_period(action)
         elif action == "custom":
             state["awaiting_custom"] = True
+            state["custom_stage"] = "start"
             self.transport.call(
                 "sendMessage",
                 {
                     "chat_id": chat_id,
-                    "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.",
-                    "reply_markup": self.custom_period_keyboard(),
+                    "text": "Выберите начало периода.",
+                    "reply_markup": self.calendar_keyboard("rs"),
                 },
             )
             return True
@@ -783,22 +1042,13 @@ class TelegramAccountantBot:
         state = self._report_states.get(chat_id)
         if state is None or not state.get("awaiting_custom"):
             return False
-        try:
-            start, end = parse_period(text.strip().split())
-        except ValueError:
-            self.transport.call(
-                "sendMessage",
-                {
-                    "chat_id": chat_id,
-                    "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.",
-                    "reply_markup": self.custom_period_keyboard(),
-                },
-            )
-            return True
-        state.update({"start": start, "end": end, "period": f"{start} — {end}", "awaiting_custom": False})
         self.transport.call(
-            "editMessageText",
-            {"chat_id": chat_id, "message_id": state["message_id"], "text": self._render_dashboard(chat_id, state), "reply_markup": self.report_keyboard()},
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": "Выберите дату кнопкой календаря.",
+                "reply_markup": self.calendar_keyboard("re" if state.get("custom_stage") == "end" else "rs"),
+            },
         )
         return True
 
@@ -819,10 +1069,12 @@ class TelegramAccountantBot:
             return self.commands.handle(chat_id, text), self.reply_keyboard()
         reply = self._wizard_back(chat_id, flow) if text == "Назад" else self._continue_flow(chat_id, text, flow)
         keyboard = (
-            self.date_keyboard()
-            if self._flows.get(chat_id) is flow and flow.get("step") in {"date", "manual_date"}
+            self.calendar_keyboard("f")
+            if self._flows.get(chat_id) is flow and flow.get("step") == "date"
             else self.expense_category_keyboard()
             if self._flows.get(chat_id) is flow and flow.get("step") == "category"
+            else self.payment_method_keyboard()
+            if self._flows.get(chat_id) is flow and flow.get("step") == "details"
             else self.wizard_keyboard()
             if self._flows.get(chat_id) is flow
             else self.reply_keyboard()
@@ -850,7 +1102,6 @@ class TelegramAccountantBot:
             "label": "category",
             "amount": "label",
             "date": "amount",
-            "manual_date": "date",
             "details": "date",
         }[step]
         flow["step"] = previous
@@ -887,37 +1138,12 @@ class TelegramAccountantBot:
             flow["step"] = "date"
             return "Выберите дату."
         if step == "date":
-            if value == "Сегодня":
-                flow["date"] = self._now().astimezone(UTC).date().isoformat()
-                return self._continue_after_date(chat_id, flow)
-            if value == "Вчера":
-                flow["date"] = (self._now().astimezone(UTC).date() - timedelta(days=1)).isoformat()
-                return self._continue_after_date(chat_id, flow)
-            if value == "Другая дата":
-                flow["step"] = "manual_date"
-                return "Введите дату в формате YYYY-MM-DD."
-            return "Выберите дату кнопкой или нажмите «Другая дата»."
-        if step == "manual_date":
-            try:
-                validate_date(value)
-            except ValueError:
-                return "Введите дату в формате YYYY-MM-DD."
-            flow["date"] = value
-            return self._continue_after_date(chat_id, flow)
+            return "Выберите дату кнопкой календаря."
         if step == "details":
-            if not value:
-                return "Поле не может быть пустым. Введите вид пополнения."
-            flow["details"] = value
-            return self._save_flow(chat_id, flow)
+            return "Выберите способ пополнения кнопкой."
         raise RuntimeError("unknown accountant flow step")
 
-    def _continue_after_date(self, chat_id: int, flow: dict[str, object]) -> str:
-        if flow["kind"] == "income":
-            flow["step"] = "details"
-            return "Введите вид пополнения."
-        return self._save_flow(chat_id, flow)
-
-    def _save_flow(self, chat_id: int, flow: dict[str, object]) -> str:
+    def _save_flow(self, chat_id: int, flow: dict[str, object]) -> tuple[str, dict[str, object]]:
         item = self.commands.store.add(
             chat_id,
             str(flow["kind"]),
@@ -927,28 +1153,28 @@ class TelegramAccountantBot:
             details=str(flow.get("details", "")),
             category=str(flow.get("category", "")),
         )
+        completed = {
+            "kind": str(flow["kind"]),
+            "origin_message_id": flow.get("origin_message_id"),
+        }
         self._flows.pop(chat_id, None)
-        origin_message_id = flow.get("origin_message_id")
-        origin_kind = flow.get("origin_kind")
-        if isinstance(origin_message_id, int) and origin_kind in {"income", "expense"}:
-            kind = str(origin_kind)
-            self._section_states[chat_id] = {
-                "message_id": origin_message_id,
-                "kind": kind,
-                "view": "root",
-            }
-            self.transport.call(
-                "editMessageText",
-                {
-                    "chat_id": chat_id,
-                    "message_id": origin_message_id,
-                    "text": self._render_section(chat_id, kind),
-                    "reply_markup": self.section_keyboard(kind),
-                },
+        if item.kind == "income":
+            return (
+                "Запись внесена.\n"
+                f"Доход: {format_money(item.amount_cents)}\n"
+                f"Клиент: {item.label}\n"
+                f"Дата: {flow['date']}\n"
+                f"Способ пополнения: {item.details}",
+                completed,
             )
-        action = "Доход добавлен" if item.kind == "income" else "Расход добавлен"
-        suffix = f" ({item.details})" if item.details else ""
-        return f"{action}: {format_money(item.amount_cents)} — {item.label}{suffix}, дата {flow['date']}."
+        return (
+            "Запись внесена.\n"
+            f"Расход: {format_money(item.amount_cents)}\n"
+            f"Куда: {item.label}\n"
+            f"Категория: {flow.get('category', '')}\n"
+            f"Дата: {flow['date']}",
+            completed,
+        )
 
     def poll_once(self, timeout: int = 25) -> int:
         payload: dict[str, object] = {"timeout": timeout}

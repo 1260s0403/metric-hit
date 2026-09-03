@@ -5,6 +5,7 @@ import pytest
 from metrichit_os.telegram_accountant import (
     AccountantCommands,
     AccountantStore,
+    PAYMENT_METHODS,
     TelegramAccountantBot,
     format_money,
     parse_amount,
@@ -190,29 +191,32 @@ def test_bot_requires_token_without_injected_transport(tmp_path, monkeypatch):
         TelegramAccountantBot(store(tmp_path))
 
 
-def test_income_button_flow_saves_client_date_and_top_up_type(tmp_path):
+def test_income_button_flow_confirms_record_and_uses_selected_payment_method(tmp_path):
     transport = FakeTransport([
         {"update_id": 1, "message": {"chat": {"id": 9}, "text": "Доход"}},
         {"update_id": 2, "callback_query": {"id": "add", "data": "section:income:add", "message": {"message_id": 101, "chat": {"id": 9}}}},
         {"update_id": 3, "message": {"chat": {"id": 9}, "text": "@client"}},
         {"update_id": 4, "message": {"chat": {"id": 9}, "text": "1250.50"}},
-        {"update_id": 5, "message": {"chat": {"id": 9}, "text": "Другая дата"}},
-        {"update_id": 6, "message": {"chat": {"id": 9}, "text": "2026-08-31"}},
-        {"update_id": 7, "message": {"chat": {"id": 9}, "text": "Перевод"}},
-        {"update_id": 8, "message": {"chat": {"id": 9}, "text": "Отчёты"}},
+        {"update_id": 5, "callback_query": {"id": "date", "data": "cal:f:d:2026-08-31", "message": {"message_id": 105, "chat": {"id": 9}}}},
+        {"update_id": 6, "callback_query": {"id": "pay", "data": "pay:sbp", "message": {"message_id": 106, "chat": {"id": 9}}}},
     ])
     accounting_store = store(tmp_path)
-    bot = TelegramAccountantBot(accounting_store, transport=transport)
-    assert bot.poll_once(timeout=1) == 8
-    assert transport.calls[-2][1]["text"] == "Доход добавлен: 1 250.50 ₽ — @client (Перевод), дата 2026-08-31."
-    assert transport.calls[-1][1]["text"] == (
-        "Финансы · За всё время\n\nБаланс  1 250.50 ₽\nДоходы  1 250.50 ₽\n"
-        "Расходы  0.00 ₽\n\nКрупнее всего: нет расходов"
+    bot = TelegramAccountantBot(
+        accounting_store, transport=transport, now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC)
     )
-    assert transport.calls[-1][1]["reply_markup"] == TelegramAccountantBot.report_keyboard()
+    assert bot.poll_once(timeout=1) == 6
+    confirmations = [
+        payload for method, payload in transport.calls
+        if method == "sendMessage" and payload["text"].startswith("Запись внесена.")
+    ]
+    assert confirmations == [{
+        "chat_id": 9,
+        "text": "Запись внесена.\nДоход: 1 250.50 ₽\nКлиент: @client\nДата: 2026-08-31\nСпособ пополнения: СБП",
+        "reply_markup": TelegramAccountantBot.reply_keyboard(),
+    }]
     assert accounting_store.breakdown(9, "income", "2026-08-31", "2026-08-31") == [("@client", 125050)]
     with accounting_store._connect() as connection:
-        assert connection.execute("SELECT details FROM accountant_transactions").fetchone()["details"] == "Перевод"
+        assert connection.execute("SELECT details FROM accountant_transactions").fetchone()["details"] == "СБП"
 
 
 def test_expense_flow_is_isolated_between_chats(tmp_path):
@@ -227,8 +231,8 @@ def test_expense_flow_is_isolated_between_chats(tmp_path):
         {"update_id": 8, "message": {"chat": {"id": 2}, "text": "Хостинг"}},
         {"update_id": 9, "message": {"chat": {"id": 1}, "text": "300"}},
         {"update_id": 10, "message": {"chat": {"id": 2}, "text": "50"}},
-        {"update_id": 11, "message": {"chat": {"id": 1}, "text": "Сегодня"}},
-        {"update_id": 12, "message": {"chat": {"id": 2}, "text": "Вчера"}},
+        {"update_id": 11, "callback_query": {"id": "today-1", "data": "cal:f:today", "message": {"message_id": 111, "chat": {"id": 1}}}},
+        {"update_id": 12, "callback_query": {"id": "day-2", "data": "cal:f:d:2026-09-01", "message": {"message_id": 112, "chat": {"id": 2}}}},
     ])
     accounting_store = store(tmp_path)
     bot = TelegramAccountantBot(accounting_store, transport=transport)
@@ -238,20 +242,20 @@ def test_expense_flow_is_isolated_between_chats(tmp_path):
     assert accounting_store.expense_category_totals(1) == [("Бытовые", 0), ("Сервисы", 0), ("Продвижение", 30000), ("Выплаты", 0)]
 
 
-def test_date_buttons_save_current_or_previous_date_and_restore_main_keyboard(tmp_path):
+def test_calendar_dates_save_income_and_expense_and_restore_main_keyboard(tmp_path):
     transport = FakeTransport([
         {"update_id": 1, "message": {"chat": {"id": 1}, "text": "Доход"}},
         {"update_id": 2, "callback_query": {"id": "add-income", "data": "section:income:add", "message": {"message_id": 101, "chat": {"id": 1}}}},
         {"update_id": 3, "message": {"chat": {"id": 1}, "text": "@client"}},
         {"update_id": 4, "message": {"chat": {"id": 1}, "text": "100"}},
-        {"update_id": 5, "message": {"chat": {"id": 1}, "text": "Сегодня"}},
-        {"update_id": 6, "message": {"chat": {"id": 1}, "text": "Перевод"}},
+        {"update_id": 5, "callback_query": {"id": "today-income", "data": "cal:f:today", "message": {"message_id": 105, "chat": {"id": 1}}}},
+        {"update_id": 6, "callback_query": {"id": "invoice", "data": "pay:invoice", "message": {"message_id": 106, "chat": {"id": 1}}}},
         {"update_id": 7, "message": {"chat": {"id": 2}, "text": "Расход"}},
         {"update_id": 8, "callback_query": {"id": "add-expense", "data": "section:expense:add", "message": {"message_id": 108, "chat": {"id": 2}}}},
         {"update_id": 9, "message": {"chat": {"id": 2}, "text": "Продвижение"}},
         {"update_id": 10, "message": {"chat": {"id": 2}, "text": "Реклама"}},
         {"update_id": 11, "message": {"chat": {"id": 2}, "text": "25"}},
-        {"update_id": 12, "message": {"chat": {"id": 2}, "text": "Вчера"}},
+        {"update_id": 12, "callback_query": {"id": "yesterday-expense", "data": "cal:f:d:2026-09-01", "message": {"message_id": 112, "chat": {"id": 2}}}},
     ])
     accounting_store = store(tmp_path)
     bot = TelegramAccountantBot(
@@ -261,8 +265,9 @@ def test_date_buttons_save_current_or_previous_date_and_restore_main_keyboard(tm
     )
     assert bot.poll_once(timeout=1) == 12
     sent = [payload for method, payload in transport.calls if method == "sendMessage"]
-    assert any(payload["reply_markup"] == TelegramAccountantBot.date_keyboard() for payload in sent)
-    assert transport.calls[-1][1]["reply_markup"] == TelegramAccountantBot.reply_keyboard()
+    assert any(payload["reply_markup"] == bot.calendar_keyboard("f") for payload in sent)
+    assert any(payload["reply_markup"] == TelegramAccountantBot.payment_method_keyboard() for payload in sent)
+    assert any(payload["reply_markup"] == TelegramAccountantBot.reply_keyboard() for payload in sent)
     assert accounting_store.breakdown(1, "income", "2026-09-02", "2026-09-02") == [("@client", 10000)]
     assert accounting_store.breakdown(2, "expense", "2026-09-01", "2026-09-01") == [("Реклама", 2500)]
 
@@ -292,7 +297,7 @@ def test_report_dashboard_uses_inline_keyboard_and_edits_the_same_message(tmp_pa
     assert "Доходы · Этот месяц" in edited["text"]
 
 
-def test_expense_dashboard_includes_all_categories_and_custom_period_replaces_dashboard(tmp_path):
+def test_custom_period_uses_calendar_validates_range_and_replaces_dashboard(tmp_path):
     accounting_store = store(tmp_path)
     accounting_store.add(5, "expense", "20", "Обед", "2026-08-30", category="Бытовые")
     accounting_store.add(5, "expense", "30", "Реклама", "2026-09-02", category="Продвижение")
@@ -314,15 +319,19 @@ def test_expense_dashboard_includes_all_categories_and_custom_period_replaces_da
         "sendMessage",
         {
             "chat_id": 5,
-            "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.",
-            "reply_markup": TelegramAccountantBot.custom_period_keyboard(),
+            "text": "Выберите начало периода.",
+            "reply_markup": bot.calendar_keyboard("rs"),
         },
     )
-    transport.updates = [{"update_id": 4, "message": {"chat": {"id": 5}, "text": "2026-09-01 2026-09-02"}}]
-    assert bot.poll_once(timeout=1) == 1
-    custom_edit = transport.calls[-1][1]
-    assert transport.calls[-1][0] == "editMessageText"
-    assert custom_edit["message_id"] == dashboard_id
+    transport.updates = [
+        {"update_id": 4, "callback_query": {"id": "start", "data": "cal:rs:d:2026-09-01", "message": {"message_id": 222, "chat": {"id": 5}}}},
+        {"update_id": 5, "callback_query": {"id": "bad-end", "data": "cal:re:d:2026-08-31", "message": {"message_id": 222, "chat": {"id": 5}}}},
+        {"update_id": 6, "callback_query": {"id": "end", "data": "cal:re:d:2026-09-02", "message": {"message_id": 222, "chat": {"id": 5}}}},
+    ]
+    assert bot.poll_once(timeout=1) == 3
+    edits = [payload for method, payload in transport.calls if method == "editMessageText"]
+    assert any("Конечная дата не может быть раньше" in edit["text"] for edit in edits)
+    custom_edit = next(edit for edit in edits if edit["message_id"] == dashboard_id and "2026-09-01 — 2026-09-02" in edit["text"])
     assert "Расходы · 2026-09-01 — 2026-09-02" in custom_edit["text"]
     assert "Продвижение — 30.00 ₽" in custom_edit["text"]
     assert "Бытовые — 0.00 ₽" in custom_edit["text"]
@@ -550,7 +559,7 @@ def test_report_back_removes_inline_dashboard_and_restores_main_keyboard(tmp_pat
 
 
 def test_back_to_menu_cancels_every_wizard_and_custom_period(tmp_path):
-    steps = ("category", "label", "amount", "date", "manual_date", "details")
+    steps = ("category", "label", "amount", "date", "details")
     transport = FakeTransport(
         [
             {"update_id": index + 1, "message": {"chat": {"id": index}, "text": "Назад в меню"}}
@@ -571,8 +580,9 @@ def test_back_to_menu_cancels_every_wizard_and_custom_period(tmp_path):
 
 
 def test_all_wizard_keyboards_include_back_to_menu():
+    bot = TelegramAccountantBot.__new__(TelegramAccountantBot)
+    bot._now = lambda: datetime(2026, 9, 2, 12, tzinfo=UTC)
     keyboards = (
-        TelegramAccountantBot.date_keyboard(),
         TelegramAccountantBot.expense_category_keyboard(),
         TelegramAccountantBot.wizard_keyboard(),
     )
@@ -583,10 +593,134 @@ def test_all_wizard_keyboards_include_back_to_menu():
         for keyboard in keyboards
     )
     assert any(
+        button["text"] == "Назад"
+        for row in bot.calendar_keyboard("f")["inline_keyboard"]
+        for button in row
+    )
+    assert any(
         button["text"] == "Назад в меню"
         for row in TelegramAccountantBot.report_keyboard()["inline_keyboard"]
         for button in row
     )
+
+
+def test_main_menu_has_no_back_button_and_internal_menus_keep_back_navigation(tmp_path):
+    assert TelegramAccountantBot.reply_keyboard()["keyboard"] == [
+        [{"text": "Доход"}, {"text": "Расход"}, {"text": "Отчёты"}]
+    ]
+    bot = TelegramAccountantBot(
+        store(tmp_path), transport=FakeTransport([]), now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC)
+    )
+    internal = [
+        TelegramAccountantBot.section_keyboard("income"),
+        TelegramAccountantBot.section_keyboard("expense"),
+        TelegramAccountantBot.report_keyboard(),
+        TelegramAccountantBot.payment_method_keyboard(),
+        bot.calendar_keyboard("f"),
+    ]
+    assert all(
+        any(button["text"].startswith("Назад") for row in keyboard["inline_keyboard"] for button in row)
+        for keyboard in internal
+    )
+    method_buttons = [
+        button["text"]
+        for row in TelegramAccountantBot.payment_method_keyboard()["inline_keyboard"][:-1]
+        for button in row
+    ]
+    assert tuple(method_buttons) == PAYMENT_METHODS
+
+
+def test_calendar_handles_leap_month_navigation_and_callback_size(tmp_path):
+    bot = TelegramAccountantBot(
+        store(tmp_path), transport=FakeTransport([]), now=lambda: datetime(2024, 2, 15, 12, tzinfo=UTC)
+    )
+    keyboard = bot.calendar_keyboard("f")
+    buttons = [button for row in keyboard["inline_keyboard"] for button in row]
+    callbacks = [button["callback_data"] for button in buttons]
+    assert "cal:f:d:2024-02-29" in callbacks
+    assert "cal:f:d:2024-02-30" not in callbacks
+    assert "cal:f:n:2024-01" in callbacks and "cal:f:n:2024-03" in callbacks
+    assert max(len(value.encode("utf-8")) for value in callbacks) <= 64
+
+
+def test_income_save_confirmation_survives_section_edit_failure_without_duplicate(tmp_path):
+    class FailingEditTransport(FakeTransport):
+        def call(self, method, payload):
+            if method == "editMessageText" and payload.get("message_id") == 300:
+                self.calls.append((method, payload))
+                raise RuntimeError("old section cannot be edited")
+            return super().call(method, payload)
+
+    accounting_store = store(tmp_path)
+    transport = FailingEditTransport([
+        {"update_id": 1, "callback_query": {"id": "pay-1", "data": "pay:usdt", "message": {"message_id": 400, "chat": {"id": 3}}}},
+        {"update_id": 2, "callback_query": {"id": "pay-retry", "data": "pay:usdt", "message": {"message_id": 400, "chat": {"id": 3}}}},
+    ])
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    bot._section_states[3] = {"message_id": 300, "kind": "income", "view": "root"}
+    bot._flows[3] = {
+        "kind": "income", "step": "details", "label": "@client", "amount": "100",
+        "date": "2026-09-02", "origin_kind": "income", "origin_message_id": 300,
+    }
+    assert bot.poll_once(timeout=1) == 2
+    assert accounting_store.totals(3) == (10000, 0)
+    confirmations = [
+        payload for method, payload in transport.calls
+        if method == "sendMessage" and payload["text"].startswith("Запись внесена.")
+    ]
+    assert len(confirmations) == 1
+    assert "Клиент: @client" in confirmations[0]["text"]
+    assert "Способ пополнения: USDT" in confirmations[0]["text"]
+
+
+def test_income_confirmation_retries_api_once_without_duplicate_transaction(tmp_path):
+    class RetryConfirmationTransport(FakeTransport):
+        def __init__(self, updates):
+            super().__init__(updates)
+            self.failed = False
+
+        def call(self, method, payload):
+            if method == "sendMessage" and str(payload.get("text", "")).startswith("Запись внесена.") and not self.failed:
+                self.failed = True
+                self.calls.append((method, payload))
+                raise RuntimeError("temporary send failure")
+            return super().call(method, payload)
+
+    accounting_store = store(tmp_path)
+    transport = RetryConfirmationTransport([
+        {"update_id": 1, "callback_query": {"id": "pay", "data": "pay:btc", "message": {"message_id": 400, "chat": {"id": 3}}}},
+    ])
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    bot._flows[3] = {
+        "kind": "income", "step": "details", "label": "Клиент", "amount": "50",
+        "date": "2026-09-02", "origin_kind": "income", "origin_message_id": 300,
+    }
+    assert bot.poll_once(timeout=1) == 1
+    assert accounting_store.totals(3) == (5000, 0)
+    confirmation_calls = [
+        payload for method, payload in transport.calls
+        if method == "sendMessage" and str(payload.get("text", "")).startswith("Запись внесена.")
+    ]
+    assert len(confirmation_calls) == 2
+
+
+def test_financial_ui_exposes_no_delete_actions(tmp_path):
+    bot = TelegramAccountantBot(
+        store(tmp_path), transport=FakeTransport([]), now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC)
+    )
+    keyboards = [
+        TelegramAccountantBot.reply_keyboard(),
+        TelegramAccountantBot.section_keyboard("income"),
+        TelegramAccountantBot.section_keyboard("expense"),
+        TelegramAccountantBot.report_keyboard(),
+        TelegramAccountantBot.payment_method_keyboard(),
+        bot.calendar_keyboard("f"),
+        bot.calendar_keyboard("rs"),
+        bot.calendar_keyboard("re"),
+    ]
+    serialized = str(keyboards).casefold()
+    assert "удал" not in serialized and "delete" not in serialized
+    assert "/delete" not in AccountantCommands.HELP.casefold()
 
 
 def test_income_and_expense_sections_have_exact_root_buttons_and_month_metrics(tmp_path):
