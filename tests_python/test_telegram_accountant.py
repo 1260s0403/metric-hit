@@ -68,7 +68,12 @@ class FakeTransport:
 
     def call(self, method, payload):
         self.calls.append((method, payload))
-        return {"ok": True, "result": self.updates if method == "getUpdates" else True}
+        if method == "getUpdates":
+            updates, self.updates = self.updates, []
+            return {"ok": True, "result": updates}
+        if method == "sendMessage":
+            return {"ok": True, "result": {"message_id": 100 + sum(call[0] == "sendMessage" for call in self.calls)}}
+        return {"ok": True, "result": True}
 
 
 def test_polling_handles_text_and_skips_non_text_updates(tmp_path):
@@ -110,11 +115,11 @@ def test_income_button_flow_saves_client_date_and_top_up_type(tmp_path):
     bot = TelegramAccountantBot(accounting_store, transport=transport)
     assert bot.poll_once(timeout=1) == 7
     assert transport.calls[-2][1]["text"] == "Доход добавлен: 1 250.50 ₽ — @client (Перевод), дата 2026-08-31."
-    assert transport.calls[-1][1] == {
-        "chat_id": 9,
-        "text": "Отчёт за всё время:\nДоходы: 1 250.50 ₽\nРасходы: 0.00 ₽\nРасходы по категориям:\nБытовые: 0.00 ₽\nСервисы: 0.00 ₽\nПродвижение: 0.00 ₽\nВыплаты: 0.00 ₽\nИтог: 1 250.50 ₽",
-        "reply_markup": TelegramAccountantBot.reply_keyboard(),
-    }
+    assert transport.calls[-1][1]["text"] == (
+        "Финансы · За всё время\n\nБаланс  1 250.50 ₽\nДоходы  1 250.50 ₽\n"
+        "Расходы  0.00 ₽\n\nКрупнее всего: нет расходов"
+    )
+    assert transport.calls[-1][1]["reply_markup"] == TelegramAccountantBot.report_keyboard()
     assert accounting_store.breakdown(9, "income", "2026-08-31", "2026-08-31") == [("@client", 125050)]
     with accounting_store._connect() as connection:
         assert connection.execute("SELECT details FROM accountant_transactions").fetchone()["details"] == "Перевод"
@@ -166,3 +171,70 @@ def test_date_buttons_save_current_or_previous_date_and_restore_main_keyboard(tm
     assert transport.calls[-1][1]["reply_markup"] == TelegramAccountantBot.reply_keyboard()
     assert accounting_store.breakdown(1, "income", "2026-09-02", "2026-09-02") == [("@client", 10000)]
     assert accounting_store.breakdown(2, "expense", "2026-09-01", "2026-09-01") == [("Реклама", 2500)]
+
+
+def test_report_dashboard_uses_inline_keyboard_and_edits_the_same_message(tmp_path):
+    accounting_store = store(tmp_path)
+    accounting_store.add(9, "income", "1000", "@client", "2026-09-02")
+    accounting_store.add(9, "expense", "200", "Реклама", "2026-09-02", category="Продвижение")
+    transport = FakeTransport([{"update_id": 1, "message": {"chat": {"id": 9}, "text": "Отчёты"}}])
+    bot = TelegramAccountantBot(accounting_store, transport=transport)
+    assert bot.poll_once(timeout=1) == 1
+    dashboard = transport.calls[-1][1]
+    assert dashboard["reply_markup"] == TelegramAccountantBot.report_keyboard()
+    dashboard_id = bot._report_states[9]["message_id"]
+
+    transport.updates = [
+        {"update_id": 2, "callback_query": {"id": "q-income", "data": "report:income", "message": {"message_id": dashboard_id, "chat": {"id": 9}}}},
+        {"update_id": 3, "callback_query": {"id": "q-month", "data": "report:month", "message": {"message_id": dashboard_id, "chat": {"id": 9}}}},
+    ]
+    assert bot.poll_once(timeout=1) == 2
+    assert [call[0] for call in transport.calls[-4:]] == [
+        "answerCallbackQuery", "editMessageText", "answerCallbackQuery", "editMessageText"
+    ]
+    edited = transport.calls[-1][1]
+    assert edited["message_id"] == dashboard_id
+    assert edited["reply_markup"] == TelegramAccountantBot.report_keyboard()
+    assert "Доходы · Этот месяц" in edited["text"]
+
+
+def test_expense_dashboard_includes_all_categories_and_custom_period_replaces_dashboard(tmp_path):
+    accounting_store = store(tmp_path)
+    accounting_store.add(5, "expense", "20", "Обед", "2026-08-30", category="Бытовые")
+    accounting_store.add(5, "expense", "30", "Реклама", "2026-09-02", category="Продвижение")
+    transport = FakeTransport([{"update_id": 1, "message": {"chat": {"id": 5}, "text": "Отчёты"}}])
+    bot = TelegramAccountantBot(accounting_store, transport=transport, now=lambda: datetime(2026, 9, 2, 12, tzinfo=UTC))
+    bot.poll_once(timeout=1)
+    dashboard_id = bot._report_states[5]["message_id"]
+    transport.updates = [
+        {"update_id": 2, "callback_query": {"id": "q-expense", "data": "report:expense", "message": {"message_id": dashboard_id, "chat": {"id": 5}}}},
+        {"update_id": 3, "callback_query": {"id": "q-custom", "data": "report:custom", "message": {"message_id": dashboard_id, "chat": {"id": 5}}}},
+    ]
+    bot.poll_once(timeout=1)
+    expense_edit = next(call[1] for call in transport.calls if call[0] == "editMessageText")
+    assert expense_edit["text"] == (
+        "Расходы · За всё время\n\nБытовые — 20.00 ₽\nСервисы — 0.00 ₽\n"
+        "Продвижение — 30.00 ₽\nВыплаты — 0.00 ₽"
+    )
+    assert transport.calls[-1] == (
+        "sendMessage",
+        {"chat_id": 5, "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.", "reply_markup": TelegramAccountantBot.reply_keyboard()},
+    )
+    transport.updates = [{"update_id": 4, "message": {"chat": {"id": 5}, "text": "2026-09-01 2026-09-02"}}]
+    assert bot.poll_once(timeout=1) == 1
+    custom_edit = transport.calls[-1][1]
+    assert transport.calls[-1][0] == "editMessageText"
+    assert custom_edit["message_id"] == dashboard_id
+    assert "Расходы · 2026-09-01 — 2026-09-02" in custom_edit["text"]
+    assert "Продвижение — 30.00 ₽" in custom_edit["text"]
+    assert "Бытовые — 0.00 ₽" in custom_edit["text"]
+
+
+def test_malformed_or_unknown_callbacks_are_acknowledged_without_editing(tmp_path):
+    transport = FakeTransport([
+        {"update_id": 1, "callback_query": {"id": "q-unknown", "data": "wrong", "message": {"message_id": 1, "chat": {"id": 5}}}},
+        {"update_id": 2, "callback_query": {"id": "q-malformed", "data": "report:summary"}},
+    ])
+    bot = TelegramAccountantBot(store(tmp_path), transport=transport)
+    assert bot.poll_once(timeout=1) == 2
+    assert [call[0] for call in transport.calls] == ["getUpdates", "answerCallbackQuery", "answerCallbackQuery"]

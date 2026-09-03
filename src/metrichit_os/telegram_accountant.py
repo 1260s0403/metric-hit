@@ -305,6 +305,7 @@ class TelegramAccountantBot:
         self._now = now or (lambda: datetime.now(UTC))
         self.offset: int | None = None
         self._flows: dict[int, dict[str, str]] = {}
+        self._report_states: dict[int, dict[str, object]] = {}
 
     @staticmethod
     def reply_keyboard() -> dict[str, object]:
@@ -329,6 +330,127 @@ class TelegramAccountantBot:
             "one_time_keyboard": True,
         }
 
+    @staticmethod
+    def report_keyboard() -> dict[str, object]:
+        return {
+            "inline_keyboard": [
+                [
+                    {"text": "Сводка", "callback_data": "report:summary"},
+                    {"text": "Доходы", "callback_data": "report:income"},
+                    {"text": "Расходы", "callback_data": "report:expense"},
+                ],
+                [
+                    {"text": "Сегодня", "callback_data": "report:today"},
+                    {"text": "Неделя", "callback_data": "report:week"},
+                    {"text": "Месяц", "callback_data": "report:month"},
+                ],
+                [{"text": "Выбрать период", "callback_data": "report:custom"}],
+            ]
+        }
+
+    def _new_report_state(self, message_id: int) -> dict[str, object]:
+        return {"message_id": message_id, "tab": "summary", "start": None, "end": None, "period": "За всё время"}
+
+    def _report_period(self, key: str) -> tuple[str | None, str | None, str]:
+        today = self._now().astimezone(UTC).date()
+        if key == "today":
+            value = today.isoformat()
+            return value, value, "Сегодня"
+        if key == "week":
+            start = today - timedelta(days=today.weekday())
+            return start.isoformat(), today.isoformat(), "Эта неделя"
+        if key == "month":
+            start = today.replace(day=1)
+            return start.isoformat(), today.isoformat(), "Этот месяц"
+        raise ValueError("unknown report period")
+
+    def _render_dashboard(self, chat_id: int, state: dict[str, object]) -> str:
+        start = state["start"] if isinstance(state["start"], str) else None
+        end = state["end"] if isinstance(state["end"], str) else None
+        period = str(state["period"])
+        tab = str(state["tab"])
+        if tab == "income":
+            values = self.commands.store.breakdown(chat_id, "income", start, end)
+            lines = [f"{label} — {format_money(amount)}" for label, amount in values]
+            return f"Доходы · {period}\n\n" + ("\n".join(lines) if lines else "Нет поступлений.")
+        if tab == "expense":
+            lines = [
+                f"{category} — {format_money(amount)}"
+                for category, amount in self.commands.store.expense_category_totals(chat_id, start, end)
+            ]
+            return f"Расходы · {period}\n\n" + "\n".join(lines)
+        income, expense = self.commands.store.totals(chat_id, start, end)
+        categories = self.commands.store.expense_category_totals(chat_id, start, end)
+        largest_category, largest_amount = max(categories, key=lambda item: item[1])
+        largest = f"{largest_category} — {format_money(largest_amount)}" if largest_amount else "нет расходов"
+        return (
+            f"Финансы · {period}\n\n"
+            f"Баланс  {format_money(self.commands.store.balance_cents(chat_id))}\n"
+            f"Доходы  {format_money(income)}\n"
+            f"Расходы  {format_money(expense)}\n\n"
+            f"Крупнее всего: {largest}"
+        )
+
+    def _show_dashboard(self, chat_id: int) -> tuple[str, dict[str, object]]:
+        state = self._new_report_state(0)
+        return self._render_dashboard(chat_id, state), self.report_keyboard()
+
+    def _handle_callback(self, callback: dict[str, object]) -> bool:
+        callback_id = callback.get("id")
+        if not isinstance(callback_id, str):
+            return False
+        self.transport.call("answerCallbackQuery", {"callback_query_id": callback_id})
+        message = callback.get("message")
+        data = callback.get("data")
+        if not isinstance(message, dict) or not isinstance(data, str):
+            return True
+        chat = message.get("chat")
+        message_id = message.get("message_id")
+        if not isinstance(chat, dict) or not isinstance(chat.get("id"), int) or not isinstance(message_id, int):
+            return True
+        chat_id = chat["id"]
+        state = self._report_states.get(chat_id)
+        if state is None or state.get("message_id") != message_id:
+            return True
+        action = data.removeprefix("report:") if data.startswith("report:") else ""
+        if action in {"summary", "income", "expense"}:
+            state["tab"] = action
+        elif action in {"today", "week", "month"}:
+            state["start"], state["end"], state["period"] = self._report_period(action)
+        elif action == "custom":
+            state["awaiting_custom"] = True
+            self.transport.call(
+                "sendMessage",
+                {"chat_id": chat_id, "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.", "reply_markup": self.reply_keyboard()},
+            )
+            return True
+        else:
+            return True
+        self.transport.call(
+            "editMessageText",
+            {"chat_id": chat_id, "message_id": message_id, "text": self._render_dashboard(chat_id, state), "reply_markup": self.report_keyboard()},
+        )
+        return True
+
+    def _handle_custom_period(self, chat_id: int, text: str) -> bool:
+        state = self._report_states.get(chat_id)
+        if state is None or not state.get("awaiting_custom"):
+            return False
+        try:
+            start, end = parse_period(text.strip().split())
+        except ValueError:
+            self.transport.call(
+                "sendMessage",
+                {"chat_id": chat_id, "text": "Введите две даты: YYYY-MM-DD YYYY-MM-DD.", "reply_markup": self.reply_keyboard()},
+            )
+            return True
+        state.update({"start": start, "end": end, "period": f"{start} — {end}", "awaiting_custom": False})
+        self.transport.call(
+            "editMessageText",
+            {"chat_id": chat_id, "message_id": state["message_id"], "text": self._render_dashboard(chat_id, state), "reply_markup": self.report_keyboard()},
+        )
+        return True
+
     def _handle_message(self, chat_id: int, text: str) -> tuple[str, dict[str, object]]:
         if text == "Доход":
             self._flows[chat_id] = {"kind": "income", "step": "label"}
@@ -337,7 +459,7 @@ class TelegramAccountantBot:
             self._flows[chat_id] = {"kind": "expense", "step": "category"}
             return "Выберите категорию расхода.", self.expense_category_keyboard()
         if text == "Отчёты":
-            return self.commands.handle(chat_id, "/report"), self.reply_keyboard()
+            return self._show_dashboard(chat_id)
         if text.startswith("/"):
             self._flows.pop(chat_id, None)
             return self.commands.handle(chat_id, text), self.reply_keyboard()
@@ -439,17 +561,29 @@ class TelegramAccountantBot:
             update_id = update.get("update_id")
             if isinstance(update_id, int):
                 self.offset = update_id + 1
+            callback = update.get("callback_query")
+            if isinstance(callback, dict):
+                if self._handle_callback(callback):
+                    handled += 1
+                continue
             message = update.get("message")
             if not isinstance(message, dict) or not isinstance(message.get("text"), str):
                 continue
             chat = message.get("chat")
             if not isinstance(chat, dict) or not isinstance(chat.get("id"), int):
                 continue
+            if self._handle_custom_period(chat["id"], message["text"]):
+                handled += 1
+                continue
             reply, reply_markup = self._handle_message(chat["id"], message["text"])
-            self.transport.call(
+            result = self.transport.call(
                 "sendMessage",
                 {"chat_id": chat["id"], "text": reply, "reply_markup": reply_markup},
             )
+            if message["text"] == "Отчёты":
+                sent = result.get("result")
+                if isinstance(sent, dict) and isinstance(sent.get("message_id"), int):
+                    self._report_states[chat["id"]] = self._new_report_state(sent["message_id"])
             handled += 1
         return handled
 
