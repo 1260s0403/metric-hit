@@ -337,6 +337,30 @@ def test_cli_initializes_and_reads_bounded_context(tmp_path: Path, capsys) -> No
     assert [event["to_stage"] for event in audit["events"]] == ["idea", "plan"]
 
 
+def test_cli_records_owner_confirmed_publication(tmp_path: Path, capsys) -> None:
+    database = project_database(tmp_path)
+    initialize_editorial_domain(database)
+    store = EditorialStore(database)
+    topic = store.create_topic(idempotency_key="publication-topic", title="Публикация", primary_intent="education")
+    material = store.create_material(idempotency_key="publication-material", topic_id=topic["id"], material_type="article", title="Статья для панели")
+    store.transition_material(material_id=material["id"], to_stage="plan", actor="editor", plan_ref="work/plan.md")
+    store.transition_material(material_id=material["id"], to_stage="draft", actor="editor", content_ref="work/article.md")
+    store.transition_material(material_id=material["id"], to_stage="review", actor="editor", review_requested_by="owner")
+    assert cli.run_workflow_command([
+        "project-editorial-record-publication", "--db", str(database),
+        "--idempotency-key", "publication-panel-1", "--material-id", material["id"],
+        "--platform", "Oborot", "--published-at", "2026-09-03T10:00:00Z",
+        "--url", "https://example.test/article",
+    ]) == 0
+    publication = json.loads(capsys.readouterr().out)
+    assert publication["confirmation_kind"] == "verified_url"
+    projection = store.publications_projection()
+    assert projection["platforms"][0]["publications"][0] == {
+        "title": "Статья для панели", "published_at": "2026-09-03T10:00:00Z",
+        "url": "https://example.test/article", "status": "Ссылка проверена",
+    }
+
+
 def test_direction_scopes_memory_and_rejects_type_mismatches(tmp_path: Path) -> None:
     database = project_database(tmp_path)
     initialize_editorial_domain(database)

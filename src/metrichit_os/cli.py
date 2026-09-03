@@ -160,6 +160,15 @@ def workflow_parser() -> argparse.ArgumentParser:
     editorial_audit.add_argument("--db", required=True)
     editorial_audit.add_argument("--project-id", default=DEFAULT_PROJECT_ID)
     editorial_audit.add_argument("--material-id", required=True)
+    editorial_publication = subparsers.add_parser("project-editorial-record-publication")
+    editorial_publication.add_argument("--db", required=True)
+    editorial_publication.add_argument("--project-id", default=DEFAULT_PROJECT_ID)
+    editorial_publication.add_argument("--idempotency-key", required=True)
+    editorial_publication.add_argument("--material-id", required=True)
+    editorial_publication.add_argument("--platform", required=True)
+    editorial_publication.add_argument("--published-at", required=True)
+    editorial_publication.add_argument("--url")
+    editorial_publication.add_argument("--owner-confirmed-by")
     handoff_create = subparsers.add_parser("handoff-create")
     handoff_create.add_argument("--db", required=True)
     handoff_input = handoff_create.add_mutually_exclusive_group(required=True)
@@ -386,6 +395,13 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         print_json({"events": EditorialStore(
             database_path, project_id=arguments.project_id
         ).status_audit(arguments.material_id)})
+        return 0
+    if arguments.command == "project-editorial-record-publication":
+        print_json(EditorialStore(database_path, project_id=arguments.project_id).record_publication(
+            idempotency_key=arguments.idempotency_key, material_id=arguments.material_id,
+            platform=arguments.platform, published_at=arguments.published_at,
+            url=arguments.url, owner_confirmed_by=arguments.owner_confirmed_by,
+        ))
         return 0
     if arguments.command == "init-editorial-db":
         print_json(initialize_workflow_database(database_path))

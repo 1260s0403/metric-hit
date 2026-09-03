@@ -504,6 +504,41 @@ class EditorialStore:
                 "SELECT * FROM editorial_results WHERE id=?", (identity,)
             ).fetchone())
 
+    def publications_projection(self) -> dict[str, object]:
+        """Owner-facing, read-only publication facts for the operator panel.
+
+        This intentionally exposes neither database identities nor account/session
+        references.  A project which has not opted into the editorial domain is
+        represented by an empty projection rather than being initialized by a
+        panel read.
+        """
+        try:
+            with read_only_database(self.path) as connection:
+                rows = [dict(row) for row in connection.execute(
+                    "SELECT p.platform,m.title,p.published_at,p.url,p.confirmation_kind "
+                    "FROM editorial_publications p JOIN editorial_materials m ON m.id=p.material_id "
+                    "WHERE p.status='published' ORDER BY p.published_at DESC,p.created_at DESC"
+                )]
+        except sqlite3.Error:
+            return {"platforms": [], "total": 0}
+        platforms: dict[str, list[dict[str, object]]] = {}
+        for row in rows:
+            platform = str(row["platform"])
+            platforms.setdefault(platform, []).append({
+                "title": str(row["title"]), "published_at": str(row["published_at"]),
+                "url": row["url"], "status": (
+                    "Ссылка проверена" if row["confirmation_kind"] == "verified_url"
+                    else "Подтверждено владельцем"
+                ),
+            })
+        return {
+            "total": len(rows),
+            "platforms": [
+                {"platform": platform, "count": len(items), "publications": items}
+                for platform, items in sorted(platforms.items(), key=lambda item: item[0].casefold())
+            ],
+        }
+
     def context(
         self, *, direction: str, query: str = "", topic_id: str | None = None,
         material_id: str | None = None, limit: int = 8,

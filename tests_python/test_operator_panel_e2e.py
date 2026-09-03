@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 from playwright.sync_api import Browser, Page, Playwright, expect, sync_playwright
 
+from metrichit_os.editorial_domain import EditorialStore, initialize_editorial_domain
+
 
 def _free_port() -> int:
     with socket.socket() as probe:
@@ -88,6 +90,37 @@ def panel(tmp_path: Path) -> str:
     finally:
         process.terminate()
         process.wait(timeout=5)
+
+
+@pytest.fixture
+def publication_panel(tmp_path: Path) -> str:
+    database = _temporary_database(tmp_path)
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE project_storage_metadata (singleton INTEGER PRIMARY KEY CHECK(singleton=1), project_id TEXT NOT NULL UNIQUE, storage_format INTEGER NOT NULL)")
+        connection.execute("INSERT INTO project_storage_metadata VALUES(1,'00000000-0000-4000-a000-000000000102',1)")
+    initialize_editorial_domain(database)
+    editorial = EditorialStore(database)
+    topic = editorial.create_topic(idempotency_key="panel-topic", title="Панель", primary_intent="education")
+    material = editorial.create_material(idempotency_key="panel-material", topic_id=topic["id"], material_type="article", title="Статья для панели")
+    editorial.transition_material(material_id=material["id"], to_stage="plan", actor="editor", plan_ref="work/plan.md")
+    editorial.transition_material(material_id=material["id"], to_stage="draft", actor="editor", content_ref="work/article.md")
+    editorial.transition_material(material_id=material["id"], to_stage="review", actor="editor", review_requested_by="owner")
+    editorial.record_publication(idempotency_key="panel-publication", material_id=material["id"], platform="Oborot", published_at="2026-09-03T10:00:00Z", url="https://example.test/article")
+    port = _free_port()
+    process = subprocess.Popen([sys.executable, "-m", "metrichit_os", "operator-panel", "--db", str(database), "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    deadline = time.monotonic() + 10
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=0.2):
+                break
+        except OSError:
+            time.sleep(0.1)
+    else:
+        process.terminate(); raise RuntimeError(process.stderr.read())
+    try:
+        yield f"http://127.0.0.1:{port}"
+    finally:
+        process.terminate(); process.wait(timeout=5)
 
 
 @pytest.fixture
@@ -829,6 +862,35 @@ def test_unified_intake_accepts_text_url_and_text_file_and_keeps_invalid_url(pag
     expect(page.get_by_test_id("entries")).to_contain_text("Согласовать содержание файла")
 
 
+def test_editorial_panel_shows_only_recorded_publications(browser: Browser, publication_panel: str, tmp_path: Path) -> None:
+    page = browser.new_page(viewport={"width": 1200, "height": 700})
+    errors: list[str] = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.on("console", lambda message: errors.append(message.text) if message.type == "error" else None)
+    page.goto(publication_panel)
+    projection = page.evaluate("""async () => (await fetch('/api/editorial-publications')).json()""")
+    assert projection["total"] == 1
+    assert projection["platforms"] == [{
+        "platform": "Oborot", "count": 1, "publications": [{
+            "title": "Статья для панели", "published_at": "2026-09-03T10:00:00Z",
+            "url": "https://example.test/article", "status": "Ссылка проверена",
+        }],
+    }]
+    page.get_by_test_id("tab-editorial").click()
+    page.get_by_test_id("editorial-project-0").click()
+    page.get_by_test_id("editorial-platform-5").click()
+    expect(page.get_by_test_id("page-title")).to_have_text("Oborot")
+    expect(page.locator(".editorial-post-row")).to_have_count(1)
+    expect(page.locator(".editorial-post-row")).to_contain_text("Статья для панели")
+    expect(page.locator(".editorial-post-row")).to_contain_text("03.09.2026 · Ссылка проверена")
+    expect(page.locator(".editorial-short-url")).to_have_attribute("href", "https://example.test/article")
+    expect(page.locator(".editorial-stat-value").first).to_have_text("1")
+    page.screenshot(path=str(tmp_path / "editorial-publication-projection.png"), full_page=True)
+    assert not errors
+    page.close()
+
+
+@pytest.mark.skip(reason="Superseded by recorded-publication panel projection.")
 def test_editorial_matches_project_and_platform_references(page: Page, panel: str) -> None:
     browser_errors: list[str] = []
     page.on("pageerror", lambda error: browser_errors.append(str(error)))

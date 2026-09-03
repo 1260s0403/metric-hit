@@ -21,6 +21,7 @@ from .memory_review import MemoryReviewError, MemoryReviewStore
 from .project_store import ProjectStore
 from .project_scope import DEFAULT_PROJECT_ID
 from .runtime import RoutedKnowledgeStore, RuntimeDatabases
+from .editorial_domain import EditorialStore
 
 
 LOCAL_HOST = "127.0.0.1"
@@ -303,6 +304,10 @@ def create_operator_app(database_path: Path, project_database_path: Path | None 
     @app.get("/api/dashboard")
     def dashboard() -> JSONResponse:
         return JSONResponse(_dashboard(store, projects, databases.read_paths))
+
+    @app.get("/api/editorial-publications")
+    def editorial_publications() -> JSONResponse:
+        return JSONResponse(EditorialStore(local_path).publications_projection())
 
     @app.get("/api/projects")
     def project_list() -> JSONResponse:
