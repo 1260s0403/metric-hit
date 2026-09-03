@@ -611,6 +611,56 @@ test('editorial TenChat gate includes approved unscoped requirements and require
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 
+test('confirmed editorial publication delivery requires a declared and recorded project fact', () => {
+  const { directory, databasePath } = fixture();
+  try {
+    const brief = {
+      result: 'Факт публикации Oborot сверён', scope: ['data/projects/editorial'],
+      firstCheck: 'project-editorial-record-publication', acceptance: ['publication_recorded'],
+      forbiddenChanges: ['external publication'],
+    };
+    const text = 'Зафиксируй подтверждённую публикацию Oborot';
+    assert.throws(() => compileContextPack(databasePath, { text, taskBrief: brief }),
+      /publication_reconciliation\.publications/);
+
+    const missing = compileContextPack(databasePath, { text, taskBrief: {
+      ...brief, publicationReconciliation: { publications: [{
+        platform: 'Oborot', title: 'Несуществующая публикация', publishedAt: '2026-09-03',
+        url: 'https://oborot.ru/blogs/missing.html',
+      }] },
+    } });
+    const delivery = {
+      result: brief.result, checks: [brief.firstCheck], satisfiedAcceptance: brief.acceptance,
+      scopeCompliance: true, forbiddenChangesObserved: [],
+    };
+    assert.throws(() => closeContextPack(databasePath, missing.pack.id, delivery),
+      /editorial_publication_not_recorded:Oborot:Несуществующая публикация/);
+
+    const project = new DatabaseSync(resolve('data/projects/00000000-0000-4000-a000-000000000102/project.sqlite'), { readOnly: true });
+    const recorded = project.prepare(`SELECT p.platform,m.title,p.published_at,p.url
+      FROM editorial_publications p JOIN editorial_materials m ON m.id=p.material_id
+      WHERE p.status='published' AND p.url IS NOT NULL ORDER BY p.published_at,p.id LIMIT 1`).get();
+    project.close();
+    assert.ok(recorded);
+    const present = compileContextPack(databasePath, { text, taskBrief: {
+      ...brief, publicationReconciliation: { publications: [{
+        platform: recorded.platform, title: recorded.title, publishedAt: recorded.published_at.slice(0, 10), url: recorded.url,
+      }] },
+    } });
+    const closed = closeContextPack(databasePath, present.pack.id, delivery);
+    assert.equal(closed.status, 'closed');
+    assert.equal(closed.validation.publication_reconciliation.verified_publications[0].title, recorded.title);
+
+    const unrelated = compileContextPack(databasePath, { text: 'Исправь UI operator panel MetricHit', taskBrief: {
+      result: 'UI', scope: ['operator-panel'], firstCheck: 'ui-check', acceptance: ['visible'], forbiddenChanges: ['editorial'],
+    } });
+    assert.equal(unrelated.pack.payload.execution_card.publication_reconciliation, null);
+    assert.equal(closeContextPack(databasePath, unrelated.pack.id, {
+      result: 'UI', checks: ['ui-check'], satisfiedAcceptance: ['visible'], scopeCompliance: true, forbiddenChangesObserved: [],
+    }).status, 'closed');
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
 test('Telegram is exempt while non-Telegram routes require semantic context and only an indexation objective', () => {
   const { directory, databasePath, projectDatabasePath } = referenceFixture();
   try {

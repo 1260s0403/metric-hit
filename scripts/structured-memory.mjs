@@ -370,6 +370,40 @@ function editorialIndexationFromBrief(taskBrief, rules) {
   return indexationContext;
 }
 
+function publicationReconciliationFromBrief(taskBrief, route) {
+  const publicationTask = route.taskType === 'editorial' && route.scopeId === SCOPE_IDS.editorial
+    && route.signals.includes('confirmed_publication');
+  const source = taskBrief.publicationReconciliation;
+  if (!publicationTask && (source === undefined || source === null)) return null;
+  const entries = Array.isArray(source) ? source : source?.publications;
+  if (!Array.isArray(entries) || !entries.length) {
+    throw new Error('execution card is incomplete: publication_reconciliation.publications');
+  }
+  const publications = entries.map((entry) => {
+    const platform = nonEmptyText(entry?.platform);
+    const title = nonEmptyText(entry?.title);
+    const publishedAt = nonEmptyText(entry?.publishedAt ?? entry?.published_at ?? entry?.publishedDate);
+    const publishedDate = publishedAt?.slice(0, 10);
+    const validPublishedDate = /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(publishedAt ?? '')
+      && Number.isFinite(Date.parse(`${publishedDate}T00:00:00Z`))
+      && new Date(`${publishedDate}T00:00:00Z`).toISOString().slice(0, 10) === publishedDate;
+    const url = nonEmptyText(entry?.url);
+    const ownerConfirmation = nonEmptyText(entry?.ownerConfirmation ?? entry?.owner_confirmation);
+    if (!platform || !title || !validPublishedDate
+      || Boolean(url) === Boolean(ownerConfirmation) || (url && !/^https:\/\//iu.test(url))) {
+      throw new Error('execution card is incomplete: publication_reconciliation.publication');
+    }
+    return {
+      platform, title, published_at: publishedDate,
+      url: url || null, owner_confirmation: ownerConfirmation || null,
+    };
+  });
+  if (new Set(publications.map((item) => canonical(item))).size !== publications.length) {
+    throw new Error('execution card is incomplete: publication_reconciliation.duplicate_publication');
+  }
+  return { required: true, publications };
+}
+
 function editorialQaRequirements(rules, editorialSemantics, editorialIndexation) {
   const keys = new Set(rules.map((rule) => rule.semantic_key));
   if (!keys.has(REQUIRED_EDITORIAL_RULES.semanticCore)
@@ -417,6 +451,7 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy) {
   const forbiddenChanges = nonEmptyList(taskBrief.forbiddenChanges);
   const editorialSemantics = editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy);
   const editorialIndexation = editorialIndexationFromBrief(taskBrief, rules);
+  const publicationReconciliation = publicationReconciliationFromBrief(taskBrief, route);
   const card = {
     result: nonEmptyText(taskBrief.result),
     scope,
@@ -429,6 +464,7 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy) {
     ],
     editorial_semantics: editorialSemantics,
     editorial_indexation: editorialIndexation,
+    publication_reconciliation: publicationReconciliation,
     delivery_qa: editorialQaRequirements(rules, editorialSemantics, editorialIndexation),
     first_check: nonEmptyText(taskBrief.firstCheck),
     acceptance,
@@ -640,6 +676,30 @@ function validateDeliveryEvidence(card, delivery) {
   };
 }
 
+function validatePublicationReconciliation(specification) {
+  if (!specification?.required) return null;
+  const project = new DatabaseSync(defaultProjectDatabasePath, { readOnly: true });
+  try {
+    const verified = specification.publications.map((publication) => {
+      const row = project.prepare(`SELECT p.id,p.platform,m.title,p.published_at,p.url,p.confirmation_kind,p.confirmation_ref
+        FROM editorial_publications p JOIN editorial_materials m ON m.id=p.material_id
+        WHERE p.status='published' AND p.platform=? AND m.title=? AND substr(p.published_at,1,10)=?
+          AND ((? IS NOT NULL AND p.url=?)
+            OR (? IS NOT NULL AND p.confirmation_kind='owner' AND p.confirmation_ref=?))
+        ORDER BY p.created_at DESC,p.id DESC LIMIT 1`).get(
+        publication.platform, publication.title, publication.published_at,
+        publication.url, publication.url, publication.owner_confirmation, publication.owner_confirmation,
+      );
+      if (!row) throw new Error(`delivery validation failed: editorial_publication_not_recorded:${publication.platform}:${publication.title}`);
+      return {
+        publication_id: row.id, platform: row.platform, title: row.title,
+        published_at: row.published_at, url: row.url, confirmation_kind: row.confirmation_kind,
+      };
+    });
+    return { project_database: defaultProjectDatabasePath, verified_publications: verified };
+  } finally { project.close(); }
+}
+
 export function routeTask(database, { text = '', explicitScopeId = null, taskType = null } = {}) {
   const normalized = String(text).trim().toLocaleLowerCase('ru-RU');
   const fingerprint = hash(normalized);
@@ -653,6 +713,9 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
   if (/(?:^|[^\p{L}\p{N}])(?:vk|вк)(?:$|[^\p{L}\p{N}])|вконтакте/iu.test(normalized)) signals.push('vk');
   if (/(?:^|[^\p{L}\p{N}])(?:пф|pf)(?:$|[^\p{L}\p{N}])|поведенческ|накрутк/iu.test(normalized)) signals.push('pf');
   if (/(бонус|1\s*000\s+клик)/iu.test(normalized)) signals.push('bonus');
+  if (/(?:подтвержд|проверяем|верифицир).{0,80}(?:публик|https?:\/\/|ссылк)|(?:публик|https?:\/\/|ссылк).{0,80}(?:подтвержд|проверяем|верифицир)/iu.test(normalized)) {
+    signals.push('confirmed_publication');
+  }
   if (explicitScopeId) {
     scopeChain(database, explicitScopeId);
     return { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope', ...signals], fingerprint };
@@ -822,6 +885,9 @@ export function closeContextPack(databasePath = defaultDatabasePath, packId, del
       throw new Error('delivery validation failed: execution_card_hash_mismatch');
     }
     const validation = validateDeliveryEvidence(payload.execution_card, delivery);
+    validation.publication_reconciliation = validatePublicationReconciliation(
+      payload.execution_card.publication_reconciliation,
+    );
     const deliveredPayload = { ...payload, terminal_outcome: 'delivered', delivery_validation: validation };
     const serialized = canonical(deliveredPayload);
     const closedAt = validation.validated_at;
@@ -978,7 +1044,8 @@ if (isMainModule()) {
       includeReferencedContent: args['include-references'] === 'true',
       projectDatabasePath: args['project-db'] ? resolve(args['project-db']) : defaultProjectDatabasePath,
       taskBrief: { result: args.result, scope: jsonArgument(args['card-scope']), firstCheck: args['first-check'],
-        acceptance: jsonArgument(args.acceptance), forbiddenChanges: jsonArgument(args['forbidden-changes']) },
+        acceptance: jsonArgument(args.acceptance), forbiddenChanges: jsonArgument(args['forbidden-changes']),
+        publicationReconciliation: jsonObjectArgument(args['publication-reconciliation']) },
     }), null, 2));
     else if (args.command === 'close') console.log(JSON.stringify(closeContextPack(databasePath, args.id, {
       result: args.result, checks: jsonArgument(args.checks), satisfiedAcceptance: jsonArgument(args['satisfied-acceptance']),
