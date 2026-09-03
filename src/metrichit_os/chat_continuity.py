@@ -151,6 +151,35 @@ class ChatContinuityStore:
             )
         return {"status": "checkpoint_saved", "checkpoint": checkpoint, "copy_command": command}
 
+    def prepare_for_new_chat(self, *, scope_label: str, branch: str,
+                             canonical_worktree: str, execution_worktree: str,
+                             head: str, context_pack_id: str,
+                             task_name: str | None = None) -> dict[str, object]:
+        """Create a continuation checkpoint only after the current result is delivered."""
+        if not context_pack_id.strip():
+            raise KnowledgeError("a delivered context pack is required before preparing a new chat")
+        with sqlite3.connect(self.path) as db:
+            row = db.execute(
+                "SELECT status,payload_json FROM context_packs WHERE id=?", (context_pack_id,),
+            ).fetchone()
+        if row is None:
+            raise KnowledgeError("the current context pack was not found")
+        try:
+            outcome = json.loads(str(row[1])).get("terminal_outcome")
+        except json.JSONDecodeError as error:
+            raise KnowledgeError("the current context pack is invalid") from error
+        if row[0] != "closed" or outcome != "delivered":
+            raise KnowledgeError("the current result must be delivered before preparing a new chat")
+        saved = self.transition(
+            scope_label=scope_label, branch=branch, canonical_worktree=canonical_worktree,
+            execution_worktree=execution_worktree, head=head, task_name=task_name,
+            context_pack_id=context_pack_id,
+        )
+        return {
+            "status": "ready_for_new_chat", "checkpoint": saved["checkpoint"],
+            "copy_command": saved["copy_command"],
+        }
+
     def prepare_parallel_start(self, *, text: str, canonical_worktree: str,
                                worktree_root: str, base: str | None = None) -> dict[str, object]:
         """Prepare the managed workspace required by one fresh parallel work chat."""

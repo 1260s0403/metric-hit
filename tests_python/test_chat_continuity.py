@@ -80,6 +80,37 @@ def test_transition_rejects_unverified_or_dirty_workspace(tmp_path: Path) -> Non
         continuity.transition(scope_label="Лендинг", branch=prepared["branch"], canonical_worktree=prepared["canonical_worktree"], execution_worktree=prepared["execution_worktree"], head="f" * 40)
 
 
+def test_finish_prepares_one_continuation_only_after_delivered_result(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path, _, continuity = fixture(tmp_path)
+    prepared = workspace(tmp_path, "landing", "codex/landing/finish")
+    compiled = subprocess.run([
+        "node", "scripts/structured-memory.mjs", "compile", "--db", str(path), "--scope", "scope:core",
+        "--task-type", "general", "--text", "Исправить переход чата", "--result", "Готовый переход",
+        "--card-scope", '["tests_python/test_chat_continuity.py"]', "--first-check", "pytest",
+        "--acceptance", '["готово"]', "--forbidden-changes", '["не удалять"]',
+    ], check=True, capture_output=True, text=True, encoding="utf-8")
+    pack_id = json.loads(compiled.stdout)["pack"]["id"]
+    with pytest.raises(KnowledgeError, match="must be delivered"):
+        continuity.prepare_for_new_chat(
+            scope_label="Лендинг", branch=prepared["branch"], canonical_worktree=prepared["canonical_worktree"],
+            execution_worktree=prepared["execution_worktree"], head=prepared["head"], context_pack_id=pack_id,
+        )
+    subprocess.run([
+        "node", "scripts/structured-memory.mjs", "close", "--db", str(path), "--id", pack_id,
+        "--result", "Готовый переход", "--checks", '["pytest"]', "--satisfied-acceptance", '["готово"]',
+        "--scope-compliant", "true", "--forbidden-observed", "[]",
+    ], check=True, capture_output=True, text=True, encoding="utf-8")
+    assert cli.run_workflow_command([
+        "chat-finish", "--db", str(path), "--scope", "Лендинг", "--branch", prepared["branch"],
+        "--canonical-worktree", prepared["canonical_worktree"], "--worktree", prepared["execution_worktree"],
+        "--head", prepared["head"], "--context-pack", pack_id,
+    ]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "ready_for_new_chat"
+    assert result["copy_command"] == "Ядро старт. Лендинг."
+    assert continuity.resume(result["copy_command"])["status"] == "resuming"
+
+
 def test_resume_rejects_legacy_checkpoint(tmp_path: Path) -> None:
     path, _, continuity = fixture(tmp_path)
     prepared = workspace(tmp_path, "landing", "codex/lending/tariffs")

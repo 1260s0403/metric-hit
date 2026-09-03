@@ -188,6 +188,15 @@ def workflow_parser() -> argparse.ArgumentParser:
     transition.add_argument("--task")
     transition.add_argument("--context-pack")
     transition.add_argument("--dirty-file", action="append", default=[])
+    finish = subparsers.add_parser("chat-finish")
+    finish.add_argument("--db", required=True)
+    finish.add_argument("--scope", required=True)
+    finish.add_argument("--branch", required=True)
+    finish.add_argument("--canonical-worktree", required=True)
+    finish.add_argument("--worktree", required=True)
+    finish.add_argument("--head", required=True)
+    finish.add_argument("--context-pack", required=True)
+    finish.add_argument("--task")
     workspace_prepare = subparsers.add_parser("chat-workspace-prepare")
     workspace_prepare.add_argument("--db", required=True)
     workspace_prepare.add_argument("--scope", required=True)
@@ -333,7 +342,7 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         print_json(storage.import_package(Path(arguments.package)))
         return 0
     database_path = Path(arguments.db)
-    if arguments.command in {"chat-transition", "chat-resume", "chat-workspace-prepare", "chat-parallel-start"}:
+    if arguments.command in {"chat-transition", "chat-finish", "chat-resume", "chat-workspace-prepare", "chat-parallel-start"}:
         databases = RuntimeDatabases.resolve(database_path)
         projects = ProjectStore(databases.central, tuple(path for _, path in databases.projects))
         continuity = ChatContinuityStore(databases.central, projects)
@@ -343,6 +352,13 @@ def run_workflow_command(arguments_list: list[str]) -> int:
                 canonical_worktree=arguments.canonical_worktree, execution_worktree=arguments.worktree,
                 head=arguments.head, task_name=arguments.task, context_pack_id=arguments.context_pack,
                 dirty_files=arguments.dirty_file,
+            ))
+        elif arguments.command == "chat-finish":
+            print_json(continuity.prepare_for_new_chat(
+                scope_label=arguments.scope, branch=arguments.branch,
+                canonical_worktree=arguments.canonical_worktree,
+                execution_worktree=arguments.worktree, head=arguments.head,
+                task_name=arguments.task, context_pack_id=arguments.context_pack,
             ))
         elif arguments.command == "chat-workspace-prepare":
             scope = continuity.scope_info(arguments.scope)
