@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
@@ -15,6 +15,14 @@ import {
 import {
   CENTRAL_ORPHAN_PACK_IDS, PROJECT_ORPHAN_PACK_IDS, repairOrphanContextPacks,
 } from '../scripts/apply-integrity-repair.mjs';
+
+const projectDatabaseRelativePath = join('data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
+function liveProjectDatabasePath() {
+  const local = resolve(projectDatabaseRelativePath);
+  if (existsSync(local)) return local;
+  const commonGitDirectory = execFileSync('git', ['rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim();
+  return join(dirname(resolve(commonGitDirectory)), projectDatabaseRelativePath);
+}
 
 function fixture() {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-structured-memory-'));
@@ -342,7 +350,7 @@ test('P0/P1: canonical contract, passports and fail-closed ownership are present
     const taskDb = new DatabaseSync(databasePath, { readOnly: true });
     assert.deepEqual(scopeNames(taskDb, task.id), ['Ядро', 'MetricHit', 'Редакция', 'Fixture task']);
     taskDb.close();
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('P2: inheritance is deterministic, core prohibition is sticky, superseded and sibling memory do not leak', () => {
@@ -370,7 +378,7 @@ test('P2: inheritance is deterministic, core prohibition is sticky, superseded a
       const history = resolveScopedMemory(db, SCOPE_IDS.editorial, 'editorial', { includeHistory: true }).records;
       assert.equal(history.some((row) => row.id === 'memory:test:old'), false, 'superseded revision is not selected over its current semantic key');
     } finally { db.close(); }
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('P3: router asks one question for material ambiguity and audit stores no prompt or reasoning', () => {
@@ -389,11 +397,11 @@ test('P3: router asks one question for material ambiguity and audit stores no pr
     assert.equal(Object.hasOwn(audit, 'task_text'), false);
     assert.equal(Object.hasOwn(audit, 'reasoning'), false);
     readOnly.close();
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('article_pipeline_trigger creates a platform card and launches Migration 007 sequentially', () => {
-  const { directory, databasePath, projectDatabasePath } = referenceFixture();
+  const { directory, databasePath, projectDatabasePath, dataJson } = referenceFixture();
   try {
     const compiled = compileContextPack(databasePath, {
       text: 'Напиши новую статью для Sostav/SBlogs', projectDatabasePath,
@@ -434,11 +442,45 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
     assert.equal(card.editorial_semantics, null);
     assert.equal(card.delivery_qa, null);
 
+    const oborotCompiled = compileContextPack(databasePath, {
+      text: 'Напиши новую статью для Oborot.ru', projectDatabasePath,
+    });
+    const oborot = oborotCompiled.pack.payload.execution_card;
+    assert.equal(oborot.editorial_spec.status, 'valid');
+    assert.equal(oborot.editorial_spec.pre_generation_gate, 'passed');
+    assert.equal(oborot.editorial_spec.h1_allowlist.length, 3);
+    assert.equal(oborot.editorial_spec.secondary_queries.length, 17);
+    assert.equal(oborot.editorial_spec.lsi.length, 4);
+    assert.equal(oborot.editorial_spec.links.length, 4);
+    assert.equal(oborot.editorial_spec.image_package.preview.length, 1);
+    assert.equal(oborot.editorial_spec.image_package.inline.length, 3);
+    const artifactRoot = join(directory, 'artifact');
+    const drafts = join(artifactRoot, 'drafts'); const assets = join(artifactRoot, 'assets');
+    mkdirSync(drafts, { recursive: true }); mkdirSync(assets, { recursive: true });
+    const png = (width, height) => { const value = Buffer.alloc(24); value.writeUInt8(0x89, 0); value.write('PNG', 1); value.writeUInt32BE(width, 16); value.writeUInt32BE(height, 20); return value; };
+    writeFileSync(join(assets, 'editorial-preview.png'), png(100, 100));
+    for (let index = 1; index <= 3; index += 1) writeFileSync(join(assets, `editorial-inline-${index}.png`), png(150, 100));
+    const spec = oborot.editorial_spec;
+    const lsiSections = spec.lsi.map((item, index) => `### ${item.section_anchor}\n${item.term}\n${index < 3 ? `![${item.category}](../assets/editorial-inline-${index + 1}.png)` : ''}`).join('\n');
+    let article = `# ${spec.selected_h1}\n![preview](../assets/editorial-preview.png)\n${[spec.primary_query, ...spec.secondary_queries].join('. ')}\nhttps://go.mtrhit.ru/\n${lsiSections}\nhttps://go.mtrhit.ru/\nhttps://go.mtrhit.ru/\nhttps://go.mtrhit.ru/\n`;
+    article += 'Практическая рекомендация для управления кампанией. '.repeat(130);
+    while (article.replace(/https?:\/\/\S+/gu, '').length < 7001) article += 'Контроль результата. ';
+    const articlePath = join(drafts, 'article.md'); writeFileSync(articlePath, article);
+    const closedOborot = closeContextPack(databasePath, oborotCompiled.pack.id, {
+      result: 'Корректный Oborot artifact проверен', checks: [oborot.first_check],
+      satisfiedAcceptance: oborot.acceptance, scopeCompliance: true, forbiddenChangesObserved: [],
+      artifact: { article_path: articlePath },
+    });
+    assert.equal(closedOborot.status, 'closed');
+    assert.equal(closedOborot.terminal_outcome, 'delivered');
+    assert.equal(closedOborot.validation.artifact_validation.computed, true);
+
     const project = new DatabaseSync(projectDatabasePath);
-    project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status,reviewed_at)
-      VALUES (?,'content.metrichit_semantic_core','Conflicting core','Fixture conflict',?,'approved',?)`)
-      .run('fixture-semantic-core-conflict', dataJson, '2026-09-05T00:00:00.000Z');
-    project.close();
+    try {
+      project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status,reviewed_at)
+        VALUES (?,'content.metrichit_semantic_core','Conflicting core','Fixture conflict',?,'approved',?)`)
+        .run('fixture-semantic-core-conflict', dataJson, '2026-09-05T00:00:00.000Z');
+    } finally { project.close(); }
     const blocked = compileContextPack(databasePath, { text: 'Напиши новую статью для Sostav/SBlogs', projectDatabasePath });
     const assignment = blocked.pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
     assert.equal(blocked.route.outcome, 'routed');
@@ -452,7 +494,7 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
     });
     assert.equal(unsupported.route.outcome, 'needs_clarification');
     assert.equal(unsupported.pack, null);
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('article image follow-up creates a new linked card from the latest closed article', () => {
@@ -531,7 +573,7 @@ test('article image follow-up creates a new linked card from the latest closed a
     assert.equal(cli.pack.payload.execution_card.editorial_revision.source_context_pack_id, source.pack.id);
     assert.deepEqual(cli.pack.payload.execution_card.editorial_semantics, card.editorial_semantics);
   } finally {
-    try { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+    try { rmSync(directory, { recursive: true, force: true }); }
     catch (error) { if (error?.code !== 'EBUSY') throw error; }
   }
 });
@@ -581,7 +623,7 @@ test('P4/P5: compiler is stable, smaller than baseline and isolates Editorial fr
     assert.equal(readOnly.prepare('PRAGMA integrity_check').get().integrity_check, 'ok');
     assert.deepEqual(readOnly.prepare('PRAGMA foreign_key_check').all(), []);
     readOnly.close();
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('delivery validation rejects a changed execution card', () => {
@@ -601,7 +643,7 @@ test('delivery validation rejects a changed execution card', () => {
       result: 'done', checks: ['code-check'], satisfiedAcceptance: ['changed'],
       scopeCompliance: true, forbiddenChangesObserved: [],
     }), /execution_card_hash_mismatch/);
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('abandoned context packs are audited, idempotent and cannot be reported as delivered', () => {
@@ -633,7 +675,7 @@ test('abandoned context packs are audited, idempotent and cannot be reported as 
     assert.equal(database.prepare("SELECT count(*) count FROM audit_log WHERE type='context_pack_terminal_event' AND entity_id=?")
       .get(compiled.pack.id).count, 1);
     database.close();
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('integrity repair terminalizes exactly the 11 approved orphan IDs and replay is a no-op', () => {
@@ -679,8 +721,7 @@ test('Timeweb editorial registry keeps an exact existing draft and supporting re
     '7e37b52282427ada420734e4b31071ab23c3832a9e73842317b240dcb2495e37');
   assert.equal(existsSync(resolve('work/articles/assets/2026-08-29-timeweb-pf-service-hero-v1.png')), true);
   assert.equal(existsSync(resolve('work/articles/assets/2026-08-29-timeweb-pf-service-flow-v1.png')), true);
-  const project = new DatabaseSync(resolve(
-    'data/projects/00000000-0000-4000-a000-000000000102/project.sqlite'), { readOnly: true });
+  const project = new DatabaseSync(liveProjectDatabasePath(), { readOnly: true });
   const row = project.prepare(`SELECT content_ref,status,workflow_stage,plan_ref
     FROM editorial_materials WHERE id=?`).get('7d4b6d6e-3576-4d55-be77-4fd710b3c9b5');
   project.close();
@@ -726,7 +767,7 @@ test('global execution gate fails closed for incomplete cards and validates all 
       });
       assert.equal(closed.validation.scope_compliant, true);
     }
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('editorial TenChat gate includes approved unscoped requirements and requires exact local content QA', () => {
@@ -781,7 +822,7 @@ test('editorial TenChat gate includes approved unscoped requirements and require
     assert.equal(unrelated.pack.payload.execution_card.mandatory_rules
       .some((item) => item.semantic_key === 'content.editorial_article_preparation_policy'), false);
     assert.equal(unrelated.pack.payload.execution_card.delivery_qa, null);
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('editorial H1 validation accepts every approved exact marker and rejects diluted or singular forms', () => {
@@ -806,11 +847,12 @@ test('editorial H1 validation accepts every approved exact marker and rejects di
       qa.checks.find((item) => item.id === 'h1_high_frequency_query').evidence = { heading, matched_query: heading };
       assert.throws(() => closeContextPack(databasePath, compiled.pack.id, delivery(qa)), /h1_high_frequency_query/);
     }
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('confirmed editorial publication delivery requires a declared and recorded project fact', () => {
   const { directory, databasePath } = fixture();
+  const projectDatabasePath = liveProjectDatabasePath();
   try {
     const brief = {
       result: 'Факт публикации Oborot сверён', scope: ['data/projects/editorial'],
@@ -818,10 +860,10 @@ test('confirmed editorial publication delivery requires a declared and recorded 
       forbiddenChanges: ['external publication'],
     };
     const text = 'Зафиксируй подтверждённую публикацию Oborot';
-    assert.throws(() => compileContextPack(databasePath, { text, taskBrief: brief }),
+    assert.throws(() => compileContextPack(databasePath, { text, projectDatabasePath, taskBrief: brief }),
       /publication_reconciliation\.publications/);
 
-    const missing = compileContextPack(databasePath, { text, taskBrief: {
+    const missing = compileContextPack(databasePath, { text, projectDatabasePath, taskBrief: {
       ...brief, publicationReconciliation: { publications: [{
         platform: 'Oborot', title: 'Несуществующая публикация', publishedAt: '2026-09-03',
         url: 'https://oborot.ru/blogs/missing.html',
@@ -834,13 +876,13 @@ test('confirmed editorial publication delivery requires a declared and recorded 
     assert.throws(() => closeContextPack(databasePath, missing.pack.id, delivery),
       /editorial_publication_not_recorded:Oborot:Несуществующая публикация/);
 
-    const project = new DatabaseSync(resolve('data/projects/00000000-0000-4000-a000-000000000102/project.sqlite'), { readOnly: true });
+    const project = new DatabaseSync(liveProjectDatabasePath(), { readOnly: true });
     const recorded = project.prepare(`SELECT p.platform,m.title,p.published_at,p.url
       FROM editorial_publications p JOIN editorial_materials m ON m.id=p.material_id
       WHERE p.status='published' AND p.url IS NOT NULL ORDER BY p.published_at,p.id LIMIT 1`).get();
     project.close();
     assert.ok(recorded);
-    const present = compileContextPack(databasePath, { text, taskBrief: {
+    const present = compileContextPack(databasePath, { text, projectDatabasePath, taskBrief: {
       ...brief, publicationReconciliation: { publications: [{
         platform: recorded.platform, title: recorded.title, publishedAt: recorded.published_at.slice(0, 10), url: recorded.url,
       }] },
@@ -856,7 +898,7 @@ test('confirmed editorial publication delivery requires a declared and recorded 
     assert.equal(closeContextPack(databasePath, unrelated.pack.id, {
       result: 'UI', checks: ['ui-check'], satisfiedAcceptance: ['visible'], scopeCompliance: true, forbiddenChangesObserved: [],
     }).status, 'closed');
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('Telegram is exempt while non-Telegram routes require semantic context and only an indexation objective', () => {
@@ -963,7 +1005,7 @@ test('Telegram is exempt while non-Telegram routes require semantic context and 
     assert.equal(unrelated.pack.payload.execution_card.editorial_semantics, null);
     assert.equal(unrelated.pack.payload.execution_card.editorial_indexation, null);
     assert.equal(unrelated.pack.payload.execution_card.delivery_qa, null);
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('VK writing standard is isolated and validates target plus both justified exception length bands', () => {
@@ -1005,7 +1047,7 @@ test('VK writing standard is isolated and validates target plus both justified e
     assert.equal(telegram.pack.payload.execution_card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'), false);
     const tenchat = compileContextPack(databasePath, { text: 'Подготовь статью TenChat', projectDatabasePath, taskBrief: { ...baseBrief, editorialSemantics: { ...semantics, platform: 'TenChat', format: 'article' }, editorialIndexation: indexation } });
     assert.equal(tenchat.pack.payload.execution_card.mandatory_rules.some((item) => item.semantic_key === 'editorial.vk_post_writing_standard'), false);
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('article target-query volume ladder and geo owner-gate are fail-closed while VK and Telegram remain exempt', () => {
@@ -1074,7 +1116,7 @@ test('article target-query volume ladder and geo owner-gate are fail-closed whil
     const telegram = compileContextPack(databasePath, { text: 'Подготовь пост Telegram', projectDatabasePath, taskBrief: baseBrief });
     assert.equal(telegram.pack.payload.execution_card.mandatory_rules
       .some((item) => item.semantic_key === 'content.public_editorial_target_query_volume_ladder_policy'), false);
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('semantic core pointer is scoped to editorial/research and full content is explicit and project-authoritative', () => {
@@ -1102,7 +1144,7 @@ test('semantic core pointer is scoped to editorial/research and full content is 
       scopeId: SCOPE_IDS.editorial, taskType: 'editorial', includeReferencedContent: true,
       projectDatabasePath, agentsContent: '', taskBrief: card,
     });
-    assert.equal(explicitEditorial.expanded_references[0].data.keyword_count, 145);
+    assert.equal(explicitEditorial.expanded_references[0].data.keyword_count, 302);
     assert.throws(() => compileDeterministicContext(db, {
       scopeId: SCOPE_IDS.metrichit, taskType: 'general', includeReferencedContent: true,
       projectDatabasePath, agentsContent: '', taskBrief: card,
@@ -1118,7 +1160,7 @@ test('semantic core pointer is scoped to editorial/research and full content is 
     const explicitResearch = routeTask(explicitRouteDatabase, { text: 'MetricHit', taskType: 'research' });
     explicitRouteDatabase.close();
     assert.equal(explicitResearch.scopeId, SCOPE_IDS.editorial);
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('authoritative semantic reference fails closed on project content drift', () => {
@@ -1132,7 +1174,7 @@ test('authoritative semantic reference fails closed on project content drift', (
       .run('{"taxonomy":{"fixture":[]},"keyword_count":0}', 'fixture-semantic-core');
     project.close();
     assert.throws(() => loadReferencedMemory(projectDatabasePath, records, 'research'), /hash mismatch/);
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('orchestration v1 routes only Editorial, compiles the task chain and selects allowed skills', () => {
@@ -1168,7 +1210,7 @@ test('orchestration v1 routes only Editorial, compiles the task chain and select
       profileId: 'metrichit.editorial.v1', taskId: 'sibling-route', text: 'Исследуй UI operator panel MetricHit',
       taskType: 'research', taskBrief,
     }), /outside the coordinator profile scope/);
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 function scopeNames(database, scopeId) {

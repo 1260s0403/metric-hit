@@ -1,0 +1,57 @@
+{
+  "id": "metrichit.editorial_contract.v1",
+  "revision": 1,
+  "semantic_core": {
+    "semantic_key": "content.metrichit_semantic_core",
+    "keyword_count": 302,
+    "reference_key": "content.metrichit_semantic_core.reference",
+    "target_queries_verbatim": true,
+    "geo_cluster": "geo_candidates_after_demand_validation"
+  },
+  "h1": {
+    "approved_forms": [
+      "Накрутка ПФ",
+      "Накрутка ПФ Яндекс",
+      "Накрутка поведенческих факторов"
+    ],
+    "exact_match": true
+  },
+  "volume_bands": [
+    { "minimum_characters": 1800, "maximum_characters": 2800, "minimum_queries": 8, "maximum_queries": 12 },
+    { "minimum_characters": 2801, "maximum_characters": 5000, "minimum_queries": 10, "maximum_queries": 16 },
+    { "minimum_characters": 5001, "maximum_characters": 7000, "minimum_queries": 14, "maximum_queries": 20 },
+    { "minimum_characters": 7001, "maximum_characters": 9000, "minimum_queries": 18, "maximum_queries": 26 }
+  ],
+  "article": {
+    "minimum_characters": 9000,
+    "landing_url": "https://go.mtrhit.ru/",
+    "landing_link_positions": ["beginning", "body_1", "body_2", "final_cta"],
+    "publication_requires_owner_confirmation_or_https_url": true
+  },
+  "lsi": {
+    "allowed_zones": ["h3", "unordered_list", "checklist"],
+    "prohibited_zones": ["h1", "h2"],
+    "categories": ["search_context", "page_quality", "campaign_control", "measurement"]
+  },
+  "visuals": {
+    "semantic_first": true,
+    "screenshots_prohibited": true,
+    "allowed_medium": "photorealistic_editorial_photo",
+    "default": { "preview_count": 1, "inline_count": 2 },
+    "oborot_long_form": {
+      "minimum_characters": 7001,
+      "preview_count": 1,
+      "inline_count": 3,
+      "preview_aspect_ratios": ["1:1"],
+      "inline_aspect_ratios": ["3:2", "16:9"]
+    },
+    "required_inline_fields": ["path", "section_anchor", "semantic_role", "scene_intent", "observable_action", "business_context", "composition"],
+    "diversity_fields": ["section_anchor", "scene_intent", "observable_action", "business_context", "composition"],
+    "incidental_device_maximum": 1
+  },
+  "supersedes": [
+    { "conflict": "145_query_core", "active": "302_query_core", "audit_history": "preserved" },
+    { "conflict": "singular_h1_form", "active": "three_exact_approved_h1_forms", "audit_history": "preserved" },
+    { "conflict": "graphite_glass_article_default", "active": "photorealistic_semantic_first_article_visuals", "audit_history": "preserved" }
+  ]
+}

@@ -12,6 +12,7 @@ const semanticPolicyKey = 'content.public_editorial_semantic_core_policy';
 const referenceKey = 'content.metrichit_semantic_core.reference';
 const expectedCount = 302;
 const revision = 6;
+const EDITORIAL_CONTRACT_ID = 'metrichit.editorial_contract.v1';
 
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
 function stableUuid(value) {
@@ -77,6 +78,28 @@ function applyCentral(databasePath, core, content, metadata, ids) {
   const database = new DatabaseSync(databasePath);
   database.exec('PRAGMA foreign_keys = ON; BEGIN IMMEDIATE;');
   try {
+    const activeFact = database.prepare("SELECT id FROM memory_candidates WHERE semantic_key=? AND type='product_fact' AND status='approved' ORDER BY reviewed_at DESC,id DESC LIMIT 1").get(semanticCoreKey);
+    const productFactId = stableUuid('core-product-fact-candidate-v1');
+    const productFactData = JSON.stringify({ revision: 1, keyword_count: expectedCount,
+      supersedes_candidate_id: activeFact?.id ?? null, canonical_contract: 'config/editorial-contract.json',
+      project_authority: `project://${projectId}/memory_candidates/${ids.coreCandidateId}`,
+      audit_history_preserved: true, evidence: { path: decisionPath } });
+    database.prepare("INSERT OR IGNORE INTO memory_candidates (id,type,semantic_key,title,content,data_json,status,source_id,author,valid_at,access_level,version) VALUES (?, 'product_fact', ?, ?, ?, ?, 'pending', ?, 'owner', '2026-09-04', 'internal', 1)")
+      .run(productFactId, semanticCoreKey, 'Полное не-навигационное семантическое ядро MetricHit: 302 запроса',
+        'Для новых публичных материалов вне Telegram действует каноническое ядро из 302 точных запросов; прежнее ядро из 145 запросов superseded и сохранено только в audit history.', productFactData, ids.sourceId);
+    database.prepare("UPDATE memory_candidates SET status='approved',reviewed_by='owner',reviewed_at='2026-09-04T00:00:00.000Z',review_note='P0: явно заменяет активный факт о 145 запросах; audit history сохранена.',updated_at=?,version=version+1 WHERE id=? AND status='pending'")
+      .run(now(), productFactId);
+    const supersededTasks = [
+      ['c28ce209-cd37-4341-a774-f4a7fc766b5d', '302_query_core_is_canonical'],
+      ['53286673-7367-4a1b-a09c-5be1a66b82e4', 'exact_h1_allowlist_is_canonical'],
+      ['b6994dbc-6c33-490e-93ee-3bce9a96a582', 'exact_h1_allowlist_is_canonical'],
+    ];
+    for (const [taskId, reason] of supersededTasks) {
+      const task = database.prepare('SELECT data_json,status FROM tasks WHERE id=?').get(taskId);
+      if (task?.status === 'pending') database.prepare("UPDATE tasks SET status='completed',data_json=?,updated_at=?,version=version+1 WHERE id=?")
+        .run(JSON.stringify({ ...JSON.parse(task.data_json || '{}'), superseded_by: EDITORIAL_CONTRACT_ID,
+          superseded_reason: reason, audit_history_preserved: true }), now(), taskId);
+    }
     const policyContent = 'Каждый новый публичный пост или статья MetricHit вне Telegram использует основной и вторичные целевые запросы только дословно из утверждённого семантического ядра из 302 запросов. Запросы принадлежат одному кластеру либо документированно смежным кластерам при едином интенте; геокандидаты требуют предварительного подтверждения спроса. Telegram, опубликованный архив и существующие черновики исключены.';
     const policyData = JSON.stringify({ revision, supersedes_semantic_revision: revision - 1, applies_to: ['new_public_posts', 'new_public_articles'], excluded_platforms: ['telegram'], semantic_core: { keyword_count: expectedCount, target_queries_must_be_verbatim_approved_core_entries: true, geo_candidates_require_prior_demand_verification: true }, evidence: { path: decisionPath } });
     const policyId = ids.policyCandidateId;

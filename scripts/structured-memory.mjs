@@ -4,12 +4,13 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
+import { EDITORIAL_CONTRACT, compileEditorialSpec, validateEditorialArtifact } from './editorial-contract.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
-export const COMPILER_VERSION = 8;
+export const COMPILER_VERSION = 9;
 export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
 export const YADRO_CONTROL_PLANE_PROJECT_ID = '00000000-0000-4000-a000-000000000101';
 export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
@@ -59,17 +60,11 @@ const ARTICLE_PLATFORM_MATRIX = Object.freeze([
   { id: 'max', name: 'MAX', aliases: ['max', 'макс'], contour: null, mode: 'outside-mvp' },
   { id: 'avito', name: 'Avito', aliases: ['avito', 'авито'], contour: null, mode: 'unsupported' },
 ]);
-const TARGET_QUERY_VOLUME_LADDER = Object.freeze([
-  { minimumCharacters: 1800, maximumCharacters: 2800, minimumQueries: 8, maximumQueries: 12 },
-  { minimumCharacters: 2801, maximumCharacters: 5000, minimumQueries: 10, maximumQueries: 16 },
-  { minimumCharacters: 5001, maximumCharacters: 7000, minimumQueries: 14, maximumQueries: 20 },
-  { minimumCharacters: 7001, maximumCharacters: 9000, minimumQueries: 18, maximumQueries: 26 },
-]);
-const PLANNER_H1_HIGH_FREQUENCY_MARKERS = Object.freeze([
-  'Накрутка ПФ',
-  'Накрутка ПФ Яндекс',
-  'Накрутка поведенческих факторов',
-]);
+const TARGET_QUERY_VOLUME_LADDER = Object.freeze(EDITORIAL_CONTRACT.volume_bands.map((band) => Object.freeze({
+  minimumCharacters: band.minimum_characters, maximumCharacters: band.maximum_characters,
+  minimumQueries: band.minimum_queries, maximumQueries: band.maximum_queries,
+})));
+const PLANNER_H1_HIGH_FREQUENCY_MARKERS = Object.freeze([...EDITORIAL_CONTRACT.h1.approved_forms]);
 const APPROVED_H1_HIGH_FREQUENCY_QUERIES = Object.freeze(
   PLANNER_H1_HIGH_FREQUENCY_MARKERS.map((query) => query.toLocaleLowerCase('ru-RU')),
 );
@@ -206,7 +201,7 @@ function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
     const candidates = [...new Map(cores.flatMap(({ core }) => freeHfMarkers(core.taxonomy, archive.text))
       .map((item) => [item.marker.toLocaleLowerCase('ru-RU'), item])).values()];
     const systemError = (reason) => ({ code: 'E_AMBIGUOUS_TOPIC', reason,
-      available_hf_markers: candidates.slice(0, 3).map((item) => item.marker) });
+      available_hf_markers: [...PLANNER_H1_HIGH_FREQUENCY_MARKERS] });
     if (archive.error || cores.length !== 1 || candidates.length === 0) {
       return { hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id, executor_profile: 'metrichit.editorial.planner.v1',
         status: 'blocked', background_mode: true, owner_question: 'prohibited',
@@ -224,6 +219,49 @@ function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
       selected_structure: structureOptions[0],
       structure_selection: 'deterministic_priority_first',
     };
+  } finally { database.close(); }
+}
+
+function automaticEditorialSpec(projectDatabasePath, route, assignment) {
+  if (!assignment || assignment.status !== 'ready' || route.platform?.id !== 'oborot') return null;
+  const database = open(resolve(projectDatabasePath), true);
+  try {
+    const core = approvedSemanticCore302(database)[0]?.core;
+    if (!core) throw new Error('editorial spec requires one approved 302-query core');
+    const primary = assignment.selected_priority_hf_marker;
+    const selectedClusters = [assignment.selected_cluster];
+    const secondary = (core.taxonomy[assignment.selected_cluster] ?? [])
+      .filter((query) => normalizeOverlapText(query) !== normalizeOverlapText(primary));
+    for (const [cluster, queries] of Object.entries(core.taxonomy)) {
+      if (secondary.length >= 17 || selectedClusters.includes(cluster) || cluster === EDITORIAL_CONTRACT.semantic_core.geo_cluster) continue;
+      selectedClusters.push(cluster);
+      secondary.push(...queries.filter((query) => normalizeOverlapText(query) !== normalizeOverlapText(primary)));
+    }
+    secondary.splice(17);
+    if (secondary.length !== 17) throw new Error('editorial spec requires 18 target queries for Oborot long-form');
+    const structure = assignment.selected_structure.sections;
+    const inline = structure.slice(0, 3).map((section, index) => ({
+      path: `../assets/editorial-inline-${index + 1}.png`, medium: EDITORIAL_CONTRACT.visuals.allowed_medium,
+      aspect_ratio: '3:2', section_anchor: section, semantic_role: ['explain_cause', 'show_action', 'show_result'][index],
+      scene_intent: ['diagnostic_scene', 'planning_scene', 'measurement_scene'][index],
+      observable_action: ['specialist reviews inputs', 'team groups campaign priorities', 'owner compares measured outcomes'][index],
+      business_context: ['russian ecommerce operations', 'russian service business planning', 'russian business performance review'][index],
+      composition: ['wide environmental', 'medium collaborative', 'close documentary'][index], device_role: 'none',
+    }));
+    return compileEditorialSpec({ platform: route.platform.name, character_range: { minimum: 7001, maximum: 9000 },
+      selected_h1: assignment.selected_structure.h1, primary_query: primary, secondary_queries: secondary,
+      selected_clusters: selectedClusters, adjacent_cluster_rationale: selectedClusters.length > 1
+        ? 'Кластеры объединены одной практической задачей подготовки и контроля запуска.' : null,
+      user_intent: 'Практически подготовить и контролировать запуск накрутки ПФ',
+      lsi: [
+        { term: 'поисковая выдача', category: 'search_context', section_anchor: structure[0], zone: 'h3' },
+        { term: 'релевантность страницы', category: 'page_quality', section_anchor: structure[1], zone: 'h3' },
+        { term: 'дневной лимит', category: 'campaign_control', section_anchor: structure[2], zone: 'h3' },
+        { term: 'динамика позиций', category: 'measurement', section_anchor: structure[3], zone: 'h3' },
+      ], structure,
+      links: EDITORIAL_CONTRACT.article.landing_link_positions.map((position) => ({ position, url: EDITORIAL_CONTRACT.article.landing_url })),
+      image_package: { preview: [{ path: '../assets/editorial-preview.png', medium: EDITORIAL_CONTRACT.visuals.allowed_medium, aspect_ratio: '1:1', is_screenshot: false }], inline },
+    }, core.taxonomy);
   } finally { database.close(); }
 }
 
@@ -574,17 +612,11 @@ export function resolveApprovedEditorialRequirements(database, route) {
     }
   }
   if (signals.includes('article') || signals.includes('tenchat')) {
-    const task = database.prepare(`SELECT id,type,title,content,status,author FROM tasks
-      WHERE title=? ORDER BY updated_at DESC,id LIMIT 1`).get(OWNER_H1_OBLIGATION_TITLE);
-    if (!task || task.type !== 'knowledge_task' || task.status !== 'pending' || task.author !== 'owner'
-      || !/накрутка\s+(?:пф|pf)|накрутка\s+поведенческ(?:ого\s+фактора|их\s+факторов)/iu.test(task.content)) {
-      throw new Error(`applicable owner editorial obligation is unavailable: ${OWNER_H1_SEMANTIC_KEY}`);
-    }
     requirements.push({
-      id: task.id, semantic_key: OWNER_H1_SEMANTIC_KEY, scope_id: SCOPE_IDS.editorial,
-      type: 'commitment', title: task.title,
+      id: `${EDITORIAL_CONTRACT.id}:h1`, semantic_key: OWNER_H1_SEMANTIC_KEY, scope_id: SCOPE_IDS.editorial,
+      type: 'commitment', title: OWNER_H1_OBLIGATION_TITLE,
       content: `В H1 используется ровно одна утверждённая короткая форма: ${PLANNER_H1_HIGH_FREQUENCY_MARKERS.join(', ')}. ВЧ-маркер нельзя размывать дополнительными словами.`,
-      source: `approved-memory://tasks/${task.id}`, effect: 'require', authority: 'owner_obligation',
+      source: 'config/editorial-contract.json', effect: 'require', authority: 'editorial_contract',
       metadata: { required_h1_queries: [...PLANNER_H1_HIGH_FREQUENCY_MARKERS] },
     });
   }
@@ -784,6 +816,7 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy, edito
     editorial_indexation: editorialIndexation,
     editorial_revision: route.articleRevisionContext ?? null,
     editorial_visual_package: editorialVisualPackage(rules, editorialSemantics, editorialPipeline, route),
+    editorial_spec: editorialPipeline?.editorial_spec ?? null,
     publication_reconciliation: publicationReconciliation,
     delivery_qa: pipelineTrigger ? null : editorialQaRequirements(rules, editorialSemantics, editorialIndexation),
     editorial_pipeline: editorialPipeline ? {
@@ -997,16 +1030,18 @@ function validateDeliveryEvidence(card, delivery) {
   if (forbiddenChangesObserved.length) missing.push('forbidden_changes_observed');
   if (missing.length) throw new Error(`delivery validation failed: ${missing.join(', ')}`);
   const contentQa = validateEditorialContentQa(card.delivery_qa, delivery.contentQa);
+  const artifactValidation = card.editorial_spec
+    ? validateEditorialArtifact(card.editorial_spec, delivery.artifact ?? {}) : null;
   return {
     validated_at: now(), result: delivery.result.trim(), checks,
     satisfied_acceptance: satisfiedAcceptance, scope_compliant: true,
-    forbidden_changes_observed: [], content_qa: contentQa,
+    forbidden_changes_observed: [], content_qa: contentQa, artifact_validation: artifactValidation,
   };
 }
 
-function validatePublicationReconciliation(specification) {
+function validatePublicationReconciliation(specification, projectDatabasePath) {
   if (!specification?.required) return null;
-  const project = new DatabaseSync(defaultProjectDatabasePath, { readOnly: true });
+  const project = new DatabaseSync(projectDatabasePath, { readOnly: true });
   try {
     const verified = specification.publications.map((publication) => {
       const row = project.prepare(`SELECT p.id,p.platform,m.title,p.published_at,p.url,p.confirmation_kind,p.confirmation_ref
@@ -1024,7 +1059,7 @@ function validatePublicationReconciliation(specification) {
         published_at: row.published_at, url: row.url, confirmation_kind: row.confirmation_kind,
       };
     });
-    return { project_database: defaultProjectDatabasePath, verified_publications: verified };
+    return { project_database: projectDatabasePath, verified_publications: verified };
   } finally { project.close(); }
 }
 
@@ -1131,10 +1166,13 @@ export function compileDeterministicContext(database, {
     ? approvedSemanticCoreTaxonomy(projectDatabasePath, referenceRecords) : null;
   const emptyTopicPlannerAssignment = pipelineTrigger
     ? automaticEmptyTopicPlannerAssignment(projectDatabasePath, resolvedRoute.platform) : null;
+  const editorialSpec = pipelineTrigger
+    ? automaticEditorialSpec(projectDatabasePath, resolvedRoute, emptyTopicPlannerAssignment) : null;
   const editorialPipeline = pipelineTrigger ? {
     ...loadEditorialPipeline(projectDatabasePath),
     launch_directive: emptyTopicPlannerAssignment.status === 'blocked' ? 'blocked' : 'start',
     empty_topic_planner_assignment: emptyTopicPlannerAssignment,
+    editorial_spec: editorialSpec,
   } : null;
   const executionCard = buildExecutionCard(taskBrief, resolvedRoute, rules, semanticCoreTaxonomy, editorialPipeline);
   const payload = {
@@ -1142,6 +1180,7 @@ export function compileDeterministicContext(database, {
     compiler_version: COMPILER_VERSION,
     task_type: taskType,
     target_scope: scopeId,
+    project_database_path: resolve(projectDatabasePath),
     execution_card: executionCard,
     execution_card_hash: hash(canonical(executionCard)),
     task_brief: {
@@ -1258,6 +1297,7 @@ export function closeContextPack(databasePath = defaultDatabasePath, packId, del
     const validation = validateDeliveryEvidence(payload.execution_card, delivery);
     validation.publication_reconciliation = validatePublicationReconciliation(
       payload.execution_card.publication_reconciliation,
+      payload.project_database_path,
     );
     const deliveredPayload = { ...payload, terminal_outcome: 'delivered', delivery_validation: validation };
     const serialized = canonical(deliveredPayload);
@@ -1427,6 +1467,7 @@ if (isMainModule()) {
       result: args.result, checks: jsonArgument(args.checks), satisfiedAcceptance: jsonArgument(args['satisfied-acceptance']),
       scopeCompliance: args['scope-compliant'] === 'true', forbiddenChangesObserved: jsonArgument(args['forbidden-observed']),
       contentQa: jsonObjectArgument(args['content-qa']),
+      artifact: jsonObjectArgument(args.artifact),
     }), null, 2));
     else throw new Error('Usage: structured-memory.mjs <baseline|compile|close> [--db path]');
   } catch (error) { console.error(`structured-memory: ${error.message}`); process.exitCode = 1; }
