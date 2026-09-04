@@ -128,6 +128,7 @@ function referenceFixture() {
   project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status)
     VALUES (?,?,?,?,?,'approved')`).run('fixture-semantic-core', 'content.metrichit_semantic_core',
       'Fixture semantic core', content, dataJson);
+  project.exec(readFileSync(resolve('data/project-migrations/editorial/007_editorial_agent_pipeline.sql'), 'utf8'));
   project.close();
 
   const control = new DatabaseSync(result.databasePath);
@@ -386,6 +387,42 @@ test('P3: router asks one question for material ambiguity and audit stores no pr
     assert.equal(Object.hasOwn(audit, 'task_text'), false);
     assert.equal(Object.hasOwn(audit, 'reasoning'), false);
     readOnly.close();
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('article_pipeline_trigger creates a platform card and launches Migration 007 sequentially', () => {
+  const { directory, databasePath, projectDatabasePath } = referenceFixture();
+  try {
+    const compiled = compileContextPack(databasePath, {
+      text: 'Напиши новую статью для Sostav/SBlogs', projectDatabasePath,
+      taskType: 'code', taskBrief: { result: undefined, scope: undefined, acceptance: undefined },
+    });
+    assert.equal(compiled.route.outcome, 'routed');
+    assert.equal(compiled.route.scopeId, SCOPE_IDS.editorial);
+    assert.equal(compiled.route.taskType, 'editorial');
+    assert.equal(compiled.route.platform.name, 'Sostav/SBlogs');
+    assert.equal(compiled.route.platform.contour, 'work/articles');
+    const card = compiled.pack.payload.execution_card;
+    assert.equal(card.scope[0], 'work/articles');
+    assert.equal(card.editorial_pipeline.pipeline_id, 'metrichit.editorial.pipeline.v1');
+    assert.equal(card.editorial_pipeline.launch_directive, 'start');
+    assert.equal(card.editorial_pipeline.execution_mode, 'isolated_sequential');
+    assert.deepEqual(card.editorial_pipeline.stages.map((stage) => stage.profile_id), [
+      'metrichit.editorial.planner.v1',
+      'metrichit.editorial.architect.v1',
+      'metrichit.editorial.writer.v1',
+      'metrichit.editorial.designer.v1',
+      'metrichit.editorial.validator.v1',
+    ]);
+    assert.ok(card.editorial_pipeline.stages.every((stage) => stage.policy.semantic_core.keyword_count === 302));
+    assert.equal(card.editorial_semantics, null);
+    assert.equal(card.delivery_qa, null);
+
+    const unsupported = compileContextPack(databasePath, {
+      text: 'Напиши новую статью для Avito', projectDatabasePath,
+    });
+    assert.equal(unsupported.route.outcome, 'needs_clarification');
+    assert.equal(unsupported.pack, null);
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 

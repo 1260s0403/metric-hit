@@ -9,7 +9,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
-export const COMPILER_VERSION = 6;
+export const COMPILER_VERSION = 7;
 export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
 export const YADRO_CONTROL_PLANE_PROJECT_ID = '00000000-0000-4000-a000-000000000101';
 export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
@@ -28,6 +28,26 @@ export const COORDINATOR_PROFILES = Object.freeze({
     }),
   }),
 });
+const EDITORIAL_PIPELINE_ID = 'metrichit.editorial.pipeline.v1';
+const EDITORIAL_PIPELINE_STAGES = Object.freeze([
+  ['metrichit.editorial.planner.v1', 'planner', 'content-strategy'],
+  ['metrichit.editorial.architect.v1', 'architect', 'seo-strategy'],
+  ['metrichit.editorial.writer.v1', 'writer', 'copywriting'],
+  ['metrichit.editorial.designer.v1', 'designer', 'image'],
+  ['metrichit.editorial.validator.v1', 'validator', 'compliance-qa'],
+]);
+const ARTICLE_PIPELINE_TRIGGER = /^напиши\s+новую\s+статью\s+для\s+(.+?)\s*[.!?]?$/iu;
+const ARTICLE_PLATFORM_MATRIX = Object.freeze([
+  { id: 'telegram', name: 'Telegram', aliases: ['telegram', 'телеграм', 'тг'], contour: 'work/social/telegram', mode: 'automatic' },
+  { id: 'vk', name: 'VK', aliases: ['vk', 'вк', 'вконтакте'], contour: 'work/social/vk', mode: 'draft-only' },
+  { id: 'dzen', name: 'Дзен', aliases: ['дзен', 'dzen'], contour: 'work/articles', mode: 'manual-package' },
+  { id: 'sostav', name: 'Sostav/SBlogs', aliases: ['sostav', 'sblogs', 'sostav/sblogs', 'состав'], contour: 'work/articles', mode: 'manual-package' },
+  { id: 'oborot', name: 'Oborot.ru', aliases: ['oborot', 'oborot.ru', 'оборот', 'оборот.ру'], contour: 'work/articles', mode: 'manual-package' },
+  { id: 'timeweb-cloud', name: 'Timeweb Cloud', aliases: ['timeweb', 'timeweb cloud', 'таймвеб', 'таймвеб клауд'], contour: 'work/articles', mode: 'manual-package' },
+  { id: 'workspace', name: 'Workspace', aliases: ['workspace', 'workspace media', 'воркспейс'], contour: 'work/articles', mode: 'manual-package' },
+  { id: 'max', name: 'MAX', aliases: ['max', 'макс'], contour: null, mode: 'outside-mvp' },
+  { id: 'avito', name: 'Avito', aliases: ['avito', 'авито'], contour: null, mode: 'unsupported' },
+]);
 const TARGET_QUERY_VOLUME_LADDER = Object.freeze([
   { minimumCharacters: 1800, maximumCharacters: 2800, minimumQueries: 8, maximumQueries: 12 },
   { minimumCharacters: 2801, maximumCharacters: 5000, minimumQueries: 10, maximumQueries: 16 },
@@ -52,6 +72,62 @@ function nonEmptyList(value) {
 }
 function targetQueryVolumeBand(characterCount) {
   return TARGET_QUERY_VOLUME_LADDER.find((band) => characterCount >= band.minimumCharacters && characterCount <= band.maximumCharacters) ?? null;
+}
+
+function articlePlatformRoute(rawName) {
+  const normalized = String(rawName).trim().replace(/[.!?]+$/u, '').trim().toLocaleLowerCase('ru-RU');
+  const matches = ARTICLE_PLATFORM_MATRIX.filter((platform) => platform.aliases.includes(normalized));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function loadEditorialPipeline(projectDatabasePath) {
+  const database = open(resolve(projectDatabasePath), true);
+  try {
+    if (!hasTable(database, 'editorial_agent_profiles')) {
+      throw new Error('Migration 007 editorial agent profiles are unavailable');
+    }
+    const rows = database.prepare(`SELECT profile_id,pipeline_id,stage_order,stage_name,capability,
+      profile_kind,isolation_key,execution_mode,policy_json,status
+      FROM editorial_agent_profiles WHERE pipeline_id=? ORDER BY stage_order`).all(EDITORIAL_PIPELINE_ID);
+    if (rows.length !== EDITORIAL_PIPELINE_STAGES.length || rows.some((row, index) => {
+      const [profileId, stageName, capability] = EDITORIAL_PIPELINE_STAGES[index];
+      return row.stage_order !== index + 1 || row.profile_id !== profileId || row.stage_name !== stageName
+        || row.capability !== capability || row.status !== 'active' || row.execution_mode !== 'isolated_sequential';
+    })) {
+      throw new Error('Migration 007 editorial pipeline is incomplete or inactive');
+    }
+    return {
+      pipeline_id: EDITORIAL_PIPELINE_ID,
+      migration: '007_editorial_agent_pipeline.sql',
+      execution_mode: 'isolated_sequential',
+      launch_directive: 'start',
+      stages: rows.map((row) => ({
+        order: row.stage_order, profile_id: row.profile_id, stage: row.stage_name,
+        capability: row.capability, profile_kind: row.profile_kind, isolation_key: row.isolation_key,
+        policy: parseJson(row.policy_json, null),
+      })),
+    };
+  } finally { database.close(); }
+}
+
+function automaticArticleTaskBrief(route, taskBrief) {
+  if (!route.signals.includes('article_pipeline_trigger')) return taskBrief;
+  const platform = route.platform;
+  const defaults = {
+    result: `Новая статья для ${platform.name} подготовлена и проверена последовательной цепочкой Migration 007`,
+    scope: [platform.contour],
+    firstCheck: 'Проверить активные профили и порядок стадий Migration 007',
+    acceptance: [
+      `Площадка ${platform.name} однозначно определена по редакционной матрице`,
+      'Planner, architect, writer, designer и validator выполнены строго последовательно',
+      'Validator подтвердил обязательные правила execution card',
+      'Готов только пакет материала; внешняя публикация не выполнялась',
+    ],
+    forbiddenChanges: ['Внешняя публикация без отдельного owner approval', 'Обход порядка стадий', 'Использование неактивного профиля'],
+  };
+  const overrides = Object.fromEntries(Object.entries(taskBrief ?? {})
+    .filter(([, value]) => value !== undefined && value !== null));
+  return { ...defaults, ...overrides };
 }
 
 export function scopeChain(database, scopeId) {
@@ -454,12 +530,13 @@ function editorialQaRequirements(rules, editorialSemantics, editorialIndexation)
   };
 }
 
-function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy) {
+function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy, editorialPipeline = null) {
   const scope = nonEmptyList(taskBrief.scope ?? taskBrief.allowedChanges);
   const acceptance = nonEmptyList(taskBrief.acceptance);
   const forbiddenChanges = nonEmptyList(taskBrief.forbiddenChanges);
-  const editorialSemantics = editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy);
-  const editorialIndexation = editorialIndexationFromBrief(taskBrief, rules);
+  const pipelineTrigger = route.signals.includes('article_pipeline_trigger');
+  const editorialSemantics = pipelineTrigger ? null : editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy);
+  const editorialIndexation = pipelineTrigger ? null : editorialIndexationFromBrief(taskBrief, rules);
   const publicationReconciliation = publicationReconciliationFromBrief(taskBrief, route);
   const card = {
     result: nonEmptyText(taskBrief.result),
@@ -474,7 +551,13 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy) {
     editorial_semantics: editorialSemantics,
     editorial_indexation: editorialIndexation,
     publication_reconciliation: publicationReconciliation,
-    delivery_qa: editorialQaRequirements(rules, editorialSemantics, editorialIndexation),
+    delivery_qa: pipelineTrigger ? null : editorialQaRequirements(rules, editorialSemantics, editorialIndexation),
+    editorial_pipeline: editorialPipeline ? {
+      ...editorialPipeline,
+      platform: route.platform,
+      stage_handoff: 'next stage starts only after the preceding stage completes',
+      planner_semantic_gate: 'planner must populate article semantics before architect and writer start',
+    } : null,
     first_check: nonEmptyText(taskBrief.firstCheck),
     acceptance,
     forbidden_changes: forbiddenChanges,
@@ -710,10 +793,20 @@ function validatePublicationReconciliation(specification) {
 }
 
 export function routeTask(database, { text = '', explicitScopeId = null, taskType = null } = {}) {
-  const normalized = String(text).trim().toLocaleLowerCase('ru-RU');
+  const rawText = String(text).trim();
+  const normalized = rawText.toLocaleLowerCase('ru-RU');
   const fingerprint = hash(normalized);
-  const inferredType = inferTaskType(normalized, taskType);
+  const requestedType = inferTaskType(normalized, taskType);
   const signals = [];
+  const articleTriggerMatch = rawText.match(ARTICLE_PIPELINE_TRIGGER);
+  const inferredType = articleTriggerMatch ? 'editorial' : requestedType;
+  const platform = articleTriggerMatch ? articlePlatformRoute(articleTriggerMatch[1]) : null;
+  if (articleTriggerMatch && (!platform || !platform.contour)) {
+    return { outcome: 'needs_clarification', scopeId: null, taskType: 'editorial',
+      signals: ['editorial', 'article', 'article_pipeline_trigger', 'platform_unavailable'], fingerprint,
+      question: 'Укажите одну поддерживаемую площадку из редакционной матрицы; unsupported и outside-MVP маршруты не запускаются.' };
+  }
+  if (platform) signals.push('article_pipeline_trigger', platform.id);
   if (['editorial', 'research'].includes(inferredType)
     || /(стать|редак|контент|social|smm|публикац|пост|research|исследован|семантическ|ключев.{0,20}запрос|tenchat|тенчат)/iu.test(normalized)) signals.push('editorial');
   if (/(стать|article|лонгрид)/iu.test(normalized)) signals.push('article');
@@ -727,7 +820,9 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
   }
   if (explicitScopeId) {
     scopeChain(database, explicitScopeId);
-    return { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope', ...signals], fingerprint };
+    return { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope', ...signals], fingerprint,
+      platform: platform ? { id: platform.id, name: platform.name, contour: platform.contour, mode: platform.mode,
+        source: 'documents/editorial-publishing-matrix.md' } : null };
   }
   const panelWord = /(панел)/iu.test(normalized);
   const panelSpecific = /(интерфейс|\bui\b|css|html|e2e|operator panel|backend)/iu.test(normalized);
@@ -747,7 +842,9 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
     : panelSpecific ? SCOPE_IDS.panel
       : signals.includes('core') && !signals.includes('metrichit') ? SCOPE_IDS.core : SCOPE_IDS.metrichit;
   scopeChain(database, scopeId);
-  return { outcome: 'routed', scopeId, taskType: inferredType, signals, fingerprint };
+  return { outcome: 'routed', scopeId, taskType: inferredType, signals, fingerprint,
+    platform: platform ? { id: platform.id, name: platform.name, contour: platform.contour, mode: platform.mode,
+      source: 'documents/editorial-publishing-matrix.md' } : null };
 }
 
 export function compileDeterministicContext(database, {
@@ -774,9 +871,11 @@ export function compileDeterministicContext(database, {
   const approvedEditorialRequirements = resolveApprovedEditorialRequirements(database, effectiveRequirementRoute);
   const rules = [...new Map([...records.filter((item) => item.type === 'rule'), ...approvedEditorialRequirements]
     .map((item) => [item.semantic_key, item])).values()];
-  const semanticCoreTaxonomy = rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore)
+  const pipelineTrigger = resolvedRoute.signals.includes('article_pipeline_trigger');
+  const semanticCoreTaxonomy = !pipelineTrigger && rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore)
     ? approvedSemanticCoreTaxonomy(projectDatabasePath, referenceRecords) : null;
-  const executionCard = buildExecutionCard(taskBrief, resolvedRoute, rules, semanticCoreTaxonomy);
+  const editorialPipeline = pipelineTrigger ? loadEditorialPipeline(projectDatabasePath) : null;
+  const executionCard = buildExecutionCard(taskBrief, resolvedRoute, rules, semanticCoreTaxonomy, editorialPipeline);
   const payload = {
     schema_version: 4,
     compiler_version: COMPILER_VERSION,
@@ -820,13 +919,14 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
       writeAudit(database, route, null, request.explicitScopeId ?? null);
       return { route, pack: null };
     }
+    const taskBrief = automaticArticleTaskBrief(route, request.taskBrief ?? {});
     let payload;
     try {
       payload = compileDeterministicContext(database, {
         scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory),
         includeReferencedContent: Boolean(request.includeReferencedContent),
         projectDatabasePath: request.projectDatabasePath ?? defaultProjectDatabasePath,
-        taskBrief: request.taskBrief ?? {}, route, coordinatorProfile: request.coordinatorProfile ?? null,
+        taskBrief, route, coordinatorProfile: request.coordinatorProfile ?? null,
       });
     } catch (error) {
       writeAudit(database, { ...route, outcome: 'rejected', signals: [...route.signals, 'execution_preflight_rejected'] }, null,
@@ -834,7 +934,7 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
       throw error;
     }
     const serialized = canonical(payload);
-    const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), includeReferencedContent: Boolean(request.includeReferencedContent), taskBrief: request.taskBrief ?? {}, coordinatorProfileId: request.coordinatorProfile?.id ?? null })), compiled_bytes: Buffer.byteLength(serialized) };
+    const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), includeReferencedContent: Boolean(request.includeReferencedContent), taskBrief, coordinatorProfileId: request.coordinatorProfile?.id ?? null })), compiled_bytes: Buffer.byteLength(serialized) };
     database.prepare(`INSERT INTO context_packs
       (id,scope_id,task_type,compiler_version,input_hash,payload_json,compiled_bytes,status,created_at)
       VALUES (?,?,?,?,?,?,?,'open',?)`).run(pack.id, route.scopeId, route.taskType, COMPILER_VERSION,
