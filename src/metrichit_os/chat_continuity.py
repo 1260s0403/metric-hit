@@ -200,23 +200,38 @@ class ChatContinuityStore:
             task_name=str(scope.get("task_name") or scope["label"]),
         )
 
-    def resume(self, command: str) -> dict[str, object]:
-        scope = self._scope(parse_start_command(command))
-        with sqlite3.connect(self.path) as db:
-            db.row_factory = sqlite3.Row
-            row = db.execute(
-                "SELECT data_json FROM audit_log WHERE type='chat_transition_checkpoint' AND entity_type='chat_scope' AND entity_id=? ORDER BY created_at DESC,id DESC LIMIT 1",
-                (scope["key"],),
-            ).fetchone()
-        if row is None:
-            return {
-                "status": "strategy_startup" if scope["kind"] == "strategy" else "no_active_task",
-                "scope": scope, "copy_command": self._command(scope),
-            }
+    def prepare_workspace(self, *, scope_label: str, canonical_worktree: str,
+                          worktree_root: str, branch: str | None = None,
+                          base: str | None = None, task_name: str | None = None,
+                          context_pack_id: str | None = None) -> dict[str, object]:
+        """Resume the newest usable checkpoint, or create a fresh isolated workspace."""
+        scope = self._scope(scope_label)
         try:
-            checkpoint = json.loads(str(row["data_json"]))
-        except json.JSONDecodeError as error:
-            raise KnowledgeError("saved chat checkpoint is invalid") from error
+            resumed = self.resume(self._command(scope))
+        except KnowledgeError:
+            resumed = None
+        if resumed is not None and resumed["status"] == "resuming":
+            return resumed
+
+        workspace = IsolatedWorktree(canonical_worktree, worktree_root)
+        try:
+            prepared = workspace.prepare(scope_key=str(scope["key"]), branch=branch, base=base)
+        except KnowledgeError:
+            if branch is not None:
+                raise
+            # Preserve an unusable historical worktree and create a new managed
+            # continuation instead of overwriting, resetting, or deleting it.
+            prepared = workspace.prepare(
+                scope_key=f"{scope['key']}:recovery:{_utc()}", base=base,
+            )
+        return self.transition(
+            scope_label=scope_label, branch=prepared["branch"],
+            canonical_worktree=prepared["canonical_worktree"],
+            execution_worktree=prepared["execution_worktree"], head=prepared["head"],
+            task_name=task_name, context_pack_id=context_pack_id,
+        )
+
+    def _activate_checkpoint(self, scope: dict[str, object], checkpoint: object) -> dict[str, object]:
         if not isinstance(checkpoint, dict) or checkpoint.get("scope_key") != scope["key"]:
             raise KnowledgeError("saved chat checkpoint is invalid")
         if checkpoint.get("schema_version") != 3 or checkpoint.get("requires_worktree_activation") is not True:
@@ -247,3 +262,27 @@ class ChatContinuityStore:
             "execution_worktree": verified["execution_worktree"], "requires_worktree_activation": True,
             "copy_command": self._command(scope),
         }
+
+    def resume(self, command: str) -> dict[str, object]:
+        scope = self._scope(parse_start_command(command))
+        with sqlite3.connect(self.path) as db:
+            db.row_factory = sqlite3.Row
+            rows = db.execute(
+                "SELECT data_json FROM audit_log WHERE type='chat_transition_checkpoint' AND entity_type='chat_scope' AND entity_id=? ORDER BY created_at DESC,id DESC",
+                (scope["key"],),
+            ).fetchall()
+        if not rows:
+            return {
+                "status": "strategy_startup" if scope["kind"] == "strategy" else "no_active_task",
+                "scope": scope, "copy_command": self._command(scope),
+            }
+        first_error: KnowledgeError | None = None
+        for row in rows:
+            try:
+                checkpoint = json.loads(str(row["data_json"]))
+                return self._activate_checkpoint(scope, checkpoint)
+            except (json.JSONDecodeError, KnowledgeError) as error:
+                if first_error is None:
+                    first_error = error if isinstance(error, KnowledgeError) else KnowledgeError("saved chat checkpoint is invalid")
+        assert first_error is not None
+        raise first_error

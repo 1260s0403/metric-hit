@@ -11,7 +11,6 @@ from pydantic import ValidationError
 
 from .checks import check_editorial_database, check_memory_database
 from .chat_continuity import ChatContinuityStore
-from .isolated_worktree import IsolatedWorktree
 from .editorial_models import (
     AddMaterialVersionInput,
     AddResearchItemInput,
@@ -361,14 +360,10 @@ def run_workflow_command(arguments_list: list[str]) -> int:
                 task_name=arguments.task, context_pack_id=arguments.context_pack,
             ))
         elif arguments.command == "chat-workspace-prepare":
-            scope = continuity.scope_info(arguments.scope)
-            prepared = IsolatedWorktree(arguments.canonical_worktree, arguments.worktree_root).prepare(
-                scope_key=str(scope["key"]), branch=arguments.branch, base=arguments.base,
-            )
-            print_json(continuity.transition(
-                scope_label=arguments.scope, branch=prepared["branch"],
-                canonical_worktree=prepared["canonical_worktree"], execution_worktree=prepared["execution_worktree"],
-                head=prepared["head"], task_name=arguments.task, context_pack_id=arguments.context_pack,
+            print_json(continuity.prepare_workspace(
+                scope_label=arguments.scope, canonical_worktree=arguments.canonical_worktree,
+                worktree_root=arguments.worktree_root, branch=arguments.branch, base=arguments.base,
+                task_name=arguments.task, context_pack_id=arguments.context_pack,
             ))
         elif arguments.command == "chat-parallel-start":
             print_json(continuity.prepare_parallel_start(

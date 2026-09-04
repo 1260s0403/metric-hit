@@ -78,6 +78,32 @@ def test_resume_refreshes_a_clean_stale_checkpoint_to_canonical_head(tmp_path: P
     ).stdout.strip()
 
 
+def test_resume_skips_older_divergent_checkpoint_when_new_current_checkpoint_exists(tmp_path: Path) -> None:
+    path, _, continuity = fixture(tmp_path)
+    projects = ProjectStore(path)
+    metrichit = next(project for project in projects.list() if project["name"] == "MetricHit")
+    projects.create(name="Потсты/Статьи", description="", parent_project_id=str(metrichit["id"]))
+    canonical, root = repository(tmp_path)
+    scope = continuity.scope_info("Редакция")
+    old = IsolatedWorktree(canonical, root).prepare(scope_key=str(scope["key"]), branch="codex/editorial-old")
+    continuity.transition(scope_label="Редакция", branch=old["branch"], canonical_worktree=old["canonical_worktree"],
+                          execution_worktree=old["execution_worktree"], head=old["head"])
+    old_path = Path(old["execution_worktree"])
+    (old_path / "README.md").write_text("old divergent\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(old_path), "commit", "-am", "old divergent"], check=True, capture_output=True)
+    (canonical / "README.md").write_text("canonical current\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(canonical), "commit", "-am", "canonical current"], check=True, capture_output=True)
+    current = IsolatedWorktree(canonical, root).prepare(scope_key=f"{scope['key']}:current", branch="codex/editorial-current")
+    continuity.transition(scope_label="Редакция", branch=current["branch"], canonical_worktree=current["canonical_worktree"],
+                          execution_worktree=current["execution_worktree"], head=current["head"])
+
+    first = continuity.resume("Ядро старт. Редакция.")
+    second = continuity.resume("Ядро старт. Редакция.")
+    assert first["execution_worktree"] == second["execution_worktree"] == current["execution_worktree"]
+    assert first["checkpoint"]["branch"] == second["checkpoint"]["branch"] == "codex/editorial-current"
+    assert first["checkpoint"]["head"] == second["checkpoint"]["head"] == current["head"]
+
+
 def test_active_scope_passport_can_resume_verified_checkpoint(tmp_path: Path) -> None:
     path, projects, continuity = fixture(tmp_path)
     timestamp = "2026-09-03T00:00:00.000Z"
@@ -134,10 +160,14 @@ def test_finish_prepares_one_continuation_only_after_delivered_result(tmp_path: 
 def test_resume_rejects_legacy_checkpoint(tmp_path: Path) -> None:
     path, _, continuity = fixture(tmp_path)
     prepared = workspace(tmp_path, "landing", "codex/lending/tariffs")
-    saved = continuity.transition(scope_label="Лендинг", branch=prepared["branch"], canonical_worktree=prepared["canonical_worktree"], execution_worktree=prepared["execution_worktree"], head=prepared["head"])
+    scope = continuity.scope_info("Лендинг")
+    checkpoint = {
+        "schema_version": 2, "scope_key": scope["key"], "scope_label": scope["label"],
+        "branch": prepared["branch"], "canonical_worktree": prepared["canonical_worktree"],
+        "execution_worktree": prepared["execution_worktree"], "head": prepared["head"],
+        "requires_worktree_activation": True, "continuation_command": "Ядро старт. Лендинг.",
+    }
     with sqlite3.connect(path) as db:
-        checkpoint = dict(saved["checkpoint"])
-        checkpoint["schema_version"] = 2
         db.execute("INSERT INTO audit_log (id,type,title,content,data_json,status,author,created_at,updated_at,valid_at,access_level,version,entity_type,entity_id,action) VALUES (?, 'chat_transition_checkpoint', 'Переход в новый чат', ?, ?, 'recorded', 'strategy', ?, ?, ?, 'internal', 1, 'chat_scope', ?, 'create')", (str(uuid4()), checkpoint["continuation_command"], json.dumps(checkpoint), "9999-01-01T00:00:00.000Z", "9999-01-01T00:00:00.000Z", "9999-01-01T00:00:00.000Z", checkpoint["scope_key"]))
     with pytest.raises(KnowledgeError, match="new isolated task"):
         continuity.resume("Ядро старт. Лендинг.")
@@ -154,6 +184,37 @@ def test_cli_prepares_workspace_and_immediately_saves_checkpoint(tmp_path: Path,
     result = json.loads(capsys.readouterr().out)
     assert result["status"] == "checkpoint_saved"
     assert continuity.resume("Ядро старт. Лендинг.")["status"] == "resuming"
+
+
+def test_cli_workspace_prepare_reuses_latest_valid_checkpoint(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    path, _, continuity = fixture(tmp_path)
+    projects = ProjectStore(path)
+    metrichit = next(project for project in projects.list() if project["name"] == "MetricHit")
+    projects.create(name="Потсты/Статьи", description="", parent_project_id=str(metrichit["id"]))
+    canonical, root = repository(tmp_path)
+    scope = continuity.scope_info("Редакция")
+    old = IsolatedWorktree(canonical, root).prepare(scope_key=str(scope["key"]), branch="codex/editorial-old")
+    continuity.transition(scope_label="Редакция", branch=old["branch"], canonical_worktree=old["canonical_worktree"],
+                          execution_worktree=old["execution_worktree"], head=old["head"])
+    old_path = Path(old["execution_worktree"])
+    (old_path / "README.md").write_text("old divergent\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(old_path), "commit", "-am", "old divergent"], check=True, capture_output=True)
+    (canonical / "README.md").write_text("canonical current\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(canonical), "commit", "-am", "canonical current"], check=True, capture_output=True)
+    current = IsolatedWorktree(canonical, root).prepare(scope_key=f"{scope['key']}:current", branch="codex/editorial-current")
+    continuity.transition(scope_label="Редакция", branch=current["branch"], canonical_worktree=current["canonical_worktree"],
+                          execution_worktree=current["execution_worktree"], head=current["head"])
+
+    for _ in range(2):
+        assert cli.run_workflow_command([
+            "chat-workspace-prepare", "--db", str(path), "--scope", "Редакция",
+            "--canonical-worktree", str(canonical), "--worktree-root", str(root),
+        ]) == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "resuming"
+        assert result["execution_worktree"] == current["execution_worktree"]
+        assert result["checkpoint"]["branch"] == "codex/editorial-current"
+        assert result["checkpoint"]["head"] == current["head"]
 
 
 def test_parallel_start_isolates_each_telegram_bot(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
