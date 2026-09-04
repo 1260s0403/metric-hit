@@ -70,6 +70,10 @@ const PLANNER_H1_HIGH_FREQUENCY_MARKERS = Object.freeze([
   'Накрутка ПФ Яндекс',
   'Накрутка поведенческих факторов',
 ]);
+const APPROVED_H1_HIGH_FREQUENCY_QUERIES = Object.freeze(
+  PLANNER_H1_HIGH_FREQUENCY_MARKERS.map((query) => query.toLocaleLowerCase('ru-RU')),
+);
+const EDITORIAL_VISUAL_STANDARD_KEY = 'content.editorial_visual_standard';
 
 function now() { return new Date().toISOString(); }
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
@@ -573,14 +577,15 @@ export function resolveApprovedEditorialRequirements(database, route) {
     const task = database.prepare(`SELECT id,type,title,content,status,author FROM tasks
       WHERE title=? ORDER BY updated_at DESC,id LIMIT 1`).get(OWNER_H1_OBLIGATION_TITLE);
     if (!task || task.type !== 'knowledge_task' || task.status !== 'pending' || task.author !== 'owner'
-      || !/накрутка\s+(?:пф|pf)|накрутка\s+поведенческого\s+фактора/iu.test(task.content)) {
+      || !/накрутка\s+(?:пф|pf)|накрутка\s+поведенческ(?:ого\s+фактора|их\s+факторов)/iu.test(task.content)) {
       throw new Error(`applicable owner editorial obligation is unavailable: ${OWNER_H1_SEMANTIC_KEY}`);
     }
     requirements.push({
       id: task.id, semantic_key: OWNER_H1_SEMANTIC_KEY, scope_id: SCOPE_IDS.editorial,
-      type: 'commitment', title: task.title, content: task.content,
+      type: 'commitment', title: task.title,
+      content: `В H1 используется ровно одна утверждённая короткая форма: ${PLANNER_H1_HIGH_FREQUENCY_MARKERS.join(', ')}. ВЧ-маркер нельзя размывать дополнительными словами.`,
       source: `approved-memory://tasks/${task.id}`, effect: 'require', authority: 'owner_obligation',
-      metadata: { required_h1_queries: ['накрутка ПФ', 'накрутка поведенческого фактора'] },
+      metadata: { required_h1_queries: [...PLANNER_H1_HIGH_FREQUENCY_MARKERS] },
     });
   }
   return requirements.sort((a, b) => a.semantic_key.localeCompare(b.semantic_key) || a.id.localeCompare(b.id));
@@ -745,6 +750,18 @@ function editorialQaRequirements(rules, editorialSemantics, editorialIndexation)
   };
 }
 
+function editorialVisualPackage(rules, editorialSemantics, editorialPipeline, route) {
+  const policy = rules.find((rule) => rule.semantic_key === EDITORIAL_VISUAL_STANDARD_KEY)?.metadata;
+  if (!policy?.article_image_brief) return null;
+  const platform = editorialSemantics?.platform ?? editorialPipeline?.platform?.name ?? route?.platform?.name ?? null;
+  const isOborot = articlePlatformRoute(platform)?.id === 'oborot';
+  return {
+    platform,
+    default: policy.article_image_brief,
+    long_form: isOborot ? policy.oborot_long_form_image_brief ?? null : null,
+  };
+}
+
 function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy, editorialPipeline = null) {
   const scope = nonEmptyList(taskBrief.scope ?? taskBrief.allowedChanges);
   const acceptance = nonEmptyList(taskBrief.acceptance);
@@ -766,6 +783,7 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy, edito
     editorial_semantics: editorialSemantics,
     editorial_indexation: editorialIndexation,
     editorial_revision: route.articleRevisionContext ?? null,
+    editorial_visual_package: editorialVisualPackage(rules, editorialSemantics, editorialPipeline, route),
     publication_reconciliation: publicationReconciliation,
     delivery_qa: pipelineTrigger ? null : editorialQaRequirements(rules, editorialSemantics, editorialIndexation),
     editorial_pipeline: editorialPipeline ? {
@@ -905,8 +923,10 @@ function validateEditorialContentQa(specification, contentQa) {
     throw new Error('delivery validation failed: editorial_content_qa_failed:originality_source_overlap');
   }
   const h1 = byId.get('h1_high_frequency_query');
-  if (h1 && (!nonEmptyText(h1.heading) || !['накрутка ПФ', 'накрутка поведенческого фактора'].includes(h1.matched_query)
-    || !h1.heading.toLocaleLowerCase('ru-RU').includes(h1.matched_query.toLocaleLowerCase('ru-RU')))) {
+  const normalizedHeading = nonEmptyText(h1?.heading)?.toLocaleLowerCase('ru-RU') ?? null;
+  const normalizedMatchedQuery = nonEmptyText(h1?.matched_query)?.toLocaleLowerCase('ru-RU') ?? null;
+  if (h1 && (!normalizedHeading || !APPROVED_H1_HIGH_FREQUENCY_QUERIES.includes(normalizedMatchedQuery)
+    || normalizedHeading !== normalizedMatchedQuery)) {
     throw new Error('delivery validation failed: editorial_content_qa_failed:h1_high_frequency_query');
   }
   const length = byId.get('tenchat_character_count');

@@ -67,7 +67,7 @@ function fixture() {
     (id,type,title,content,data_json,status,author,created_at,updated_at,version)
     VALUES (?,'knowledge_task',?,?,?,'pending','owner',?,?,1)`).run(
     '10000000-0000-4000-a000-000000000006', 'Статьи: ключевые ВЧ-запросы в главном заголовке',
-    'В главном заголовке H1 обязательно использовать «накрутка ПФ» или «накрутка поведенческого фактора».',
+    'В главном заголовке H1 обязательно использовать утверждённый короткий ВЧ-маркер: «накрутка ПФ», «накрутка ПФ Яндекс» или «накрутка поведенческих факторов».',
     JSON.stringify({ project_id: '00000000-0000-4000-a000-000000000102' }),
     '2026-08-31T00:00:00.000Z', '2026-08-31T00:00:00.000Z');
   database.close();
@@ -88,7 +88,7 @@ function tenChatContentQa() {
           max_overlap_percent: 8.5, template_match: false } },
       { id: 'h1_high_frequency_query', performed: true, passed: true,
         result: 'H1 contains the approved high-frequency query “накрутка ПФ”.',
-        evidence: { heading: 'Накрутка ПФ в Яндексе', matched_query: 'накрутка ПФ' } },
+        evidence: { heading: 'Накрутка ПФ', matched_query: 'накрутка ПФ' } },
       { id: 'tenchat_character_count', performed: true, passed: true,
         result: '4,812 characters including spaces and punctuation; within 4,000–5,500 target and below 7,000 maximum.',
         evidence: { character_count: 4812, maximum: 7000, target_minimum: 4000, target_maximum: 5500, within_target: true } },
@@ -750,7 +750,7 @@ test('editorial TenChat gate includes approved unscoped requirements and require
     assert.match(card.mandatory_rules.find((item) => item.semantic_key === 'content.editorial_article_preparation_policy').content,
       /четыре естественные ссылки/);
     assert.match(card.mandatory_rules.find((item) => item.semantic_key === 'owner.editorial.h1_high_frequency_query').content,
-      /накрутка ПФ.*накрутка поведенческого фактора/);
+      /Накрутка ПФ.*Накрутка ПФ Яндекс.*Накрутка поведенческих факторов/);
     assert.deepEqual(card.delivery_qa.checks.map((item) => item.id), [
       'landing_link_distribution', 'originality_source_overlap', 'h1_high_frequency_query',
       'tenchat_character_count', 'single_search_intent', 'natural_primary_keyword', 'link_count_and_spam',
@@ -781,6 +781,31 @@ test('editorial TenChat gate includes approved unscoped requirements and require
     assert.equal(unrelated.pack.payload.execution_card.mandatory_rules
       .some((item) => item.semantic_key === 'content.editorial_article_preparation_policy'), false);
     assert.equal(unrelated.pack.payload.execution_card.delivery_qa, null);
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+});
+
+test('editorial H1 validation accepts every approved exact marker and rejects diluted or singular forms', () => {
+  const { directory, databasePath } = fixture();
+  try {
+    const taskBrief = {
+      result: 'Проверенный материал', scope: ['work/social/tenchat'],
+      firstCheck: 'node --test tests/structured-memory.test.mjs',
+      acceptance: ['ready'], forbiddenChanges: ['publication'],
+    };
+    const delivery = (qa) => ({ result: 'Материал проверен', checks: [taskBrief.firstCheck],
+      satisfiedAcceptance: taskBrief.acceptance, scopeCompliance: true, forbiddenChangesObserved: [], contentQa: qa });
+    for (const heading of ['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']) {
+      const compiled = compileContextPack(databasePath, { text: 'Подготовь статью TenChat о накрутке ПФ', taskBrief });
+      const qa = tenChatContentQa();
+      qa.checks.find((item) => item.id === 'h1_high_frequency_query').evidence = { heading, matched_query: heading };
+      assert.equal(closeContextPack(databasePath, compiled.pack.id, delivery(qa)).status, 'closed');
+    }
+    for (const heading of ['Накрутка поведенческого фактора', 'Накрутка ПФ: практическое руководство']) {
+      const compiled = compileContextPack(databasePath, { text: 'Подготовь статью TenChat о накрутке ПФ', taskBrief });
+      const qa = tenChatContentQa();
+      qa.checks.find((item) => item.id === 'h1_high_frequency_query').evidence = { heading, matched_query: heading };
+      assert.throws(() => closeContextPack(databasePath, compiled.pack.id, delivery(qa)), /h1_high_frequency_query/);
+    }
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 
