@@ -537,6 +537,8 @@ class EditorialStore:
         platforms: dict[str, list[dict[str, object]]] = {}
         for row in rows:
             platform = str(row["platform"])
+            if platform.casefold() == "oborot.ru":
+                platform = "Oborot"
             platforms.setdefault(platform, []).append({
                 "title": str(row["title"]), "published_at": str(row["published_at"]),
                 "url": row["url"], "status": (

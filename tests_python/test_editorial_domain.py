@@ -369,7 +369,7 @@ def test_cli_records_owner_confirmed_publication(tmp_path: Path, capsys) -> None
     assert cli.run_workflow_command([
         "project-editorial-record-publication", "--db", str(database),
         "--idempotency-key", "publication-panel-1", "--material-id", material["id"],
-        "--platform", "Oborot", "--published-at", "2026-09-03T10:00:00Z",
+        "--platform", "Oborot.ru", "--published-at", "2026-09-03T10:00:00Z",
         "--url", "https://example.test/article",
     ]) == 0
     publication = json.loads(capsys.readouterr().out)
@@ -383,6 +383,7 @@ def test_cli_records_owner_confirmed_publication(tmp_path: Path, capsys) -> None
         direction="articles",
     )
     projection = store.publications_projection()
+    assert projection["platforms"][0]["platform"] == "Oborot"
     assert projection["platforms"][0]["publications"][0] == {
         "title": "Статья для панели", "published_at": "2026-09-03T10:00:00Z",
         "url": "https://example.test/article", "status": "Ссылка проверена",
