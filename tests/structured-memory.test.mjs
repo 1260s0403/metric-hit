@@ -455,6 +455,87 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 
+test('article image follow-up creates a new linked card from the latest closed article', () => {
+  const { directory, databasePath, projectDatabasePath } = referenceFixture();
+  try {
+    addPublicEditorialSemanticCorePolicy(databasePath);
+    addPublicEditorialIndexationPfTargetPolicy(databasePath);
+    const semantics = {
+      selectedClusters: ['launch_and_management'], adjacentClusterRationale: null,
+      primaryTargetQuery: 'накрутка ПФ Яндекс',
+      secondaryTargetQueries: ['как запустить накрутку ПФ'],
+      userIntent: 'Подготовить страницу и управляемо запустить ПФ-продвижение.',
+      platform: 'Oborot.ru', format: 'article',
+    };
+    const source = compileContextPack(databasePath, {
+      text: 'Подготовь статью для Oborot.ru', projectDatabasePath,
+      taskBrief: {
+        result: 'Последняя статья Oborot подготовлена',
+        scope: [
+          'work/articles/drafts/2026-09-04-oborot-example.md',
+          'work/articles/assets/2026-09-04-oborot-cover.png',
+          'work/articles/assets/2026-09-04-oborot-inline.png',
+        ],
+        firstCheck: 'editorial-check', acceptance: ['source_ready'],
+        forbiddenChanges: ['publication'], editorialSemantics: semantics,
+        editorialIndexation: { seoIndexationObjective: 'Индексация статьи в Яндексе по утверждённой семантике.' },
+      },
+    });
+    const database = new DatabaseSync(databasePath);
+    const sourcePayload = source.pack.payload;
+    sourcePayload.terminal_outcome = 'delivered';
+    database.prepare("UPDATE context_packs SET status='closed',closed_at=?,payload_json=? WHERE id=?")
+      .run('2026-09-04T10:00:00.000Z', JSON.stringify(sourcePayload), source.pack.id);
+    const panelPayload = {
+      execution_card: { result: 'Unrelated panel result', scope: ['src/panel.js'] },
+      terminal_outcome: 'delivered', unrelated_secret: 'must-not-be-inherited',
+    };
+    database.prepare(`INSERT INTO context_packs
+      (id,scope_id,task_type,compiler_version,input_hash,payload_json,compiled_bytes,status,created_at,closed_at)
+      VALUES (?,?,?,?,?,?,?,'closed',?,?)`).run(
+      'fixture-newer-panel-pack', SCOPE_IDS.panel, 'ui', 1, 'panel-hash', JSON.stringify(panelPayload),
+      Buffer.byteLength(JSON.stringify(panelPayload)), '2026-09-04T11:00:00.000Z', '2026-09-04T11:01:00.000Z',
+    );
+    database.close();
+
+    const text = 'Для последней статьи оборота создай новые картинки по новым правилам. Старые картинки удали';
+    const sourceCheckDatabase = new DatabaseSync(databasePath, { readOnly: true });
+    const sourceCheck = sourceCheckDatabase.prepare('SELECT status,payload_json FROM context_packs WHERE id=?').get(source.pack.id);
+    assert.equal(sourceCheck.status, 'closed');
+    assert.equal(JSON.parse(sourceCheck.payload_json).execution_card.editorial_semantics.format, 'article');
+    sourceCheckDatabase.close();
+    const compiled = compileContextPack(databasePath, { text, projectDatabasePath });
+    const card = compiled.pack.payload.execution_card;
+    assert.notEqual(compiled.pack.id, source.pack.id);
+    assert.equal(compiled.pack.status, 'open');
+    assert.deepEqual(card.editorial_semantics, sourcePayload.execution_card.editorial_semantics);
+    assert.deepEqual(card.editorial_indexation, sourcePayload.execution_card.editorial_indexation);
+    assert.equal(card.editorial_revision.source_context_pack_id, source.pack.id);
+    assert.equal(card.editorial_revision.source_status, 'closed');
+    assert.equal(card.editorial_revision.source_terminal_outcome, 'delivered');
+    assert.equal(card.editorial_revision.article_path, 'work/articles/drafts/2026-09-04-oborot-example.md');
+    assert.deepEqual(card.editorial_revision.asset_paths, [
+      'work/articles/assets/2026-09-04-oborot-cover.png',
+      'work/articles/assets/2026-09-04-oborot-inline.png',
+    ]);
+    assert.equal(card.editorial_revision.owner_authorizations.delete_replaced_assets, true);
+    assert.equal(JSON.stringify(card).includes('unrelated_secret'), false);
+    const readOnly = new DatabaseSync(databasePath, { readOnly: true });
+    assert.equal(readOnly.prepare('SELECT status FROM context_packs WHERE id=?').get(source.pack.id).status, 'closed');
+    readOnly.close();
+
+    const cli = JSON.parse(execFileSync(process.execPath, [resolve('scripts/structured-memory.mjs'), 'compile',
+      '--db', databasePath, '--project-db', projectDatabasePath, '--scope', SCOPE_IDS.editorial,
+      '--text', text], { encoding: 'utf8' }));
+    assert.equal(cli.pack.status, 'open');
+    assert.equal(cli.pack.payload.execution_card.editorial_revision.source_context_pack_id, source.pack.id);
+    assert.deepEqual(cli.pack.payload.execution_card.editorial_semantics, card.editorial_semantics);
+  } finally {
+    try { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+    catch (error) { if (error?.code !== 'EBUSY') throw error; }
+  }
+});
+
 test('P4/P5: compiler is stable, smaller than baseline and isolates Editorial from Panel', () => {
   const { directory, databasePath } = fixture();
   try {

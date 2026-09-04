@@ -9,7 +9,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
-export const COMPILER_VERSION = 7;
+export const COMPILER_VERSION = 8;
 export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
 export const YADRO_CONTROL_PLANE_PROJECT_ID = '00000000-0000-4000-a000-000000000101';
 export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
@@ -37,6 +37,8 @@ const EDITORIAL_PIPELINE_STAGES = Object.freeze([
   ['metrichit.editorial.validator.v1', 'validator', 'compliance-qa'],
 ]);
 const ARTICLE_PIPELINE_TRIGGER = /^напиши\s+новую\s+статью\s+для\s+(.+?)\s*[.!?]?$/iu;
+const ARTICLE_REVISION_TRIGGER = /(?:последн\p{L}*\s+стать\p{L}*|стать\p{L}*\s+(?:доработ|исправ|обнов|замен)\p{L}*).*(?:картин|изображ|иллюстрац|доработ|исправ|обнов|замен)|(?:картин|изображ|иллюстрац|доработ|исправ|обнов|замен).*(?:последн\p{L}*\s+стать\p{L}*)/iu;
+const ARTICLE_ASSET_PATTERN = /work\/articles\/assets\/[A-Za-z0-9._/-]+\.(?:png|jpe?g|webp|gif|svg)/giu;
 const EMPTY_TOPIC_AUTOPLANNING_HOTFIX = Object.freeze({
   id: 'editorial.empty_topic.autoplanning.v1',
   owner_question: 'prohibited',
@@ -91,6 +93,15 @@ function targetQueryVolumeBand(characterCount) {
 function articlePlatformRoute(rawName) {
   const normalized = String(rawName).trim().replace(/[.!?]+$/u, '').trim().toLocaleLowerCase('ru-RU');
   const matches = ARTICLE_PLATFORM_MATRIX.filter((platform) => platform.aliases.includes(normalized));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function articlePlatformFromText(text) {
+  const normalized = String(text).toLocaleLowerCase('ru-RU');
+  const matches = ARTICLE_PLATFORM_MATRIX.filter((platform) => platform.aliases.some((alias) => {
+    if (alias === 'оборот') return /(?:^|[^\p{L}\p{N}])оборот(?:а|у|ом|е)?(?:\.ру)?(?:$|[^\p{L}\p{N}])/iu.test(normalized);
+    return normalized.includes(alias);
+  }));
   return matches.length === 1 ? matches[0] : null;
 }
 
@@ -230,6 +241,108 @@ function automaticArticleTaskBrief(route, taskBrief) {
   const overrides = Object.fromEntries(Object.entries(taskBrief ?? {})
     .filter(([, value]) => value !== undefined && value !== null));
   return { ...defaults, ...overrides };
+}
+
+function latestDeliveredArticleContext(database, platform = null) {
+  const rows = database.prepare(`SELECT id,status,created_at,payload_json FROM context_packs
+    WHERE scope_id=? AND task_type='editorial' AND status='closed' ORDER BY created_at DESC,id DESC`).all(SCOPE_IDS.editorial);
+  for (const row of rows) {
+    const payload = parseJson(row.payload_json, null);
+    const card = payload?.execution_card;
+    if (!card || payload.terminal_outcome !== 'delivered') continue;
+    const semanticPlatform = card.editorial_semantics?.platform ?? null;
+    const pipelinePlatform = card.editorial_pipeline?.platform ?? null;
+    const sourcePlatform = semanticPlatform
+      ? articlePlatformRoute(semanticPlatform)
+      : ARTICLE_PLATFORM_MATRIX.find((item) => item.id === pipelinePlatform?.id);
+    const isArticle = card.editorial_semantics?.format === 'article'
+      || (pipelinePlatform?.contour === 'work/articles' && pipelinePlatform?.id !== 'telegram');
+    if (!isArticle || (platform && sourcePlatform?.id !== platform.id)) continue;
+    return { id: row.id, status: row.status, created_at: row.created_at, payload, card, platform: sourcePlatform ?? platform };
+  }
+  throw new Error('editorial revision source was not found: latest delivered article card is required');
+}
+
+function latestArticlePath(platform) {
+  const draftsRoot = join(repositoryRoot, 'work', 'articles', 'drafts');
+  if (!existsSync(draftsRoot)) return null;
+  const platformToken = platform?.id === 'sostav' ? 'sostav' : platform?.id;
+  const candidates = readdirSync(draftsRoot, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.toLocaleLowerCase('ru-RU').endsWith('.md'))
+    .map((entry) => `work/articles/drafts/${entry.name}`)
+    .filter((path) => !platformToken || path.toLocaleLowerCase('ru-RU').includes(platformToken));
+  return candidates.sort((left, right) => right.localeCompare(left))[0] ?? null;
+}
+
+function articleRevisionIdentity(source) {
+  const sourceScope = nonEmptyList(source.card.scope);
+  const articlePath = sourceScope.find((path) => /^work\/articles\/(?:drafts|published)\/.+\.md$/iu.test(path))
+    ?? latestArticlePath(source.platform);
+  if (!articlePath) throw new Error('editorial revision source article path is unavailable');
+  const scopedAssets = sourceScope.filter((path) => /^work\/articles\/assets\/.+\.(?:png|jpe?g|webp|gif|svg)$/iu.test(path));
+  const absoluteArticlePath = resolve(repositoryRoot, articlePath);
+  const referencedAssets = existsSync(absoluteArticlePath)
+    ? [...readFileSync(absoluteArticlePath, 'utf8').matchAll(ARTICLE_ASSET_PATTERN)].map((match) => match[0]) : [];
+  const assets = [...new Set([...scopedAssets, ...referencedAssets])].sort();
+  return { article_path: articlePath, asset_paths: assets };
+}
+
+function inheritedRevisionSemantics(source) {
+  const semantics = source.card.editorial_semantics;
+  if (semantics) {
+    return {
+      selectedClusters: semantics.selected_clusters,
+      adjacentClusterRationale: semantics.adjacent_cluster_rationale,
+      primaryTargetQuery: semantics.primary_target_query,
+      secondaryTargetQueries: semantics.secondary_target_queries,
+      userIntent: semantics.user_intent,
+      platform: semantics.platform,
+      format: semantics.format,
+      ...(semantics.geo_demand_owner_confirmed === true ? { geoDemandOwnerConfirmed: true } : {}),
+    };
+  }
+  const assignment = source.card.editorial_pipeline?.empty_topic_planner_assignment;
+  if (!assignment?.selected_cluster || !assignment?.selected_priority_hf_marker || !source.platform) {
+    throw new Error('editorial revision source lacks required article semantics');
+  }
+  return {
+    selectedClusters: [assignment.selected_cluster], adjacentClusterRationale: null,
+    primaryTargetQuery: assignment.selected_priority_hf_marker, secondaryTargetQueries: [],
+    userIntent: 'Сохранить поисковый интент исходной статьи при визуальной доработке.',
+    platform: source.platform.name, format: 'article',
+  };
+}
+
+function automaticArticleRevisionTaskBrief(route, taskBrief) {
+  if (!route.signals.includes('article_revision')) return taskBrief;
+  const source = route.articleRevisionSource;
+  const identity = articleRevisionIdentity(source);
+  const inheritedIndexation = source.card.editorial_indexation;
+  const defaults = {
+    result: `Изображения последней статьи ${source.platform?.name ?? ''} заменены по действующим редакционным правилам`.trim(),
+    scope: [identity.article_path, ...identity.asset_paths],
+    firstCheck: 'Проверить исходную статью, её текущие изображения и действующий editorial visual standard',
+    acceptance: ['Создана новая execution card, исходная закрытая card не изменена', 'Сохранены семантика и поисковый интент исходной статьи', 'Изменения ограничены исходной статьёй и её изображениями'],
+    forbiddenChanges: ['Переоткрытие или изменение исходной закрытой card', 'Изменение текста статьи вне ссылок на изображения', 'Внешняя публикация'],
+    editorialSemantics: inheritedRevisionSemantics(source),
+    editorialIndexation: inheritedIndexation ? { seoIndexationObjective: inheritedIndexation.seo_indexation_objective }
+      : { seoIndexationObjective: 'Сохранить цель индексации исходной статьи при визуальной доработке.' },
+  };
+  const overrides = Object.fromEntries(Object.entries(taskBrief ?? {})
+    .filter(([, value]) => value !== undefined && value !== null));
+  route.articleRevisionContext = {
+    kind: 'editorial_article_revision', source_context_pack_id: source.id,
+    source_status: source.status, source_terminal_outcome: source.payload.terminal_outcome,
+    source_created_at: source.created_at, platform: source.platform?.name ?? null,
+    ...identity,
+    owner_authorizations: {
+      delete_replaced_assets: route.signals.includes('owner_authorized_asset_deletion'),
+    },
+    inherited_fields: ['editorial_semantics', 'editorial_indexation'],
+  };
+  return { ...defaults, ...overrides,
+    editorialSemantics: overrides.editorialSemantics ?? defaults.editorialSemantics,
+    editorialIndexation: overrides.editorialIndexation ?? defaults.editorialIndexation };
 }
 
 export function scopeChain(database, scopeId) {
@@ -652,6 +765,7 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy, edito
     ],
     editorial_semantics: editorialSemantics,
     editorial_indexation: editorialIndexation,
+    editorial_revision: route.articleRevisionContext ?? null,
     publication_reconciliation: publicationReconciliation,
     delivery_qa: pipelineTrigger ? null : editorialQaRequirements(rules, editorialSemantics, editorialIndexation),
     editorial_pipeline: editorialPipeline ? {
@@ -901,14 +1015,23 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
   const requestedType = inferTaskType(normalized, taskType);
   const signals = [];
   const articleTriggerMatch = rawText.match(ARTICLE_PIPELINE_TRIGGER);
-  const inferredType = articleTriggerMatch ? 'editorial' : requestedType;
-  const platform = articleTriggerMatch ? articlePlatformRoute(articleTriggerMatch[1]) : null;
+  const articleRevisionMatch = ARTICLE_REVISION_TRIGGER.test(rawText);
+  const inferredType = articleTriggerMatch || articleRevisionMatch ? 'editorial' : requestedType;
+  const platform = articleTriggerMatch ? articlePlatformRoute(articleTriggerMatch[1])
+    : articleRevisionMatch ? articlePlatformFromText(rawText) : null;
   if (articleTriggerMatch && (!platform || !platform.contour)) {
     return { outcome: 'needs_clarification', scopeId: null, taskType: 'editorial',
       signals: ['editorial', 'article', 'article_pipeline_trigger', 'platform_unavailable'], fingerprint,
       question: 'Укажите одну поддерживаемую площадку из редакционной матрицы; unsupported и outside-MVP маршруты не запускаются.' };
   }
-  if (platform) signals.push('article_pipeline_trigger', platform.id);
+  if (articleTriggerMatch && platform) signals.push('article_pipeline_trigger', platform.id);
+  if (articleRevisionMatch) {
+    signals.push('article_revision');
+    if (platform) signals.push(platform.id);
+    if (/(?:стар\p{L}*\s+(?:картин|изображ|иллюстрац)|(?:картин|изображ|иллюстрац)\p{L}*\s+удал)/iu.test(normalized)) {
+      signals.push('owner_authorized_asset_deletion');
+    }
+  }
   if (['editorial', 'research'].includes(inferredType)
     || /(стать|редак|контент|social|smm|публикац|пост|research|исследован|семантическ|ключев.{0,20}запрос|tenchat|тенчат)/iu.test(normalized)) signals.push('editorial');
   if (/(стать|article|лонгрид)/iu.test(normalized)) signals.push('article');
@@ -922,9 +1045,16 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
   }
   if (explicitScopeId) {
     scopeChain(database, explicitScopeId);
-    return { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope', ...signals], fingerprint,
+    if (articleRevisionMatch && explicitScopeId !== SCOPE_IDS.editorial) {
+      throw new Error('editorial revision must use the Editorial scope');
+    }
+    const routed = { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope', ...signals], fingerprint,
       platform: platform ? { id: platform.id, name: platform.name, contour: platform.contour, mode: platform.mode,
         source: 'documents/editorial-publishing-matrix.md' } : null };
+    if (articleRevisionMatch) Object.defineProperty(routed, 'articleRevisionSource', {
+      value: latestDeliveredArticleContext(database, platform),
+    });
+    return routed;
   }
   const panelWord = /(панел)/iu.test(normalized);
   const panelSpecific = /(интерфейс|\bui\b|css|html|e2e|operator panel|backend)/iu.test(normalized);
@@ -944,9 +1074,12 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
     : panelSpecific ? SCOPE_IDS.panel
       : signals.includes('core') && !signals.includes('metrichit') ? SCOPE_IDS.core : SCOPE_IDS.metrichit;
   scopeChain(database, scopeId);
-  return { outcome: 'routed', scopeId, taskType: inferredType, signals, fingerprint,
+  const articleRevisionSource = articleRevisionMatch ? latestDeliveredArticleContext(database, platform) : null;
+  const routed = { outcome: 'routed', scopeId, taskType: inferredType, signals, fingerprint,
     platform: platform ? { id: platform.id, name: platform.name, contour: platform.contour, mode: platform.mode,
       source: 'documents/editorial-publishing-matrix.md' } : null };
+  if (articleRevisionSource) Object.defineProperty(routed, 'articleRevisionSource', { value: articleRevisionSource });
+  return routed;
 }
 
 export function compileDeterministicContext(database, {
@@ -1027,7 +1160,8 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
       writeAudit(database, route, null, request.explicitScopeId ?? null);
       return { route, pack: null };
     }
-    const taskBrief = automaticArticleTaskBrief(route, request.taskBrief ?? {});
+    const taskBrief = automaticArticleRevisionTaskBrief(route,
+      automaticArticleTaskBrief(route, request.taskBrief ?? {}));
     let payload;
     try {
       payload = compileDeterministicContext(database, {
@@ -1260,8 +1394,13 @@ if (isMainModule()) {
       text: args.text ?? '', explicitScopeId: args.scope ?? null, taskType: args['task-type'] ?? null,
       includeReferencedContent: args['include-references'] === 'true',
       projectDatabasePath: args['project-db'] ? resolve(args['project-db']) : defaultProjectDatabasePath,
-      taskBrief: { result: args.result, scope: jsonArgument(args['card-scope']), firstCheck: args['first-check'],
-        acceptance: jsonArgument(args.acceptance), forbiddenChanges: jsonArgument(args['forbidden-changes']),
+      taskBrief: { result: args.result,
+        scope: args['card-scope'] === undefined ? undefined : jsonArgument(args['card-scope']),
+        firstCheck: args['first-check'],
+        acceptance: args.acceptance === undefined ? undefined : jsonArgument(args.acceptance),
+        forbiddenChanges: args['forbidden-changes'] === undefined ? undefined : jsonArgument(args['forbidden-changes']),
+        editorialSemantics: jsonObjectArgument(args['editorial-semantics']),
+        editorialIndexation: jsonObjectArgument(args['editorial-indexation']),
         publicationReconciliation: jsonObjectArgument(args['publication-reconciliation']) },
     }), null, 2));
     else if (args.command === 'close') console.log(JSON.stringify(closeContextPack(databasePath, args.id, {
