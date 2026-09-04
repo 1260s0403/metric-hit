@@ -123,8 +123,8 @@ function loadEditorialPipeline(projectDatabasePath) {
           ...EMPTY_TOPIC_AUTOPLANNING_HOTFIX,
           planner_execution_required: row.profile_id === 'metrichit.editorial.planner.v1',
           downstream_input: row.profile_id === 'metrichit.editorial.planner.v1'
-            ? 'produce_three_structures'
-            : 'consume_owner_approved_structure_only',
+            ? 'produce_three_structures_and_select_one_deterministically'
+            : 'consume_planner_selected_structure_only',
         },
       })),
     };
@@ -199,12 +199,15 @@ function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
         system_error: systemError(archive.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'no_free_hf_markers')) };
     }
     const selection = candidates[0];
+    const structureOptions = threeReadyStructures(selection.h1);
     return {
       hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id,
       executor_profile: 'metrichit.editorial.planner.v1', status: 'ready', background_mode: true,
       owner_question: 'prohibited', published_archive_overlap: { scanned: true, archive_files: archive.files, selected_marker_overlaps: false },
       selected_priority_hf_marker: selection.marker, selected_cluster: selection.cluster,
-      structure_options: threeReadyStructures(selection.h1),
+      structure_options: structureOptions,
+      selected_structure: structureOptions[0],
+      structure_selection: 'deterministic_priority_first',
     };
   } finally { database.close(); }
 }

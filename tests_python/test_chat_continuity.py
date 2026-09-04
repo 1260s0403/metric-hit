@@ -58,6 +58,26 @@ def test_transition_saves_verified_checkpoint_and_resume_is_read_only(tmp_path: 
         assert db.execute("SELECT count(*) FROM audit_log").fetchone()[0] == before
 
 
+def test_resume_refreshes_a_clean_stale_checkpoint_to_canonical_head(tmp_path: Path) -> None:
+    path, _, continuity = fixture(tmp_path)
+    projects = ProjectStore(path)
+    metrichit = next(project for project in projects.list() if project["name"] == "MetricHit")
+    projects.create(name="Потсты/Статьи", description="", parent_project_id=str(metrichit["id"]))
+    canonical, root = repository(tmp_path)
+    scope = continuity.scope_info("Редакция")
+    prepared = IsolatedWorktree(canonical, root).prepare(scope_key=str(scope["key"]), branch="codex/editorial")
+    continuity.transition(scope_label="Редакция", branch=prepared["branch"], canonical_worktree=prepared["canonical_worktree"],
+                          execution_worktree=prepared["execution_worktree"], head=prepared["head"])
+    canonical = Path(prepared["canonical_worktree"])
+    (canonical / "README.md").write_text("current\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(canonical), "commit", "-am", "canonical planner fix"], check=True, capture_output=True)
+    resumed = continuity.resume("Ядро старт. Редакция.")
+    assert resumed["status"] == "resuming"
+    assert resumed["checkpoint"]["head"] == subprocess.run(
+        ["git", "-C", str(canonical), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
 def test_active_scope_passport_can_resume_verified_checkpoint(tmp_path: Path) -> None:
     path, projects, continuity = fixture(tmp_path)
     timestamp = "2026-09-03T00:00:00.000Z"

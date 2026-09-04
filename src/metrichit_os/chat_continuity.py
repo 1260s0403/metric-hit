@@ -230,11 +230,18 @@ class ChatContinuityStore:
         if canonical_path != checkpoint["canonical_worktree"] or execution_path != checkpoint["execution_worktree"]:
             raise KnowledgeError("saved checkpoint has a non-canonical isolated worktree contract")
         try:
-            verified = IsolatedWorktree(canonical_path, str(Path(execution_path).parent)).verify(
-                execution_path, str(checkpoint["branch"]), str(checkpoint["head"]),
-            )
+            workspace = IsolatedWorktree(canonical_path, str(Path(execution_path).parent))
+            verified = workspace.refresh(execution_path, str(checkpoint["branch"]))
         except (KeyError, KnowledgeError) as error:
             raise KnowledgeError("saved checkpoint workspace is no longer safe to resume") from error
+        if verified["head"] != checkpoint["head"]:
+            refreshed = self.transition(
+                scope_label=str(scope["label"]), branch=verified["branch"],
+                canonical_worktree=verified["canonical_worktree"], execution_worktree=verified["execution_worktree"],
+                head=verified["head"], task_name=str(checkpoint.get("task_name") or scope["label"]),
+                context_pack_id=checkpoint.get("context_pack_id"),
+            )
+            checkpoint = refreshed["checkpoint"]
         return {
             "status": "resuming", "scope": scope, "checkpoint": checkpoint,
             "execution_worktree": verified["execution_worktree"], "requires_worktree_activation": True,

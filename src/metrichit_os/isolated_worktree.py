@@ -89,9 +89,7 @@ class IsolatedWorktree:
         existing = next((item for item in registered if _same(Path(item["worktree"]), target)), None)
         expected_ref = f"refs/heads/{branch}"
         if existing is not None:
-            if existing.get("branch") != expected_ref:
-                raise KnowledgeError("managed worktree is registered with a different branch")
-            return self.verify(target, branch, existing.get("HEAD", ""))
+            return self.refresh(target, branch)
         if target.exists():
             raise KnowledgeError("managed worktree target already exists but is not registered by Git")
         if any(item.get("branch") == expected_ref for item in registered):
@@ -111,6 +109,25 @@ class IsolatedWorktree:
             _git(self.canonical, "worktree", "add", "-b", branch, str(target), base_ref)
         head = _git(target, "rev-parse", "HEAD")
         return self.verify(target, branch, head)
+
+    def refresh(self, execution_worktree: str | Path, branch: str) -> dict[str, str]:
+        """Bring a clean registered worktree forward to canonical HEAD, never by force."""
+        target = _path(execution_worktree)
+        branch = self._branch(branch)
+        expected_ref = f"refs/heads/{branch}"
+        item = next((entry for entry in _worktrees(self.canonical) if _same(Path(entry["worktree"]), target)), None)
+        if item is None or item.get("branch") != expected_ref:
+            raise KnowledgeError("execution worktree is not registered with the checkpoint branch")
+        if _git(target, "status", "--porcelain"):
+            raise KnowledgeError("managed worktree is not clean")
+        canonical_head = _git(self.canonical, "rev-parse", "HEAD")
+        current_head = _git(target, "rev-parse", "HEAD")
+        if current_head != canonical_head:
+            try:
+                _git(target, "merge", "--ff-only", canonical_head)
+            except KnowledgeError as error:
+                raise KnowledgeError("managed worktree cannot fast-forward to canonical HEAD") from error
+        return self.verify(target, branch, _git(target, "rev-parse", "HEAD"))
 
     def verify(self, execution_worktree: str | Path, branch: str, head: str) -> dict[str, str]:
         target = _path(execution_worktree)

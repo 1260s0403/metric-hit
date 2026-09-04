@@ -31,6 +31,19 @@ def test_prepare_creates_then_reuses_real_isolated_worktree(tmp_path: Path) -> N
     assert first["execution_worktree"] != str(canonical)
 
 
+def test_prepare_fast_forwards_clean_stale_worktree_to_canonical_head(tmp_path: Path) -> None:
+    canonical, root = repo(tmp_path)
+    service = IsolatedWorktree(canonical, root)
+    prepared = service.prepare(scope_key="scope:editorial", branch="codex/editorial")
+    (canonical / "file.txt").write_text("two\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(canonical), "commit", "-am", "canonical update"], check=True, capture_output=True)
+    refreshed = service.prepare(scope_key="scope:editorial", branch="codex/editorial")
+    assert refreshed["execution_worktree"] == prepared["execution_worktree"]
+    assert refreshed["head"] == subprocess.run(
+        ["git", "-C", str(canonical), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+
+
 def test_prepare_refuses_existing_unregistered_target_and_branch_collision(tmp_path: Path) -> None:
     canonical, root = repo(tmp_path)
     service = IsolatedWorktree(canonical, root)

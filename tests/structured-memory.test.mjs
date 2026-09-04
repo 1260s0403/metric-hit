@@ -422,6 +422,10 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.owner_question, 'prohibited');
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.published_archive_overlap.scanned, true);
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.length, 3);
+    assert.deepEqual(card.editorial_pipeline.empty_topic_planner_assignment.selected_structure,
+      card.editorial_pipeline.empty_topic_planner_assignment.structure_options[0]);
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_selection,
+      'deterministic_priority_first');
     const allowedH1 = new Set(['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']);
     assert.ok(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.every((option) =>
       allowedH1.has(option.h1) && option.title === option.h1
