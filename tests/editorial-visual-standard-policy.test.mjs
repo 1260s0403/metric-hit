@@ -5,7 +5,8 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { DatabaseSync } from 'node:sqlite';
 
-import { applyEditorialVisualStandardPolicy } from '../scripts/apply-editorial-visual-standard-policy.mjs';
+import { applyEditorialVisualStandardPolicy, buildEditorialVisualPrompts,
+  validateEditorialVisualPlan } from '../scripts/apply-editorial-visual-standard-policy.mjs';
 import { compileContextPack } from '../scripts/structured-memory.mjs';
 
 test('editorial visual standard is approved, idempotent, and encodes default and Oborot long-form packages', (t) => {
@@ -37,13 +38,20 @@ test('editorial visual standard is approved, idempotent, and encodes default and
   assert.equal(policy.oborot_long_form_image_brief.inline.count, 3);
   assert.equal(policy.oborot_long_form_image_brief.total, 4);
   assert.deepEqual(policy.article_image_brief.assets.map((asset) => asset.role),
-    ['cover_preview', 'section_business_scene', 'real_screenshot_or_workflow']);
+    ['cover_preview', 'section_semantic_scene']);
   assert.deepEqual(policy.article_image_brief.assets.map((asset) => asset.oborot_aspect_ratio),
-    ['1:1', '3:2_landscape', '16:9_allowed']);
+    ['1:1', '3:2_landscape']);
   assert.equal(policy.photography_style.look, 'photorealistic_editorial_lifestyle');
   assert.equal(policy.photography_style.setting, 'credible_russian_business_context_matching_intent');
-  assert.ok(policy.requirements.includes('distinct_scenes_within_article'));
-  assert.ok(policy.requirements.includes('real_ui_screenshots_or_composites_only'));
+  assert.ok(policy.requirements.includes('section_anchor_required'));
+  assert.ok(policy.requirements.includes('semantic_role_required'));
+  assert.equal(policy.prompt_contract.topic_only_is_insufficient, true);
+  assert.equal(policy.prompt_contract.generic_person_with_laptop_or_phone_is_insufficient, true);
+  assert.equal(policy.device_policy.incidental_device_maximum_inline_visuals, 1);
+  assert.equal(policy.validator.mode, 'fail_closed');
+  assert.ok(policy.validator.reject.includes('landing_page'));
+  assert.ok(policy.validator.reject.includes('working_ui'));
+  assert.ok(policy.visual_qa.includes('reject_repeated_screen_gazing_set'));
   assert.ok(policy.requirements.includes('desktop_mobile_crop_safe_area'));
   assert.ok(policy.requirements.includes('descriptive_filename'));
   assert.ok(policy.requirements.includes('natural_non_stuffed_alt'));
@@ -65,14 +73,17 @@ test('editorial visual standard is approved, idempotent, and encodes default and
   const compiledRule = compiled.pack.payload.execution_card.mandatory_rules
     .find((rule) => rule.semantic_key === 'content.editorial_visual_standard');
   assert.ok(compiledRule);
-  assert.match(compiledRule.content, /ровно три целевых визуала/iu);
+  assert.match(compiledRule.content, /ровно три целевых .*визуала/iu);
   assert.match(compiledRule.content, /от 7 001 знака.*ровно четыре визуала/iu);
   assert.equal(compiled.pack.payload.execution_card.editorial_visual_package.long_form.total, 4);
   assert.equal(compiled.pack.payload.execution_card.editorial_visual_package.long_form.inline.count, 3);
   assert.match(compiledRule.content, /превью 1:1/iu);
   assert.match(compiledRule.content, /3:2 landscape/iu);
-  assert.match(compiledRule.content, /16:9/iu);
-  assert.match(compiledRule.content, /только реальные скриншоты/iu);
+  assert.match(compiledRule.content, /screenshots\/screen captures.*запрещены/iu);
+  assert.match(compiledRule.content, /section_anchor.*semantic_role/iu);
+  assert.match(compiledRule.content, /максимум в одном inline-визуале/iu);
+  assert.equal(compiled.pack.payload.execution_card.editorial_visual_package.default.prompt_contract.semantic_first, true);
+  assert.equal(compiled.pack.payload.execution_card.editorial_visual_package.default.validator.mode, 'fail_closed');
 
   const databaseForRevision = new DatabaseSync(databasePath);
   const sourcePayload = JSON.stringify({ terminal_outcome: 'delivered', execution_card: {
@@ -95,4 +106,55 @@ test('editorial visual standard is approved, idempotent, and encodes default and
   assert.ok(revision.pack.payload.execution_card.editorial_revision.source_context_pack_id);
   assert.equal(revision.pack.payload.execution_card.editorial_visual_package.long_form.total, 4);
   assert.equal(revision.pack.payload.execution_card.editorial_visual_package.long_form.inline.count, 3);
+});
+
+const semanticPhotoPlan = () => [
+  { visual_kind: 'photorealistic_editorial_photo', section_anchor: 'Почему карточка теряет позиции',
+    semantic_role: 'Показать последствие слабой видимости — пустой поток покупателей',
+    scene_intent: 'пустой вход в небольшой магазин', observable_action: 'владелец меняет табличку с режимом работы',
+    business_context: 'уличный магазин у дома', composition: 'широкий уличный план', device_role: 'none', readable_ui: false },
+  { visual_kind: 'photorealistic_editorial_photo', section_anchor: 'Как подготовить посадочную страницу',
+    semantic_role: 'Показать сверку предложения с реальным ассортиментом',
+    scene_intent: 'проверка наличия товара на полках', observable_action: 'сотрудница сверяет бумажный список с витриной',
+    business_context: 'локальный магазин косметики', composition: 'средний план между стеллажами', device_role: 'none', readable_ui: false },
+  { visual_kind: 'photorealistic_editorial_photo', section_anchor: 'Как оценить результат запуска',
+    semantic_role: 'Показать рост реальных обращений после изменений',
+    scene_intent: 'выдача подготовленного заказа покупателю', observable_action: 'продавец передаёт упакованный заказ клиенту',
+    business_context: 'пункт выдачи малого бизнеса', composition: 'крупный план рук и упаковки',
+    device_role: 'incidental', readable_ui: false, screen_is_subject: false },
+];
+
+test('visual validator accepts three anchored distinct photo scenes and builds semantic prompts', () => {
+  const plan = semanticPhotoPlan();
+  assert.deepEqual(validateEditorialVisualPlan(plan), { valid: true, inline_count: 3, incidental_device_count: 1 });
+  const prompts = buildEditorialVisualPrompts(plan);
+  assert.equal(prompts.length, 3);
+  assert.match(prompts[0], /Section: Почему карточка теряет позиции/);
+  assert.match(prompts[0], /Observable action: владелец меняет табличку/);
+  assert.match(prompts[0], /No screenshots/);
+});
+
+test('visual validator rejects a real landing screenshot and a working UI screenshot', () => {
+  for (const visualKind of ['landing_page', 'working_ui']) {
+    const plan = semanticPhotoPlan();
+    plan[0] = { ...plan[0], visual_kind: visualKind, is_screenshot: true };
+    assert.throws(() => validateEditorialVisualPlan(plan), /rejects screenshots and screen captures/);
+  }
+});
+
+test('visual validator rejects missing semantic mapping, screen-as-subject, and repeated screen-gazing set', () => {
+  const missingMapping = semanticPhotoPlan();
+  delete missingMapping[1].section_anchor;
+  assert.throws(() => validateEditorialVisualPlan(missingMapping), /requires section_anchor/);
+
+  const screenSubject = semanticPhotoPlan();
+  screenSubject[1] = { ...screenSubject[1], screen_is_subject: true, device_role: 'primary' };
+  assert.throws(() => validateEditorialVisualPlan(screenSubject), /rejects screen-as-subject/);
+
+  const repeated = semanticPhotoPlan().map((visual, index) => ({ ...visual,
+    section_anchor: `Раздел ${index + 1}`, semantic_role: `Общая роль ${index + 1}`,
+    scene_intent: `человек смотрит в экран ${index + 1}`, observable_action: `смотрит в устройство ${index + 1}`,
+    business_context: `офис ${index + 1}`, composition: `стол с ноутбуком ${index + 1}`,
+    generic_screen_gazing: true, device_role: index === 0 ? 'incidental' : 'none' }));
+  assert.throws(() => validateEditorialVisualPlan(repeated), /rejects generic screen-gazing/);
 });
