@@ -20,6 +20,7 @@ import { applyPublicEditorialIndexationPfPolicy } from '../scripts/apply-public-
 import { applyPublicEditorialSemanticsIndexationCorrection } from '../scripts/apply-public-editorial-semantics-indexation-correction.mjs';
 import { applyPublicEditorialApprovedCoreTargetQueries } from '../scripts/apply-public-editorial-approved-core-target-queries.mjs';
 import { applyPublicEditorialTargetQueryVolumeLadder } from '../scripts/apply-public-editorial-target-query-volume-ladder.mjs';
+import { applyPublicEditorialZonalSemanticsAndGeoGate } from '../scripts/apply-public-editorial-zonal-semantics-and-geo-gate-2026-09-04.mjs';
 import { applyVkPostWritingStandard } from '../scripts/apply-vk-post-writing-standard.mjs';
 import { applyVkPostWritingStandardVolumeLadderAlignment } from '../scripts/apply-vk-post-writing-standard-volume-ladder-alignment.mjs';
 import { applyEditorialPublicationPolicyAndTimewebDraft } from '../scripts/apply-editorial-publication-policy-and-timeweb-draft.mjs';
@@ -1205,6 +1206,35 @@ test('public editorial target-query volume ladder is repeatable and aligns the V
   const exported = exportCurrentContext(databasePath, outputPath, '2026-09-01T00:00:00.000Z').content;
   assert.match(exported, /Количество целевых запросов по объёму публичного материала вне Telegram/);
   assert.match(exported, /несколько документированно смежных кластеров/);
+});
+
+test('zonal semantics revision and geo demand gate are repeatable approved memory', (t) => {
+  const { databasePath, remove } = temporaryDatabase(t);
+  t.after(remove);
+  initializeDatabase(databasePath);
+  applyPublicEditorialTargetQueryVolumeLadder(databasePath);
+
+  const first = applyPublicEditorialZonalSemanticsAndGeoGate(databasePath);
+  const second = applyPublicEditorialZonalSemanticsAndGeoGate(databasePath);
+  assert.deepEqual(first.created, { sources: 1, documents: 1, versions: 1, candidates: 2 });
+  assert.deepEqual(second.created, { sources: 0, documents: 0, versions: 0, candidates: 0 });
+
+  const database = new DatabaseSync(databasePath, { readOnly: true });
+  const ladder = database.prepare("SELECT content,data_json,status FROM memory_candidates WHERE semantic_key='content.public_editorial_target_query_volume_ladder_policy' ORDER BY json_extract(data_json, '$.revision') DESC LIMIT 1").get();
+  const geo = database.prepare("SELECT content,data_json,status FROM memory_candidates WHERE semantic_key='content.geo_demand_gate_automation' ORDER BY json_extract(data_json, '$.revision') DESC LIMIT 1").get();
+  database.close();
+  const ladderData = JSON.parse(ladder.data_json);
+  const geoData = JSON.parse(geo.data_json);
+  assert.equal(ladder.status, 'approved');
+  assert.equal(ladderData.revision, 2);
+  assert.equal(ladderData.semantic_core.keyword_count, 302);
+  assert.deepEqual(ladderData.platforms, ['article_platforms', 'tenchat']);
+  assert.equal(ladderData.automatic_zonal_distribution.lsi.role, 'non_targeted_professional_lexicon');
+  assert.deepEqual(ladderData.automatic_zonal_distribution.lsi.prohibited_zones, ['h1', 'h2']);
+  assert.equal(geo.status, 'approved');
+  assert.equal(geoData.keyword_count, 37);
+  assert.equal(geoData.required_execution_card_flag, 'geo_demand_owner_confirmed');
+  assert.match(geo.content, /fail-closed/);
 });
 
 test('editorial article policy and Timeweb draft are repeatable approved records', (t) => {

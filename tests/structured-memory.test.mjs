@@ -111,11 +111,13 @@ function referenceFixture() {
   const result = fixture();
   const projectDatabasePath = join(result.directory, 'project.sqlite');
   const project = new DatabaseSync(projectDatabasePath);
-  const keywords = Array.from({ length: 141 }, (_, index) => `keyword-${index + 1}`);
+  const keywords = Array.from({ length: 140 }, (_, index) => `keyword-${index + 1}`);
   const launchAndManagement = ['накрутка ПФ Яндекс', 'как запустить накрутку ПФ', 'настройка проекта ПФ'];
   const segments = ['поведенческие факторы для интернет-магазина'];
+  const geoCandidates = ['накрутка пф москва'];
   const content = 'Fixture semantic core with 145 approved non-navigation queries.';
-  const dataJson = JSON.stringify({ taxonomy: { fixture: keywords, launch_and_management: launchAndManagement, segments }, keyword_count: keywords.length + launchAndManagement.length + segments.length });
+  const dataJson = JSON.stringify({ taxonomy: { fixture: keywords, launch_and_management: launchAndManagement, segments,
+    geo_candidates_after_demand_validation: geoCandidates }, keyword_count: keywords.length + launchAndManagement.length + segments.length + geoCandidates.length });
   project.exec(`CREATE TABLE project_storage_metadata (
     singleton INTEGER PRIMARY KEY, project_id TEXT NOT NULL, storage_format INTEGER NOT NULL
   ); CREATE TABLE memory_candidates (
@@ -137,7 +139,7 @@ function referenceFixture() {
   control.prepare('UPDATE scoped_memory_records SET metadata_json=? WHERE semantic_key=?')
     .run(JSON.stringify(metadata), SEMANTIC_CORE_REFERENCE_KEY);
   control.close();
-  return { ...result, projectDatabasePath, keywords, launchAndManagement, segments };
+  return { ...result, projectDatabasePath, keywords, launchAndManagement, segments, geoCandidates };
 }
 
 function addPublicEditorialSemanticCorePolicy(databasePath) {
@@ -182,6 +184,23 @@ function addPublicEditorialTargetQueryVolumeLadderPolicy(databasePath) {
       '10000000-0000-4000-a000-000000000001', '2026-09-01T00:00:00.000Z', '2026-09-01T00:00:00.000Z');
     database.prepare("UPDATE memory_candidates SET status='approved', reviewed_by='owner', reviewed_at='2026-09-01T00:00:00.000Z' WHERE id=?")
       .run('10000000-0000-4000-a000-000000000010');
+  } finally { database.close(); }
+}
+
+function addGeoDemandGatePolicy(databasePath) {
+  const database = new DatabaseSync(databasePath);
+  try {
+    database.prepare(`INSERT INTO memory_candidates
+      (id,type,semantic_key,title,content,data_json,status,source_id,author,created_at,updated_at,version)
+      VALUES (?,'editorial_rule','content.geo_demand_gate_automation',?,?,?,'pending',?,'owner',?,?,1)`).run(
+      '10000000-0000-4000-a000-000000000011', 'Owner-gate геосемантики для статей вне Telegram',
+      'Геозапросы разрешены только в H2 статьи после явного подтверждения спроса владельцем в execution card.',
+      JSON.stringify({ platforms: ['article_platforms', 'tenchat'], excluded_platforms: ['telegram', 'vk'],
+        cluster: 'geo_candidates_after_demand_validation', keyword_count: 37,
+        required_execution_card_flag: 'geo_demand_owner_confirmed' }),
+      '10000000-0000-4000-a000-000000000001', '2026-09-04T00:00:00.000Z', '2026-09-04T00:00:00.000Z');
+    database.prepare("UPDATE memory_candidates SET status='approved', reviewed_by='owner', reviewed_at='2026-09-04T00:00:00.000Z' WHERE id=?")
+      .run('10000000-0000-4000-a000-000000000011');
   } finally { database.close(); }
 }
 
@@ -248,6 +267,13 @@ function publicEditorialSemanticQaWithVolumeLadder(semantics, characterCount, co
       required_maximum: band?.[3] ?? null, count_rationale: countRationale,
       all_secondary_target_queries_natural_in_body: true, keyword_stuffing: false,
     } });
+  return contentQa;
+}
+
+function articleEditorialSemanticQaWithVolumeLadder(semantics, characterCount, countRationale = null) {
+  const contentQa = publicEditorialSemanticQaWithVolumeLadder(semantics, characterCount, countRationale);
+  const articleCheckIds = new Set(['landing_link_distribution', 'originality_source_overlap', 'h1_high_frequency_query']);
+  contentQa.checks.push(...tenChatContentQa().checks.filter((check) => articleCheckIds.has(check.id)));
   return contentQa;
 }
 
@@ -810,14 +836,15 @@ test('VK writing standard is isolated and validates target plus both justified e
   } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });
 
-test('non-Telegram target-query volume ladder is fail-closed and Telegram remains exempt', () => {
+test('article target-query volume ladder and geo owner-gate are fail-closed while VK and Telegram remain exempt', () => {
   const { directory, databasePath, projectDatabasePath } = referenceFixture();
   try {
     addPublicEditorialSemanticCorePolicy(databasePath);
     addPublicEditorialIndexationPfTargetPolicy(databasePath);
     addPublicEditorialTargetQueryVolumeLadderPolicy(databasePath);
+    addGeoDemandGatePolicy(databasePath);
     const baseBrief = {
-      result: 'Проверенный нетелеграмный материал', scope: ['work/social/vk'],
+      result: 'Проверенная статья', scope: ['work/articles/draft.md'],
       firstCheck: 'node --test tests/structured-memory.test.mjs', acceptance: ['volume_ladder_ready'],
       forbiddenChanges: ['publication'],
     };
@@ -826,35 +853,52 @@ test('non-Telegram target-query volume ladder is fail-closed and Telegram remain
       adjacentClusterRationale: 'Кластеры смежны для одного интента: управляемый запуск продвижения товарной категории.',
       primaryTargetQuery: 'накрутка ПФ Яндекс',
       secondaryTargetQueries: ['как запустить накрутку ПФ', 'настройка проекта ПФ', 'поведенческие факторы для интернет-магазина', 'keyword-1', 'keyword-2', 'keyword-3', 'keyword-4'],
-      userIntent: 'спланировать запуск продвижения товарной категории', platform: 'VK', format: 'social_post',
+      userIntent: 'спланировать запуск продвижения товарной категории', platform: 'Article platform', format: 'article',
     };
     const indexation = { seoIndexationObjective: 'Индексация Яндекса по выбранным запросам' };
     const delivery = { result: 'Материал проверен', checks: [baseBrief.firstCheck],
       satisfiedAcceptance: baseBrief.acceptance, scopeCompliance: true, forbiddenChangesObserved: [] };
-    const compiled = compileContextPack(databasePath, { text: 'Подготовь пост VK с семантикой по объёму', projectDatabasePath,
+    const compiled = compileContextPack(databasePath, { text: 'Подготовь статью с семантикой по объёму', projectDatabasePath,
       taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
     const card = compiled.pack.payload.execution_card;
     assert.ok(card.mandatory_rules.some((item) => item.semantic_key === 'content.public_editorial_target_query_volume_ladder_policy'));
     assert.ok(card.delivery_qa.checks.some((item) => item.id === 'target_query_volume_ladder'));
     assert.equal(closeContextPack(databasePath, compiled.pack.id, { ...delivery,
-      contentQa: publicEditorialSemanticQaWithVolumeLadder(semantics, 2200) }).status, 'closed');
+      contentQa: articleEditorialSemanticQaWithVolumeLadder(semantics, 2200) }).status, 'closed');
 
-    const missingRationale = compileContextPack(databasePath, { text: 'Подготовь короткий пост VK с семантикой по объёму', projectDatabasePath,
+    const missingRationale = compileContextPack(databasePath, { text: 'Подготовь короткую статью с семантикой по объёму', projectDatabasePath,
       taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
     assert.throws(() => closeContextPack(databasePath, missingRationale.pack.id, { ...delivery,
-      contentQa: publicEditorialSemanticQaWithVolumeLadder(semantics, 1600) }), /target_query_volume_ladder/);
+      contentQa: articleEditorialSemanticQaWithVolumeLadder(semantics, 1600) }), /target_query_volume_ladder/);
 
-    const shortWithRationale = compileContextPack(databasePath, { text: 'Подготовь короткий пост VK с обоснованием семантики', projectDatabasePath,
+    const shortWithRationale = compileContextPack(databasePath, { text: 'Подготовь короткую статью с обоснованием семантики', projectDatabasePath,
       taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
     assert.equal(closeContextPack(databasePath, shortWithRationale.pack.id, { ...delivery,
-      contentQa: publicEditorialSemanticQaWithVolumeLadder(semantics, 1600, 'Короткий формат полностью решает один интент; число точных запросов сохранено для связанной темы.') }).status, 'closed');
+      contentQa: articleEditorialSemanticQaWithVolumeLadder(semantics, 1600, 'Короткий формат полностью решает один интент; число точных запросов сохранено для связанной темы.') }).status, 'closed');
 
     const tooFewQueries = { ...semantics, secondaryTargetQueries: semantics.secondaryTargetQueries.slice(0, 4) };
-    const badCount = compileContextPack(databasePath, { text: 'Подготовь пост VK с недостаточным числом точных запросов', projectDatabasePath,
+    const badCount = compileContextPack(databasePath, { text: 'Подготовь статью с недостаточным числом точных запросов', projectDatabasePath,
       taskBrief: { ...baseBrief, editorialSemantics: tooFewQueries, editorialIndexation: indexation } });
     assert.throws(() => closeContextPack(databasePath, badCount.pack.id, { ...delivery,
-      contentQa: publicEditorialSemanticQaWithVolumeLadder(tooFewQueries, 2200) }), /target_query_volume_ladder/);
+      contentQa: articleEditorialSemanticQaWithVolumeLadder(tooFewQueries, 2200) }), /target_query_volume_ladder/);
 
+    const geoSemantics = { ...semantics,
+      selectedClusters: [...semantics.selectedClusters, 'geo_candidates_after_demand_validation'],
+      secondaryTargetQueries: [...semantics.secondaryTargetQueries.slice(0, 6), 'накрутка пф москва'],
+    };
+    assert.throws(() => compileContextPack(databasePath, { text: 'Подготовь статью с подтверждаемой геосемантикой', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: geoSemantics, editorialIndexation: indexation } }),
+    /editorial_semantics.geo_demand_owner_confirmed/);
+    const confirmedGeo = compileContextPack(databasePath, { text: 'Подготовь статью с подтверждённой геосемантикой', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: { ...geoSemantics, geoDemandOwnerConfirmed: true }, editorialIndexation: indexation } });
+    assert.equal(confirmedGeo.pack.payload.execution_card.editorial_semantics.geo_demand_owner_confirmed, true);
+
+    const vk = compileContextPack(databasePath, { text: 'Подготовь пост VK', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: { ...semantics, platform: 'VK', format: 'social_post' }, editorialIndexation: indexation } });
+    assert.equal(vk.pack.payload.execution_card.mandatory_rules
+      .some((item) => item.semantic_key === 'content.public_editorial_target_query_volume_ladder_policy'), false);
+    assert.equal(vk.pack.payload.execution_card.mandatory_rules
+      .some((item) => item.semantic_key === 'content.geo_demand_gate_automation'), false);
     const telegram = compileContextPack(databasePath, { text: 'Подготовь пост Telegram', projectDatabasePath, taskBrief: baseBrief });
     assert.equal(telegram.pack.payload.execution_card.mandatory_rules
       .some((item) => item.semantic_key === 'content.public_editorial_target_query_volume_ladder_policy'), false);

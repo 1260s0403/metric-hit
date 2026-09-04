@@ -217,6 +217,7 @@ function hasTable(database, name) {
 const REQUIRED_EDITORIAL_RULES = Object.freeze({
   semanticCore: 'content.public_editorial_semantic_core_policy',
   targetQueryVolumeLadder: 'content.public_editorial_target_query_volume_ladder_policy',
+  geoDemandGate: 'content.geo_demand_gate_automation',
   indexationPfTarget: 'content.public_editorial_yandex_indexation_pf_target_policy',
   vkPostWritingStandard: 'editorial.vk_post_writing_standard',
   article: 'content.editorial_article_preparation_policy',
@@ -233,7 +234,8 @@ function editorialRequirementApplies(candidate, signals) {
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.article) return isArticle;
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.tenchat) return isTenChat;
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore) return !isTelegram;
-  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.targetQueryVolumeLadder) return !isTelegram;
+  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.targetQueryVolumeLadder) return !isTelegram && (isArticle || isTenChat);
+  if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.geoDemandGate) return !isTelegram && (isArticle || isTenChat);
   if (candidate.semantic_key === REQUIRED_EDITORIAL_RULES.indexationPfTarget) return !isTelegram;
   if (data.channel) return signals.includes(String(data.channel).toLocaleLowerCase('ru-RU'));
   if (data.platform) return signals.includes(String(data.platform).toLocaleLowerCase('ru-RU'));
@@ -350,6 +352,13 @@ function editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy = nu
   }
   if (targetQueries.some((query) => !selectedClusterQueries.includes(query))) {
     throw new Error('execution card is incomplete: editorial_semantics.target_query_not_in_selected_approved_core_clusters');
+  }
+  if (rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.geoDemandGate)
+    && semanticContext.selected_clusters.includes('geo_candidates_after_demand_validation')) {
+    if (source.geoDemandOwnerConfirmed !== true) {
+      throw new Error('execution card is incomplete: editorial_semantics.geo_demand_owner_confirmed');
+    }
+    semanticContext.geo_demand_owner_confirmed = true;
   }
   return semanticContext;
 }
