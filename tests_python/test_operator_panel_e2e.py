@@ -106,6 +106,14 @@ def publication_panel(tmp_path: Path) -> str:
     editorial.transition_material(material_id=material["id"], to_stage="draft", actor="editor", content_ref="work/article.md")
     editorial.transition_material(material_id=material["id"], to_stage="review", actor="editor", review_requested_by="owner")
     editorial.record_publication(idempotency_key="panel-publication", material_id=material["id"], platform="Oborot", published_at="2026-09-03T10:00:00Z", url="https://example.test/article")
+    editorial.remember(
+        semantic_key="publication.semantics.panel-test",
+        category="platform",
+        title="Семантика публикации",
+        content="первый ключ\nвторой ключ",
+        source_ref="https://example.test/article",
+        direction="articles",
+    )
     port = _free_port()
     process = subprocess.Popen([sys.executable, "-m", "metrichit_os", "operator-panel", "--db", str(database), "--port", str(port)], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
     deadline = time.monotonic() + 10
@@ -898,6 +906,7 @@ def test_editorial_panel_shows_only_recorded_publications(browser: Browser, publ
         "platform": "Oborot", "count": 1, "publications": [{
             "title": "Статья для панели", "published_at": "2026-09-03T10:00:00Z",
             "url": "https://example.test/article", "status": "Ссылка проверена",
+            "semantics": ["первый ключ", "второй ключ"],
         }],
     }]
     page.get_by_test_id("tab-editorial").click()
@@ -909,6 +918,14 @@ def test_editorial_panel_shows_only_recorded_publications(browser: Browser, publ
     expect(page.locator(".editorial-post-row")).to_contain_text("03.09.2026 · Ссылка проверена")
     expect(page.locator(".editorial-short-url")).to_have_attribute("href", "https://example.test/article")
     expect(page.locator(".editorial-stat-value").first).to_have_text("1")
+    page.get_by_test_id("editorial-semantic-published-0").click()
+    expect(page.get_by_test_id("editorial-semantic-list").locator("li")).to_have_text(["первый ключ", "второй ключ"])
+    page.evaluate("navigator.clipboard.writeText = async value => { window.__copiedSemantics = value }")
+    page.get_by_test_id("editorial-copy-all").click()
+    expect(page.get_by_test_id("editorial-copy-status")).to_have_text("Скопировано")
+    assert page.evaluate("window.__copiedSemantics") == "первый ключ\nвторой ключ"
+    page.keyboard.press("Escape")
+    expect(page.get_by_test_id("editorial-pf-0")).not_to_be_checked()
     page.screenshot(path=str(tmp_path / "editorial-publication-projection.png"), full_page=True)
     assert not errors
     page.close()

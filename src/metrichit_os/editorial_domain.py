@@ -524,7 +524,11 @@ class EditorialStore:
         try:
             with read_only_database(self.path) as connection:
                 rows = [dict(row) for row in connection.execute(
-                    "SELECT p.platform,m.title,p.published_at,p.url,p.confirmation_kind "
+                    "SELECT p.platform,m.title,p.published_at,p.url,p.confirmation_kind,"
+                    "coalesce((SELECT em.content FROM editorial_memory em "
+                    "WHERE em.status='active' AND em.category='platform' "
+                    "AND em.semantic_key GLOB 'publication.semantics.*' AND em.source_ref=p.url "
+                    "ORDER BY em.updated_at DESC,em.id DESC LIMIT 1),'') AS semantics "
                     "FROM editorial_publications p JOIN editorial_materials m ON m.id=p.material_id "
                     "WHERE p.status='published' ORDER BY p.published_at DESC,p.created_at DESC"
                 )]
@@ -539,6 +543,7 @@ class EditorialStore:
                     "Ссылка проверена" if row["confirmation_kind"] == "verified_url"
                     else "Подтверждено владельцем"
                 ),
+                "semantics": str(row["semantics"] or "").splitlines(),
             })
         return {
             "total": len(rows),

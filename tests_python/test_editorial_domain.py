@@ -374,10 +374,19 @@ def test_cli_records_owner_confirmed_publication(tmp_path: Path, capsys) -> None
     ]) == 0
     publication = json.loads(capsys.readouterr().out)
     assert publication["confirmation_kind"] == "verified_url"
+    store.remember(
+        semantic_key="publication.semantics.panel-test",
+        category="platform",
+        title="Семантика публикации",
+        content="первый ключ\nвторой ключ",
+        source_ref="https://example.test/article",
+        direction="articles",
+    )
     projection = store.publications_projection()
     assert projection["platforms"][0]["publications"][0] == {
         "title": "Статья для панели", "published_at": "2026-09-03T10:00:00Z",
         "url": "https://example.test/article", "status": "Ссылка проверена",
+        "semantics": ["первый ключ", "второй ключ"],
     }
 
 
