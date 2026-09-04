@@ -65,7 +65,7 @@ def test_migration_is_project_local_seeded_and_idempotent(tmp_path: Path) -> Non
     before = initialize_editorial_domain(database)
     second = initialize_editorial_domain(database)
 
-    assert before["applied_now"] == [1, 2, 3, 4, 5, 6]
+    assert before["applied_now"] == [1, 2, 3, 4, 5, 6, 7]
     assert second["applied_now"] == []
     assert second["counts"]["memory"] == expected_seed_count
     assert check_editorial_domain(database)["integrity"] == "ok"
@@ -73,7 +73,27 @@ def test_migration_is_project_local_seeded_and_idempotent(tmp_path: Path) -> Non
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
         assert connection.execute(
             "SELECT count(*) FROM editorial_schema_migrations"
-        ).fetchone()[0] == 6
+        ).fetchone()[0] == 7
+        profiles = connection.execute(
+            "SELECT profile_id,stage_order,capability,profile_kind,execution_mode,policy_json "
+            "FROM editorial_agent_profiles ORDER BY stage_order"
+        ).fetchall()
+        assert [(row[0], row[1], row[2], row[3]) for row in profiles] == [
+            ("metrichit.editorial.planner.v1", 1, "content-strategy", "subagent"),
+            ("metrichit.editorial.architect.v1", 2, "seo-strategy", "subagent"),
+            ("metrichit.editorial.writer.v1", 3, "copywriting", "subagent"),
+            ("metrichit.editorial.designer.v1", 4, "image", "subagent"),
+            ("metrichit.editorial.validator.v1", 5, "compliance-qa", "internal_filter"),
+        ]
+        for row in profiles:
+            policy = json.loads(row[5])
+            assert row[4] == "isolated_sequential"
+            assert policy["semantic_core"]["keyword_count"] == 302
+            assert policy["zonal_distribution"]["applies_only_to"] == ["new_articles", "new_longreads"]
+            assert policy["zonal_distribution"]["lsi"]["allowed_zones"] == ["h3", "unordered_lists"]
+            assert policy["zonal_distribution"]["lsi"]["role"] == "non_targeted_professional_lexicon"
+            assert policy["geo_gate"]["keyword_count"] == 37
+            assert policy["geo_gate"]["required_execution_card_flag"] == "geo_demand_owner_confirmed"
         assert connection.execute(
             "SELECT count(*) FROM editorial_memory WHERE status='archived'"
         ).fetchone()[0] == expected_archived_count

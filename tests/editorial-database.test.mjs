@@ -8,11 +8,10 @@ import { fileURLToPath } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 
 import { checkEditorialDatabase, requiredTables } from '../scripts/check-editorial.mjs';
-import { initializeEditorialDatabase, migrationsFrom } from '../scripts/init-editorial.mjs';
+import { initializeEditorialDatabase, migrationsFrom, updateEditorialInfrastructure } from '../scripts/init-editorial.mjs';
+import { initializeDatabase as initializeMemoryDatabase } from '../scripts/init-memory.mjs';
 
 const repositoryRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const memoryDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
-const historicalMaterialPath = join(repositoryRoot, 'work', 'landing', 'index.html');
 const migrationsPath = join(repositoryRoot, 'data', 'editorial', 'migrations');
 const pendingMigrationsPath = join(repositoryRoot, 'data', 'editorial', 'pending-migrations');
 const hash = (path) => createHash('sha256').update(readFileSync(path)).digest('hex');
@@ -23,6 +22,23 @@ function temporaryEditorialDatabase(t) {
   const directory = mkdtempSync(join(tmpdir(), 'metrichit-editorial-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   return { directory, databasePath: join(directory, 'editorial.sqlite') };
+}
+
+function temporaryProjectDatabase(t) {
+  const directory = mkdtempSync(join(tmpdir(), 'metrichit-editorial-project-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const databasePath = join(directory, 'project.sqlite');
+  initializeMemoryDatabase(databasePath);
+  const database = new DatabaseSync(databasePath);
+  database.exec(`CREATE TABLE project_storage_metadata (
+    singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+    project_id TEXT NOT NULL,
+    storage_format INTEGER NOT NULL
+  ) STRICT;`);
+  database.prepare('INSERT INTO project_storage_metadata VALUES (1,?,1)')
+    .run('00000000-0000-4000-a000-000000000102');
+  database.close();
+  return { directory, databasePath };
 }
 
 test('absent editorial database is an explicit paused state', (t) => {
@@ -60,6 +76,32 @@ test('editorial database initializes repeatably with the required schema', (t) =
   writable.exec('COMMIT');
   writable.close();
   assert.equal(checkEditorialDatabase(databasePath).migrations, 2);
+});
+
+test('update-infrastructure mode registers the five-profile sequential project pipeline idempotently', (t) => {
+  const { databasePath } = temporaryProjectDatabase(t);
+  const first = updateEditorialInfrastructure(databasePath);
+  const second = updateEditorialInfrastructure(databasePath);
+  assert.deepEqual(first.appliedNow, [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(second.appliedNow, []);
+  assert.equal(second.pipelineId, 'metrichit.editorial.pipeline.v1');
+  assert.deepEqual(second.profiles.map(({ profile_id, stage_order, capability, profile_kind }) =>
+    [profile_id, stage_order, capability, profile_kind]), [
+    ['metrichit.editorial.planner.v1', 1, 'content-strategy', 'subagent'],
+    ['metrichit.editorial.architect.v1', 2, 'seo-strategy', 'subagent'],
+    ['metrichit.editorial.writer.v1', 3, 'copywriting', 'subagent'],
+    ['metrichit.editorial.designer.v1', 4, 'image', 'subagent'],
+    ['metrichit.editorial.validator.v1', 5, 'compliance-qa', 'internal_filter'],
+  ]);
+  for (const profile of second.profiles) {
+    const policy = JSON.parse(profile.policy_json);
+    assert.equal(policy.semantic_core.keyword_count, 302);
+    assert.deepEqual(policy.zonal_distribution.applies_only_to, ['new_articles', 'new_longreads']);
+    assert.deepEqual(policy.zonal_distribution.lsi.allowed_zones, ['h3', 'unordered_lists']);
+    assert.equal(policy.zonal_distribution.lsi.role, 'non_targeted_professional_lexicon');
+    assert.equal(policy.geo_gate.keyword_count, 37);
+    assert.equal(policy.geo_gate.required_execution_card_flag, 'geo_demand_owner_confirmed');
+  }
 });
 
 test('editorial status, foreign-key, path, and hash constraints are enforced', (t) => {
@@ -125,7 +167,11 @@ test('editorial checker rejects a modified protective audit trigger', (t) => {
 });
 
 test('temporary editorial work leaves memory and historical materials unchanged', (t) => {
-  const { databasePath } = temporaryEditorialDatabase(t);
+  const { directory, databasePath } = temporaryEditorialDatabase(t);
+  const memoryDatabasePath = join(directory, 'memory.sqlite');
+  const historicalMaterialPath = join(directory, 'historical-material.html');
+  writeFileSync(memoryDatabasePath, 'approved-memory-sentinel', 'utf8');
+  writeFileSync(historicalMaterialPath, '<p>historical material sentinel</p>', 'utf8');
   const memoryBefore = hash(memoryDatabasePath);
   const materialBefore = hash(historicalMaterialPath);
   initializeEditorialDatabase(databasePath);

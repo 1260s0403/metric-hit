@@ -13,6 +13,7 @@ from .project_storage import canonical_project_id
 
 
 EDITORIAL_TABLES = {
+    "editorial_agent_profiles",
     "editorial_schema_migrations",
     "editorial_memory",
     "editorial_topics",
@@ -23,6 +24,10 @@ EDITORIAL_TABLES = {
 }
 
 EDITORIAL_SCHEMA_OBJECTS = frozenset({
+    "editorial_agent_profiles",
+    "editorial_agent_profiles_pipeline_idx",
+    "editorial_agent_profiles_prevent_delete",
+    "editorial_agent_profiles_prevent_update",
     "editorial_material_direction_validate_insert",
     "editorial_material_direction_validate_update",
     "editorial_material_parent_protect_update",
@@ -179,7 +184,11 @@ def check_editorial_domain(
             and editorial_objects != EDITORIAL_SCHEMA_OBJECTS
         ):
             raise EditorialDomainError("editorial project schema inventory is invalid")
-        required_tables = EDITORIAL_TABLES if len(migrations) >= 5 else EDITORIAL_TABLES - {"editorial_status_audit"}
+        required_tables = set(EDITORIAL_TABLES)
+        if len(migrations) < 5:
+            required_tables.remove("editorial_status_audit")
+        if len(migrations) < 7:
+            required_tables.remove("editorial_agent_profiles")
         if not required_tables <= tables:
             raise EditorialDomainError("editorial project schema is incomplete")
         applied = [
