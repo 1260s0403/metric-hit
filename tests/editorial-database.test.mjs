@@ -104,6 +104,15 @@ test('update-infrastructure mode registers the five-profile sequential project p
   }
 });
 
+test('hotfix mode applies the empty-topic directive to each isolated profile', (t) => {
+  const { databasePath } = temporaryProjectDatabase(t);
+  const result = updateEditorialInfrastructure(databasePath, { hotfix: true });
+  assert.equal(result.profiles.length, 5);
+  assert.ok(result.profiles.every((profile) => profile.hotfix?.id === 'editorial.empty_topic.autoplanning.v1'));
+  assert.equal(result.profiles.find((profile) => profile.profile_id === 'metrichit.editorial.planner.v1').hotfix.planner_execution_required, true);
+  assert.equal(result.profiles.filter((profile) => profile.profile_id !== 'metrichit.editorial.planner.v1').every((profile) => profile.hotfix.downstream_input === 'consume_owner_approved_structure_only'), true);
+});
+
 test('editorial status, foreign-key, path, and hash constraints are enforced', (t) => {
   const { databasePath } = temporaryEditorialDatabase(t);
   initializeEditorialDatabase(databasePath);

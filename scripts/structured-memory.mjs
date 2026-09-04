@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
@@ -37,6 +37,15 @@ const EDITORIAL_PIPELINE_STAGES = Object.freeze([
   ['metrichit.editorial.validator.v1', 'validator', 'compliance-qa'],
 ]);
 const ARTICLE_PIPELINE_TRIGGER = /^напиши\s+новую\s+статью\s+для\s+(.+?)\s*[.!?]?$/iu;
+const EMPTY_TOPIC_AUTOPLANNING_HOTFIX = Object.freeze({
+  id: 'editorial.empty_topic.autoplanning.v1',
+  owner_question: 'prohibited',
+  profiles: Object.freeze([
+    'metrichit.editorial.planner.v1', 'metrichit.editorial.architect.v1',
+    'metrichit.editorial.writer.v1', 'metrichit.editorial.designer.v1',
+    'metrichit.editorial.validator.v1',
+  ]),
+});
 const ARTICLE_PLATFORM_MATRIX = Object.freeze([
   { id: 'telegram', name: 'Telegram', aliases: ['telegram', 'телеграм', 'тг'], contour: 'work/social/telegram', mode: 'automatic' },
   { id: 'vk', name: 'VK', aliases: ['vk', 'вк', 'вконтакте'], contour: 'work/social/vk', mode: 'draft-only' },
@@ -105,7 +114,90 @@ function loadEditorialPipeline(projectDatabasePath) {
         order: row.stage_order, profile_id: row.profile_id, stage: row.stage_name,
         capability: row.capability, profile_kind: row.profile_kind, isolation_key: row.isolation_key,
         policy: parseJson(row.policy_json, null),
+        hotfix: {
+          ...EMPTY_TOPIC_AUTOPLANNING_HOTFIX,
+          planner_execution_required: row.profile_id === 'metrichit.editorial.planner.v1',
+          downstream_input: row.profile_id === 'metrichit.editorial.planner.v1'
+            ? 'produce_three_structures'
+            : 'consume_owner_approved_structure_only',
+        },
       })),
+    };
+  } finally { database.close(); }
+}
+
+function normalizeOverlapText(value) {
+  return String(value ?? '').toLocaleLowerCase('ru-RU').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
+}
+
+function publishedArchiveText() {
+  const archiveRoot = join(repositoryRoot, 'work', 'articles', 'published');
+  if (!existsSync(archiveRoot) || !statSync(archiveRoot).isDirectory()) return { error: 'published_archive_unavailable', files: 0, text: '' };
+  const files = [];
+  const collect = (directory) => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) collect(path);
+      else if (entry.isFile() && /\.(?:md|txt|html?)$/iu.test(entry.name)) files.push(path);
+    }
+  };
+  collect(archiveRoot);
+  return { files: files.length, text: normalizeOverlapText(files.map((path) => readFileSync(path, 'utf8')).join(' ')) };
+}
+
+function approvedSemanticCore302(database) {
+  const rows = database.prepare(`SELECT data_json,reviewed_at,id FROM memory_candidates
+    WHERE semantic_key='content.metrichit_semantic_core' AND status='approved'
+    ORDER BY reviewed_at DESC,id DESC`).all();
+  return rows.map((row) => ({ id: row.id, core: parseJson(row.data_json, null) }))
+    .filter(({ core }) => core?.keyword_count === 302 && core?.project_id === METRICHIT_PROJECT_ID
+      && core?.taxonomy && typeof core.taxonomy === 'object');
+}
+
+function freeHfMarkers(taxonomy, archiveText) {
+  const markers = [];
+  for (const [cluster, queries] of Object.entries(taxonomy)) {
+    if (cluster === 'geo_candidates_after_demand_validation' || !Array.isArray(queries)) continue;
+    for (const query of queries) {
+      const marker = nonEmptyText(query);
+      const words = marker?.split(/\s+/u).length ?? 0;
+      if (words < 2 || words > 3 || archiveText.includes(normalizeOverlapText(marker))) continue;
+      markers.push({ cluster, marker });
+    }
+  }
+  return markers;
+}
+
+function threeReadyStructures(marker) {
+  return [
+    { number: 1, title: `Практическое руководство: ${marker}`, sections: ['Что проверяют до старта', 'Как связать цель, страницу и метрики', 'Контрольный список решений', 'Вывод и следующий шаг'] },
+    { number: 2, title: `Как выбрать подход к теме «${marker}»`, sections: ['Когда задача возникает', 'Критерии сравнения вариантов', 'Типичные ошибки планирования', 'Как зафиксировать результат'] },
+    { number: 3, title: `Диагностика и план действий: ${marker}`, sections: ['Исходные признаки', 'Приоритеты проверки', 'План на ближайший цикл', 'Как оценить изменения без неподтверждённых обещаний'] },
+  ];
+}
+
+function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
+  const database = open(resolve(projectDatabasePath), true);
+  try {
+    const archive = publishedArchiveText();
+    const cores = approvedSemanticCore302(database);
+    const candidates = [...new Map(cores.flatMap(({ core }) => freeHfMarkers(core.taxonomy, archive.text))
+      .map((item) => [item.marker.toLocaleLowerCase('ru-RU'), item])).values()];
+    const systemError = (reason) => ({ code: 'E_AMBIGUOUS_TOPIC', reason,
+      available_hf_markers: candidates.slice(0, 3).map((item) => item.marker) });
+    if (archive.error || cores.length !== 1 || candidates.length < 3) {
+      return { hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id, executor_profile: 'metrichit.editorial.planner.v1',
+        status: 'blocked', background_mode: true, owner_question: 'prohibited',
+        published_archive_overlap: { scanned: !archive.error, archive_files: archive.files, selected_marker_overlaps: null },
+        system_error: systemError(archive.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'fewer_than_three_free_hf_markers')) };
+    }
+    const selection = candidates[0];
+    return {
+      hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id,
+      executor_profile: 'metrichit.editorial.planner.v1', status: 'ready', background_mode: true,
+      owner_question: 'prohibited', published_archive_overlap: { scanned: true, archive_files: archive.files, selected_marker_overlaps: false },
+      selected_priority_hf_marker: selection.marker, selected_cluster: selection.cluster,
+      structure_options: threeReadyStructures(selection.marker),
     };
   } finally { database.close(); }
 }
@@ -874,7 +966,13 @@ export function compileDeterministicContext(database, {
   const pipelineTrigger = resolvedRoute.signals.includes('article_pipeline_trigger');
   const semanticCoreTaxonomy = !pipelineTrigger && rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore)
     ? approvedSemanticCoreTaxonomy(projectDatabasePath, referenceRecords) : null;
-  const editorialPipeline = pipelineTrigger ? loadEditorialPipeline(projectDatabasePath) : null;
+  const emptyTopicPlannerAssignment = pipelineTrigger
+    ? automaticEmptyTopicPlannerAssignment(projectDatabasePath, resolvedRoute.platform) : null;
+  const editorialPipeline = pipelineTrigger ? {
+    ...loadEditorialPipeline(projectDatabasePath),
+    launch_directive: emptyTopicPlannerAssignment.status === 'blocked' ? 'blocked' : 'start',
+    empty_topic_planner_assignment: emptyTopicPlannerAssignment,
+  } : null;
   const executionCard = buildExecutionCard(taskBrief, resolvedRoute, rules, semanticCoreTaxonomy, editorialPipeline);
   const payload = {
     schema_version: 4,

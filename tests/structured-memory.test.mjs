@@ -111,23 +111,24 @@ function referenceFixture() {
   const result = fixture();
   const projectDatabasePath = join(result.directory, 'project.sqlite');
   const project = new DatabaseSync(projectDatabasePath);
-  const keywords = Array.from({ length: 140 }, (_, index) => `keyword-${index + 1}`);
-  const launchAndManagement = ['накрутка ПФ Яндекс', 'как запустить накрутку ПФ', 'настройка проекта ПФ'];
+  const keywords = Array.from({ length: 295 }, (_, index) => `keyword-${index + 1}`);
+  const launchAndManagement = ['накрутка ПФ Яндекс', 'как запустить накрутку ПФ', 'настройка проекта ПФ', 'как выбрать запросы ПФ', 'ПФ для сайта'];
   const segments = ['поведенческие факторы для интернет-магазина'];
   const geoCandidates = ['накрутка пф москва'];
-  const content = 'Fixture semantic core with 145 approved non-navigation queries.';
+  const content = 'Fixture semantic core with 302 approved non-navigation queries.';
   const dataJson = JSON.stringify({ taxonomy: { fixture: keywords, launch_and_management: launchAndManagement, segments,
-    geo_candidates_after_demand_validation: geoCandidates }, keyword_count: keywords.length + launchAndManagement.length + segments.length + geoCandidates.length });
+    geo_candidates_after_demand_validation: geoCandidates }, project_id: '00000000-0000-4000-a000-000000000102',
+  keyword_count: keywords.length + launchAndManagement.length + segments.length + geoCandidates.length });
   project.exec(`CREATE TABLE project_storage_metadata (
     singleton INTEGER PRIMARY KEY, project_id TEXT NOT NULL, storage_format INTEGER NOT NULL
   ); CREATE TABLE memory_candidates (
     id TEXT PRIMARY KEY, semantic_key TEXT NOT NULL, title TEXT NOT NULL, content TEXT,
-    data_json TEXT, status TEXT NOT NULL
+    data_json TEXT, status TEXT NOT NULL, reviewed_at TEXT
   );`);
   project.prepare('INSERT INTO project_storage_metadata VALUES (1,?,1)').run('00000000-0000-4000-a000-000000000102');
-  project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status)
-    VALUES (?,?,?,?,?,'approved')`).run('fixture-semantic-core', 'content.metrichit_semantic_core',
-      'Fixture semantic core', content, dataJson);
+  project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status,reviewed_at)
+    VALUES (?,?,?,?,?,'approved',?)`).run('fixture-semantic-core', 'content.metrichit_semantic_core',
+      'Fixture semantic core', content, dataJson, '2026-09-04T00:00:00.000Z');
   project.exec(readFileSync(resolve('data/project-migrations/editorial/007_editorial_agent_pipeline.sql'), 'utf8'));
   project.close();
 
@@ -135,12 +136,13 @@ function referenceFixture() {
   const pointer = control.prepare('SELECT metadata_json FROM scoped_memory_records WHERE semantic_key=?').get(SEMANTIC_CORE_REFERENCE_KEY);
   const metadata = JSON.parse(pointer.metadata_json);
   metadata.candidate_id = 'fixture-semantic-core';
+  metadata.keyword_count = 302;
   metadata.content_sha256 = createHash('sha256').update(content).digest('hex');
   metadata.data_json_sha256 = createHash('sha256').update(dataJson).digest('hex');
   control.prepare('UPDATE scoped_memory_records SET metadata_json=? WHERE semantic_key=?')
     .run(JSON.stringify(metadata), SEMANTIC_CORE_REFERENCE_KEY);
   control.close();
-  return { ...result, projectDatabasePath, keywords, launchAndManagement, segments, geoCandidates };
+  return { ...result, projectDatabasePath, keywords, launchAndManagement, segments, geoCandidates, dataJson };
 }
 
 function addPublicEditorialSemanticCorePolicy(databasePath) {
@@ -340,7 +342,7 @@ test('P0/P1: canonical contract, passports and fail-closed ownership are present
     const taskDb = new DatabaseSync(databasePath, { readOnly: true });
     assert.deepEqual(scopeNames(taskDb, task.id), ['Ядро', 'MetricHit', 'Редакция', 'Fixture task']);
     taskDb.close();
-  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
+  } finally { rmSync(directory, { recursive: true, force: true, maxRetries: 15, retryDelay: 100 }); }
 });
 
 test('P2: inheritance is deterministic, core prohibition is sticky, superseded and sibling memory do not leak', () => {
@@ -415,8 +417,27 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
       'metrichit.editorial.validator.v1',
     ]);
     assert.ok(card.editorial_pipeline.stages.every((stage) => stage.policy.semantic_core.keyword_count === 302));
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.executor_profile, 'metrichit.editorial.planner.v1');
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.status, 'ready');
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.owner_question, 'prohibited');
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.published_archive_overlap.scanned, true);
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.length, 3);
+    assert.ok(card.editorial_pipeline.stages.every((stage) => stage.hotfix.id === 'editorial.empty_topic.autoplanning.v1'));
     assert.equal(card.editorial_semantics, null);
     assert.equal(card.delivery_qa, null);
+
+    const project = new DatabaseSync(projectDatabasePath);
+    project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status,reviewed_at)
+      VALUES (?,'content.metrichit_semantic_core','Conflicting core','Fixture conflict',?,'approved',?)`)
+      .run('fixture-semantic-core-conflict', dataJson, '2026-09-05T00:00:00.000Z');
+    project.close();
+    const blocked = compileContextPack(databasePath, { text: 'Напиши новую статью для Sostav/SBlogs', projectDatabasePath });
+    const assignment = blocked.pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
+    assert.equal(blocked.route.outcome, 'routed');
+    assert.equal(blocked.pack.payload.execution_card.editorial_pipeline.launch_directive, 'blocked');
+    assert.equal(assignment.status, 'blocked');
+    assert.equal(assignment.system_error.code, 'E_AMBIGUOUS_TOPIC');
+    assert.equal(assignment.system_error.available_hf_markers.length, 3);
 
     const unsupported = compileContextPack(databasePath, {
       text: 'Напиши новую статью для Avito', projectDatabasePath,
