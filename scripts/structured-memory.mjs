@@ -63,6 +63,11 @@ const TARGET_QUERY_VOLUME_LADDER = Object.freeze([
   { minimumCharacters: 5001, maximumCharacters: 7000, minimumQueries: 14, maximumQueries: 20 },
   { minimumCharacters: 7001, maximumCharacters: 9000, minimumQueries: 18, maximumQueries: 26 },
 ]);
+const PLANNER_H1_HIGH_FREQUENCY_MARKERS = Object.freeze([
+  'Накрутка ПФ',
+  'Накрутка ПФ Яндекс',
+  'Накрутка поведенческих факторов',
+]);
 
 function now() { return new Date().toISOString(); }
 function hash(value) { return createHash('sha256').update(value).digest('hex'); }
@@ -161,18 +166,20 @@ function freeHfMarkers(taxonomy, archiveText) {
     for (const query of queries) {
       const marker = nonEmptyText(query);
       const words = marker?.split(/\s+/u).length ?? 0;
-      if (words < 2 || words > 3 || archiveText.includes(normalizeOverlapText(marker))) continue;
-      markers.push({ cluster, marker });
+      const h1 = PLANNER_H1_HIGH_FREQUENCY_MARKERS.find((allowed) =>
+        normalizeOverlapText(allowed) === normalizeOverlapText(marker));
+      if (!h1 || words < 2 || words > 3 || archiveText.includes(normalizeOverlapText(marker))) continue;
+      markers.push({ cluster, marker, h1 });
     }
   }
   return markers;
 }
 
-function threeReadyStructures(marker) {
+function threeReadyStructures(h1) {
   return [
-    { number: 1, title: `Практическое руководство: ${marker}`, sections: ['Что проверяют до старта', 'Как связать цель, страницу и метрики', 'Контрольный список решений', 'Вывод и следующий шаг'] },
-    { number: 2, title: `Как выбрать подход к теме «${marker}»`, sections: ['Когда задача возникает', 'Критерии сравнения вариантов', 'Типичные ошибки планирования', 'Как зафиксировать результат'] },
-    { number: 3, title: `Диагностика и план действий: ${marker}`, sections: ['Исходные признаки', 'Приоритеты проверки', 'План на ближайший цикл', 'Как оценить изменения без неподтверждённых обещаний'] },
+    { number: 1, h1, title: h1, sections: ['Что проверяют до старта', 'Как связать цель, страницу и метрики', 'Контрольный список решений', 'Вывод и следующий шаг'] },
+    { number: 2, h1, title: h1, sections: ['Когда задача возникает', 'Критерии сравнения вариантов', 'Типичные ошибки планирования', 'Как зафиксировать результат'] },
+    { number: 3, h1, title: h1, sections: ['Исходные признаки', 'Приоритеты проверки', 'План на ближайший цикл', 'Как оценить изменения без неподтверждённых обещаний'] },
   ];
 }
 
@@ -185,11 +192,11 @@ function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
       .map((item) => [item.marker.toLocaleLowerCase('ru-RU'), item])).values()];
     const systemError = (reason) => ({ code: 'E_AMBIGUOUS_TOPIC', reason,
       available_hf_markers: candidates.slice(0, 3).map((item) => item.marker) });
-    if (archive.error || cores.length !== 1 || candidates.length < 3) {
+    if (archive.error || cores.length !== 1 || candidates.length === 0) {
       return { hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id, executor_profile: 'metrichit.editorial.planner.v1',
         status: 'blocked', background_mode: true, owner_question: 'prohibited',
         published_archive_overlap: { scanned: !archive.error, archive_files: archive.files, selected_marker_overlaps: null },
-        system_error: systemError(archive.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'fewer_than_three_free_hf_markers')) };
+        system_error: systemError(archive.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'no_free_hf_markers')) };
     }
     const selection = candidates[0];
     return {
@@ -197,7 +204,7 @@ function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
       executor_profile: 'metrichit.editorial.planner.v1', status: 'ready', background_mode: true,
       owner_question: 'prohibited', published_archive_overlap: { scanned: true, archive_files: archive.files, selected_marker_overlaps: false },
       selected_priority_hf_marker: selection.marker, selected_cluster: selection.cluster,
-      structure_options: threeReadyStructures(selection.marker),
+      structure_options: threeReadyStructures(selection.h1),
     };
   } finally { database.close(); }
 }
