@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -32,6 +32,22 @@ test('media remains outside the active worktree until computed P0 artifact QA pa
   assert.equal(readFileSync(join(active, asset.target), 'utf8'), 'selected-media');
 });
 
+test('asset promotion recovers after an interrupted pending rename without duplicating the asset', (t) => {
+  const { active, source } = fixture(t);
+  const staging = createEditorialMediaStaging(active, 'recoverable-article');
+  const asset = stageEditorialAsset(staging, source, 'work/articles/assets/recoverable.png');
+  const finalPath = join(active, asset.target);
+  mkdirSync(join(active, 'work/articles/assets'), { recursive: true });
+  copyFileSync(asset.staged_path, `${finalPath}.editorial-pending`);
+  const recovered = promoteEditorialAssets(staging, [asset], () => ({ computed: true, passed: true }));
+  assert.equal(recovered.assets[0].reused, false);
+  assert.equal(existsSync(finalPath), true);
+  assert.equal(existsSync(`${finalPath}.editorial-pending`), false);
+  const replay = promoteEditorialAssets(staging, [asset], () => ({ computed: true, passed: true }));
+  assert.equal(replay.assets[0].reused, true);
+  assert.equal(readFileSync(finalPath, 'utf8'), 'selected-media');
+});
+
 test('revision-card identity is stable for article/action/parent result and distinct otherwise', () => {
   const identity = editorialRevisionCardIdentity({ article: 'work/articles/drafts/a.md', action: 'revision', parent_result: 'pack-1' });
   assert.equal(identity, editorialRevisionCardIdentity({ article: 'work/articles/drafts/a.md', action: 'revision', parent_result: 'pack-1' }));
@@ -48,7 +64,7 @@ test('retry reuses one open article card with its exact contract pin', (t) => {
     taskBrief: { result: 'Одна статья', scope: ['work/articles/drafts/retry-article.md'], firstCheck: 'node --test',
       acceptance: ['одна card'], forbiddenChanges: ['не публиковать'], parentResult: 'owner-result-1' } };
   const first = compileContextPack(database, request);
-  const retry = compileContextPack(database, request);
+  const retry = compileContextPack(database, { ...request, projectDatabasePath: join(root, 'missing-project.sqlite') });
   assert.equal(retry.pack.id, first.pack.id);
   assert.equal(retry.pack.reused, true);
   assert.deepEqual(first.pack.payload.execution_card.editorial_lifecycle.contract_pin, editorialContractPin());
@@ -77,13 +93,19 @@ test('one-step stored-card migration preserves the article commit and content', 
 test('contract migration changes only the pin when article commit and content are unchanged', () => {
   const pin = editorialContractPin({ id: 'contract', revision: 1 });
   const card = { result: 'article', editorial_lifecycle: { contract_pin: pin, article_path: 'work/articles/drafts/a.md',
-    article_commit: 'abc1234', article_content_sha256: 'content-hash' } };
+    article_commit: 'abc1234', article_content_sha256: 'content-hash' }, editorial_spec: {
+    contract_id: 'contract', contract_revision: 1, contract_snapshot: { id: 'contract', revision: 1 },
+    preserved_article_text: 'The article body is not a migration input.' } };
   const migrated = migrateEditorialCardToLatest(card, { article_path: 'work/articles/drafts/a.md', article_commit: 'abc1234',
     article_content_sha256: 'content-hash', latest_contract: { id: 'contract', revision: 2 } });
   assert.equal(migrated.result, card.result);
   assert.equal(migrated.editorial_lifecycle.contract_pin.revision, 2);
   assert.equal(migrated.editorial_lifecycle.contract_snapshot.revision, 2);
-  assert.equal(migrated.editorial_lifecycle.migrated_from_revision, 1);
+  assert.deepEqual(migrated.editorial_lifecycle.contract_migration.from, pin);
+  assert.equal(migrated.editorial_lifecycle.contract_migration.to.revision, 2);
+  assert.equal(migrated.editorial_spec.contract_revision, 2);
+  assert.equal(migrated.editorial_spec.contract_snapshot.revision, 2);
+  assert.equal(migrated.editorial_spec.preserved_article_text, card.editorial_spec.preserved_article_text);
   assert.throws(() => migrateEditorialCardToLatest(card, { article_path: 'work/articles/drafts/a.md', article_commit: 'different',
     article_content_sha256: 'content-hash', latest_contract: { id: 'contract', revision: 2 } }), /article_changed_since_pin/);
 });

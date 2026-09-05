@@ -1290,6 +1290,23 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
     }
     const taskBrief = automaticArticleRevisionTaskBrief(route,
       automaticArticleTaskBrief(route, request.taskBrief ?? {}));
+    const retryArticlePath = nonEmptyList(taskBrief.scope ?? taskBrief.allowedChanges)
+      .find((path) => /^work\/articles\/(?:drafts|published)\/.+\.md$/iu.test(path));
+    const retryParentResult = route.articleRevisionContext?.source_context_pack_id
+      ?? (retryArticlePath ? nonEmptyText(taskBrief.parentResult) ?? nonEmptyText(taskBrief.result) : null);
+    const retryIdentity = retryArticlePath ? editorialRevisionCardIdentity({ article: retryArticlePath,
+      action: route.articleRevisionContext ? 'revision' : 'create', parent_result: retryParentResult }) : null;
+    if (retryIdentity) {
+      for (const row of database.prepare("SELECT * FROM context_packs WHERE status='open' ORDER BY created_at DESC,id DESC").all()) {
+        const existingPayload = parseJson(row.payload_json, null);
+        if (existingPayload?.execution_card?.editorial_lifecycle?.card_identity === retryIdentity) {
+          writeAudit(database, { ...route, signals: [...route.signals, 'editorial_card_reused'] }, row.id,
+            request.explicitScopeId ?? null);
+          return { route, pack: { id: row.id, input_hash: row.input_hash, compiled_bytes: row.compiled_bytes,
+            status: row.status, payload: existingPayload, reused: true } };
+        }
+      }
+    }
     let payload;
     try {
       payload = compileDeterministicContext(database, {
@@ -1302,18 +1319,6 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
       writeAudit(database, { ...route, outcome: 'rejected', signals: [...route.signals, 'execution_preflight_rejected'] }, null,
         request.explicitScopeId ?? null);
       throw error;
-    }
-    const identity = payload.execution_card.editorial_lifecycle?.card_identity;
-    if (identity) {
-      for (const row of database.prepare("SELECT * FROM context_packs WHERE status='open' ORDER BY created_at DESC,id DESC").all()) {
-        const existingPayload = parseJson(row.payload_json, null);
-        if (existingPayload?.execution_card?.editorial_lifecycle?.card_identity === identity) {
-          writeAudit(database, { ...route, signals: [...route.signals, 'editorial_card_reused'] }, row.id,
-            request.explicitScopeId ?? null);
-          return { route, pack: { id: row.id, input_hash: row.input_hash, compiled_bytes: row.compiled_bytes,
-            status: row.status, payload: existingPayload, reused: true } };
-        }
-      }
     }
     const serialized = canonical(payload);
     const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), includeReferencedContent: Boolean(request.includeReferencedContent), taskBrief, coordinatorProfileId: request.coordinatorProfile?.id ?? null })), compiled_bytes: Buffer.byteLength(serialized) };

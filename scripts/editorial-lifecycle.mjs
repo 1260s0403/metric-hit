@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { EDITORIAL_CONTRACT } from './editorial-contract.mjs';
@@ -10,6 +10,18 @@ const nonEmpty = (value, field) => {
   if (typeof value !== 'string' || !value.trim()) throw new Error(`editorial_lifecycle_invalid:${field}`);
   return value.trim();
 };
+const manifestName = '.editorial-lifecycle.json';
+
+function manifestPath(staging) { return join(staging.root, manifestName); }
+function readManifest(staging) {
+  if (!staging?.root || !existsSync(manifestPath(staging))) throw new Error('editorial_lifecycle_invalid:staging_manifest');
+  try { return JSON.parse(readFileSync(manifestPath(staging), 'utf8')); }
+  catch { throw new Error('editorial_lifecycle_invalid:staging_manifest'); }
+}
+function writeManifest(staging, manifest) {
+  writeFileSync(manifestPath(staging), JSON.stringify(manifest));
+  return manifest;
+}
 
 export function editorialContractPin(contract = EDITORIAL_CONTRACT) {
   return Object.freeze({ id: contract.id, revision: contract.revision, sha256: sha256(canonical(contract)) });
@@ -35,7 +47,9 @@ export function createEditorialMediaStaging(activeWorktree, key = 'asset') {
   const active = resolve(nonEmpty(activeWorktree, 'active_worktree'));
   const root = mkdtempSync(join(tmpdir(), `metrichit-editorial-${sha256(key).slice(0, 10)}-`));
   if (!relative(active, root).startsWith('..')) throw new Error('editorial_lifecycle_invalid:staging_inside_active_worktree');
-  return Object.freeze({ root, active_worktree: active, status: 'staging' });
+  const staging = { root, active_worktree: active, status: 'staging' };
+  writeManifest(staging, { schema_version: 1, active_worktree: active, key: String(key), status: 'staging', assets: [] });
+  return Object.freeze(staging);
 }
 
 export function stageEditorialAsset(staging, sourcePath, targetPath) {
@@ -44,7 +58,13 @@ export function stageEditorialAsset(staging, sourcePath, targetPath) {
   const stagedPath = resolve(staging.root, target);
   mkdirSync(dirname(stagedPath), { recursive: true });
   copyFileSync(sourcePath, stagedPath);
-  return { target, staged_path: stagedPath, sha256: sha256(readFileSync(stagedPath)) };
+  const asset = { target, staged_path: stagedPath, sha256: sha256(readFileSync(stagedPath)) };
+  const manifest = readManifest(staging);
+  const previous = manifest.assets.findIndex((item) => item.target === target);
+  if (previous >= 0 && manifest.assets[previous].sha256 !== asset.sha256) throw new Error(`editorial_lifecycle_blocked:asset_target_changed:${target}`);
+  if (previous < 0) manifest.assets.push({ target, sha256: asset.sha256, status: 'staged' });
+  writeManifest(staging, manifest);
+  return asset;
 }
 
 export function promoteEditorialAssets(staging, selectedAssets, artifactQa) {
@@ -53,33 +73,47 @@ export function promoteEditorialAssets(staging, selectedAssets, artifactQa) {
   }
   const qa = artifactQa?.();
   if (!qa?.computed || !qa?.passed) throw new Error('editorial_lifecycle_blocked:artifact_qa');
+  const manifest = readManifest(staging);
   const prepared = selectedAssets.map((asset) => {
     const target = safeRelative(asset.target, 'asset_target');
     const source = resolve(staging.root, target);
+    const recorded = manifest.assets.find((item) => item.target === target);
+    if (!recorded || recorded.sha256 !== asset.sha256) throw new Error(`editorial_lifecycle_invalid:staged_asset_manifest:${target}`);
     if (!existsSync(source)) throw new Error(`editorial_lifecycle_invalid:staged_asset_missing:${target}`);
     const finalPath = resolve(staging.active_worktree, target);
     const pendingPath = `${finalPath}.editorial-pending`;
-    if (existsSync(finalPath) || existsSync(pendingPath)) {
-      throw new Error(`editorial_lifecycle_blocked:asset_target_exists:${target}`);
-    }
-    return { target, source, finalPath, pendingPath };
+    return { target, source, finalPath, pendingPath, sha256: asset.sha256, recorded };
   });
   const promoted = [];
   try {
     for (const asset of prepared) {
+      if (existsSync(asset.finalPath)) {
+        if (sha256(readFileSync(asset.finalPath)) !== asset.sha256) throw new Error(`editorial_lifecycle_blocked:asset_target_changed:${asset.target}`);
+        asset.recorded.status = 'promoted';
+        promoted.push({ path: asset.target, sha256: asset.sha256, reused: true });
+        continue;
+      }
       mkdirSync(dirname(asset.finalPath), { recursive: true });
-      copyFileSync(asset.source, asset.pendingPath);
+      if (existsSync(asset.pendingPath) && sha256(readFileSync(asset.pendingPath)) !== asset.sha256) {
+        throw new Error(`editorial_lifecycle_blocked:asset_pending_changed:${asset.target}`);
+      }
+      if (!existsSync(asset.pendingPath)) copyFileSync(asset.source, asset.pendingPath);
+      asset.recorded.status = 'pending';
+      writeManifest(staging, manifest);
     }
     for (const asset of prepared) {
+      if (existsSync(asset.finalPath)) continue;
       renameSync(asset.pendingPath, asset.finalPath);
-      promoted.push({ path: asset.target, sha256: sha256(readFileSync(asset.finalPath)) });
+      asset.recorded.status = 'promoted';
+      promoted.push({ path: asset.target, sha256: asset.sha256, reused: false });
+      writeManifest(staging, manifest);
     }
   } catch (error) {
-    for (const asset of prepared) if (existsSync(asset.pendingPath)) rmSync(asset.pendingPath, { force: true });
+    writeManifest(staging, manifest);
     throw error;
   }
-  rmSync(staging.root, { recursive: true, force: true });
-  return { status: 'promoted_after_qa', assets: promoted, artifact_qa: qa };
+  manifest.status = 'promoted_after_qa'; writeManifest(staging, manifest);
+  return { status: 'promoted_after_qa', assets: promoted, artifact_qa: qa, staging_manifest: manifestPath(staging) };
 }
 
 export function migrateEditorialCardToLatest(card, {
@@ -91,9 +125,13 @@ export function migrateEditorialCardToLatest(card, {
     || lifecycle.article_content_sha256 !== article_content_sha256) {
     throw new Error('editorial_lifecycle_blocked:article_changed_since_pin');
   }
-  return { ...card, editorial_lifecycle: { ...lifecycle, contract_pin: editorialContractPin(latest_contract),
-    contract_snapshot: structuredClone(latest_contract),
-    migrated_from_revision: lifecycle.contract_pin.revision, migrated_at: new Date().toISOString() } };
+  const nextPin = editorialContractPin(latest_contract);
+  const priorPin = lifecycle.contract_pin;
+  const nextSpec = card.editorial_spec ? { ...card.editorial_spec, contract_id: nextPin.id,
+    contract_revision: nextPin.revision, contract_snapshot: structuredClone(latest_contract) } : null;
+  return { ...card, ...(nextSpec ? { editorial_spec: nextSpec } : {}), editorial_lifecycle: { ...lifecycle,
+    contract_pin: nextPin, contract_snapshot: structuredClone(latest_contract),
+    contract_migration: { from: priorPin, to: nextPin, article_path, article_commit, article_content_sha256 } } };
 }
 
 export async function finishEditorialScope({ owner_command, validate, commit, integrate, reconcile, close, checkpoint }) {
