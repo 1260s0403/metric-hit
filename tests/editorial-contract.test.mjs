@@ -46,6 +46,17 @@ test('pre-generation spec rejects invalid H1, LSI and visual concept', () => {
   }
 });
 
+test('a short core H1 derivative requires the approved owner structure', () => {
+  const rejected = validInput();
+  rejected.selected_h1 = 'точный запрос 1';
+  assert.throws(() => compileEditorialSpec(rejected, core), /owner_approved_core_derivative/);
+  const approved = validInput();
+  approved.selected_h1 = 'точный запрос 1';
+  approved.owner_structure_approved = true;
+  approved.approved_structure = { h1: 'точный запрос 1' };
+  assert.equal(compileEditorialSpec(approved, core).h1_selection, 'owner_approved_core_derivative');
+});
+
 function png(width, height) {
   const chunk = (type, data) => { const header = Buffer.alloc(8); header.writeUInt32BE(data.length, 0); header.write(type, 4); return Buffer.concat([header, data, Buffer.alloc(4)]); };
   const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2;

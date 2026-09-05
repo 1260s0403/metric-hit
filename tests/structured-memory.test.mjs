@@ -119,8 +119,8 @@ function referenceFixture() {
   const result = fixture();
   const projectDatabasePath = join(result.directory, 'project.sqlite');
   const project = new DatabaseSync(projectDatabasePath);
-  const keywords = Array.from({ length: 295 }, (_, index) => `keyword-${index + 1}`);
-  const launchAndManagement = ['накрутка ПФ Яндекс', 'как запустить накрутку ПФ', 'настройка проекта ПФ', 'как выбрать запросы ПФ', 'ПФ для сайта'];
+  const keywords = Array.from({ length: 294 }, (_, index) => `keyword-${index + 1}`);
+  const launchAndManagement = ['накрутка ПФ Яндекс', 'как запустить накрутку ПФ', 'настройка проекта ПФ', 'как выбрать запросы ПФ', 'ПФ для сайта', 'накрутка пф москва'];
   const segments = ['поведенческие факторы для интернет-магазина'];
   const geoCandidates = ['накрутка пф москва'];
   const content = 'Fixture semantic core with 302 approved non-navigation queries.';
@@ -132,7 +132,9 @@ function referenceFixture() {
   ); CREATE TABLE memory_candidates (
     id TEXT PRIMARY KEY, semantic_key TEXT NOT NULL, title TEXT NOT NULL, content TEXT,
     data_json TEXT, status TEXT NOT NULL, reviewed_at TEXT
-  );`);
+  ); CREATE TABLE editorial_topics (id TEXT PRIMARY KEY, primary_query TEXT, primary_intent TEXT);
+  CREATE TABLE editorial_materials (id TEXT PRIMARY KEY, topic_id TEXT, title TEXT, direction TEXT);
+  CREATE TABLE editorial_publications (id TEXT PRIMARY KEY, material_id TEXT, platform TEXT, status TEXT);`);
   project.prepare('INSERT INTO project_storage_metadata VALUES (1,?,1)').run('00000000-0000-4000-a000-000000000102');
   project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status,reviewed_at)
     VALUES (?,?,?,?,?,'approved',?)`).run('fixture-semantic-core', 'content.metrichit_semantic_core',
@@ -415,7 +417,7 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
     const card = compiled.pack.payload.execution_card;
     assert.equal(card.scope[0], 'work/articles');
     assert.equal(card.editorial_pipeline.pipeline_id, 'metrichit.editorial.pipeline.v1');
-    assert.equal(card.editorial_pipeline.launch_directive, 'start');
+    assert.equal(card.editorial_pipeline.launch_directive, 'await_owner_structure_selection');
     assert.equal(card.editorial_pipeline.execution_mode, 'isolated_sequential');
     assert.deepEqual(card.editorial_pipeline.stages.map((stage) => stage.profile_id), [
       'metrichit.editorial.planner.v1',
@@ -428,12 +430,12 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.executor_profile, 'metrichit.editorial.planner.v1');
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.status, 'ready');
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.owner_question, 'prohibited');
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.published_archive_overlap.scanned, true);
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.coverage.registry_scanned, true);
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.coverage.final_materials_scanned, true);
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.length, 3);
-    assert.deepEqual(card.editorial_pipeline.empty_topic_planner_assignment.selected_structure,
-      card.editorial_pipeline.empty_topic_planner_assignment.structure_options[0]);
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.selected_structure, null);
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_selection,
-      'deterministic_priority_first');
+      'owner_selection_required');
     const allowedH1 = new Set(['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']);
     assert.ok(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.every((option) =>
       allowedH1.has(option.h1) && option.title === option.h1
@@ -442,40 +444,12 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
     assert.equal(card.editorial_semantics, null);
     assert.equal(card.delivery_qa, null);
 
-    const oborotCompiled = compileContextPack(databasePath, {
-      text: 'Напиши новую статью для Oborot.ru', projectDatabasePath,
-    });
-    const oborot = oborotCompiled.pack.payload.execution_card;
-    assert.equal(oborot.editorial_spec.status, 'valid');
-    assert.equal(oborot.editorial_spec.pre_generation_gate, 'passed');
-    assert.equal(oborot.editorial_spec.h1_allowlist.length, 3);
-    assert.equal(oborot.editorial_spec.secondary_queries.length, 17);
-    assert.equal(oborot.editorial_spec.lsi.length, 4);
-    assert.equal(oborot.editorial_spec.links.length, 4);
-    assert.equal(oborot.editorial_spec.image_package.preview.length, 1);
-    assert.equal(oborot.editorial_spec.image_package.inline.length, 3);
-    const artifactRoot = join(directory, 'artifact');
-    const drafts = join(artifactRoot, 'drafts'); const assets = join(artifactRoot, 'assets');
-    mkdirSync(drafts, { recursive: true }); mkdirSync(assets, { recursive: true });
-    const png = (width, height) => { const chunk = (type, data) => { const header = Buffer.alloc(8); header.writeUInt32BE(data.length, 0); header.write(type, 4); return Buffer.concat([header, data, Buffer.alloc(4)]); }; const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2; return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IEND', Buffer.alloc(0))]); };
-    writeFileSync(join(assets, 'editorial-preview.png'), png(100, 100));
-    for (let index = 1; index <= 3; index += 1) writeFileSync(join(assets, `editorial-inline-${index}.png`), png(150, 100));
-    const spec = oborot.editorial_spec;
-    const lsiSections = spec.lsi.map((item, index) => `### ${item.section_anchor}\n- ${item.term}\n${index < 3 ? `![${item.category}](../assets/editorial-inline-${index + 1}.png)` : ''}\n${index === 0 || index === 1 ? 'https://go.mtrhit.ru/' : ''}`).join('\n');
-    let article = `# ${spec.selected_h1}\n![preview](../assets/editorial-preview.png)\n${[spec.primary_query, ...spec.secondary_queries].join('. ')}\nhttps://go.mtrhit.ru/\n${lsiSections}\n`;
-    article += 'Практическая рекомендация для управления кампанией. '.repeat(130);
-    article += '\n### Дополнительный контроль\nПрактика.\n';
-    while (article.replace(/https?:\/\/\S+/gu, '').length < 7001) article += 'Контроль результата. ';
-    article += '\nhttps://go.mtrhit.ru/\n';
-    const articlePath = join(drafts, 'article.md'); writeFileSync(articlePath, article);
-    const closedOborot = closeContextPack(databasePath, oborotCompiled.pack.id, {
-      result: 'Корректный Oborot artifact проверен', checks: [oborot.first_check],
-      satisfiedAcceptance: oborot.acceptance, scopeCompliance: true, forbiddenChangesObserved: [],
-      artifact: { article_path: articlePath },
-    });
-    assert.equal(closedOborot.status, 'closed');
-    assert.equal(closedOborot.terminal_outcome, 'delivered');
-    assert.equal(closedOborot.validation.artifact_validation.computed, true);
+    const oborot = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
+      .pack.payload.execution_card;
+    assert.equal(oborot.editorial_pipeline.launch_directive, 'blocked');
+    assert.equal(oborot.editorial_spec, null);
+    assert.equal(oborot.editorial_pipeline.empty_topic_planner_assignment.pre_generation_conflicts[0].code,
+      'E_PLATFORM_VOLUME_CONFLICT');
 
     const project = new DatabaseSync(projectDatabasePath);
     try {
@@ -1109,6 +1083,14 @@ test('article target-query volume ladder and geo owner-gate are fail-closed whil
     const confirmedGeo = compileContextPack(databasePath, { text: 'Подготовь статью с подтверждённой геосемантикой', projectDatabasePath,
       taskBrief: { ...baseBrief, editorialSemantics: { ...geoSemantics, geoDemandOwnerConfirmed: true }, editorialIndexation: indexation } });
     assert.equal(confirmedGeo.pack.payload.execution_card.editorial_semantics.geo_demand_owner_confirmed, true);
+
+    const geoOutsideDedicatedCluster = { ...semantics,
+      selectedClusters: ['launch_and_management', 'segments', 'fixture'],
+      secondaryTargetQueries: [...semantics.secondaryTargetQueries.slice(0, 6), 'накрутка пф москва'],
+    };
+    assert.throws(() => compileContextPack(databasePath, { text: 'Подготовь статью с геофразой общего кластера', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: geoOutsideDedicatedCluster, editorialIndexation: indexation } }),
+    /editorial_semantics.geo_demand_owner_confirmed/);
 
     const vk = compileContextPack(databasePath, { text: 'Подготовь пост VK', projectDatabasePath,
       taskBrief: { ...baseBrief, editorialSemantics: { ...semantics, platform: 'VK', format: 'social_post' }, editorialIndexation: indexation } });

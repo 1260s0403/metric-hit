@@ -38,7 +38,12 @@ export function compileEditorialSpec(input, taxonomy) {
   if (!taxonomy || Object.values(taxonomy).flat().length !== EDITORIAL_CONTRACT.semantic_core.keyword_count) specFail('semantic_core', 'expected_302_queries');
   const platform = text(input.platform); const selectedH1 = text(input.selected_h1); const range = input.character_range;
   if (!platform) specFail('platform', 'required');
-  if (!EDITORIAL_CONTRACT.h1.approved_forms.includes(selectedH1)) specFail('selected_h1', 'not_exact_approved_form');
+  const allCoreQueries = Object.values(taxonomy).flat();
+  const isExactApprovedH1 = EDITORIAL_CONTRACT.h1.approved_forms.includes(selectedH1);
+  const isOwnerApprovedCoreDerivative = EDITORIAL_CONTRACT.h1.owner_approved_core_derivative === true
+    && input.owner_structure_approved === true && input.approved_structure?.h1 === selectedH1
+    && allCoreQueries.includes(selectedH1);
+  if (!isExactApprovedH1 && !isOwnerApprovedCoreDerivative) specFail('selected_h1', 'not_exact_approved_form_or_owner_approved_core_derivative');
   if (!Number.isInteger(range?.minimum) || !Number.isInteger(range?.maximum) || range.minimum > range.maximum) specFail('character_range', 'invalid');
   assertCore(input.primary_query, taxonomy, 'primary_query');
   if (!Array.isArray(input.secondary_queries) || !input.secondary_queries.length || !unique([input.primary_query, ...input.secondary_queries])) specFail('secondary_queries', 'required_unique');
@@ -53,7 +58,7 @@ export function compileEditorialSpec(input, taxonomy) {
   if (!Array.isArray(input.structure) || input.structure.length < 3 || input.structure.some((section) => !text(section))) specFail('structure', 'required');
   if (!Array.isArray(input.links) || input.links.length !== EDITORIAL_CONTRACT.article.landing_link_positions.length || input.links.some((item, index) => item.url !== EDITORIAL_CONTRACT.article.landing_url || item.position !== EDITORIAL_CONTRACT.article.landing_link_positions[index])) specFail('links', 'distribution');
   validateVisuals(input.image_package, range, platform);
-  const spec = { schema_version: 2, contract_id: EDITORIAL_CONTRACT.id, contract_revision: EDITORIAL_CONTRACT.revision, contract_snapshot: structuredClone(EDITORIAL_CONTRACT), status: 'valid', pre_generation_gate: 'passed', content_source_format: EDITORIAL_CONTRACT.content_source.format, publication_projection: EDITORIAL_CONTRACT.content_source.projection, platform, format: 'article', character_range: range, h1_allowlist: [...EDITORIAL_CONTRACT.h1.approved_forms], selected_h1: selectedH1, primary_query: input.primary_query, secondary_queries: [...input.secondary_queries], selected_clusters: [...input.selected_clusters], adjacent_cluster_rationale: text(input.adjacent_cluster_rationale), user_intent: text(input.user_intent), lsi: input.lsi, structure: input.structure, links: input.links, image_package: input.image_package, publication_requirements: { external_publication: 'owner_gated', owner_confirmation_or_https_url: true } };
+  const spec = { schema_version: 2, contract_id: EDITORIAL_CONTRACT.id, contract_revision: EDITORIAL_CONTRACT.revision, contract_snapshot: structuredClone(EDITORIAL_CONTRACT), status: 'valid', pre_generation_gate: 'passed', content_source_format: EDITORIAL_CONTRACT.content_source.format, publication_projection: EDITORIAL_CONTRACT.content_source.projection, platform, format: 'article', character_range: range, h1_allowlist: [...EDITORIAL_CONTRACT.h1.approved_forms], selected_h1: selectedH1, h1_selection: isExactApprovedH1 ? 'exact_approved_form' : 'owner_approved_core_derivative', primary_query: input.primary_query, secondary_queries: [...input.secondary_queries], selected_clusters: [...input.selected_clusters], adjacent_cluster_rationale: text(input.adjacent_cluster_rationale), user_intent: text(input.user_intent), lsi: input.lsi, structure: input.structure, links: input.links, image_package: input.image_package, publication_requirements: { external_publication: 'owner_gated', owner_confirmation_or_https_url: true } };
   if (!spec.user_intent || !spec.selected_clusters.length) specFail('semantic_context', 'cluster_and_intent_required');
   return spec;
 }

@@ -134,8 +134,8 @@ function loadEditorialPipeline(projectDatabasePath) {
           ...EMPTY_TOPIC_AUTOPLANNING_HOTFIX,
           planner_execution_required: row.profile_id === 'metrichit.editorial.planner.v1',
           downstream_input: row.profile_id === 'metrichit.editorial.planner.v1'
-            ? 'produce_three_structures_and_select_one_deterministically'
-            : 'consume_planner_selected_structure_only',
+            ? 'produce_three_reasoned_structures_and_wait_for_owner_selection'
+            : 'consume_owner_approved_structure_only',
         },
       })),
     };
@@ -146,19 +146,46 @@ function normalizeOverlapText(value) {
   return String(value ?? '').toLocaleLowerCase('ru-RU').replace(/[^\p{L}\p{N}]+/gu, ' ').trim();
 }
 
-function publishedArchiveText() {
+function finalArticleCoverage() {
   const archiveRoot = join(repositoryRoot, 'work', 'articles', 'published');
-  if (!existsSync(archiveRoot) || !statSync(archiveRoot).isDirectory()) return { error: 'published_archive_unavailable', files: 0, text: '' };
+  if (!existsSync(archiveRoot) || !statSync(archiveRoot).isDirectory()) return { error: 'published_archive_unavailable', files: 0, primary_topics: [] };
   const files = [];
   const collect = (directory) => {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) collect(path);
-      else if (entry.isFile() && /\.(?:md|txt|html?)$/iu.test(entry.name)) files.push(path);
+      else if (entry.isFile() && entry.name.toLocaleLowerCase('ru-RU') !== 'readme.md' && /\.(?:md|txt|html?)$/iu.test(entry.name)) files.push(path);
     }
   };
   collect(archiveRoot);
-  return { files: files.length, text: normalizeOverlapText(files.map((path) => readFileSync(path, 'utf8')).join(' ')) };
+  const primary_topics = files.map((path) => {
+    const content = readFileSync(path, 'utf8');
+    return nonEmptyText(content.match(/^\s*#\s+(.+)$/mu)?.[1])
+      ?? nonEmptyText(content.split(/\r?\n/u).find((line) => line.trim()));
+  }).filter(Boolean);
+  return { files: files.length, primary_topics };
+}
+
+function registryCoverage(database) {
+  if (!hasTable(database, 'editorial_publications') || !hasTable(database, 'editorial_materials') || !hasTable(database, 'editorial_topics')) {
+    return { error: 'editorial_registry_unavailable', records: [] };
+  }
+  const records = database.prepare(`SELECT p.platform,m.title,t.primary_query,t.primary_intent
+    FROM editorial_publications p JOIN editorial_materials m ON m.id=p.material_id
+    JOIN editorial_topics t ON t.id=m.topic_id
+    WHERE p.status='published' AND m.direction='articles'`).all();
+  return { records };
+}
+
+function coverageForPlanning(database) {
+  const registry = registryCoverage(database);
+  const finals = finalArticleCoverage();
+  if (registry.error || finals.error) return { error: registry.error ?? finals.error, registry, finals, occupied_primary_topics: new Set() };
+  const occupied_primary_topics = new Set([
+    ...registry.records.flatMap((record) => [record.primary_query, record.title]).map(normalizeOverlapText),
+    ...finals.primary_topics.map(normalizeOverlapText),
+  ].filter(Boolean));
+  return { registry, finals, occupied_primary_topics };
 }
 
 function approvedSemanticCore302(database) {
@@ -170,7 +197,7 @@ function approvedSemanticCore302(database) {
       && core?.taxonomy && typeof core.taxonomy === 'object');
 }
 
-function freeHfMarkers(taxonomy, archiveText) {
+function freeHfMarkers(taxonomy, occupiedPrimaryTopics) {
   const markers = [];
   for (const [cluster, queries] of Object.entries(taxonomy)) {
     if (cluster === 'geo_candidates_after_demand_validation' || !Array.isArray(queries)) continue;
@@ -179,7 +206,7 @@ function freeHfMarkers(taxonomy, archiveText) {
       const words = marker?.split(/\s+/u).length ?? 0;
       const h1 = PLANNER_H1_HIGH_FREQUENCY_MARKERS.find((allowed) =>
         normalizeOverlapText(allowed) === normalizeOverlapText(marker));
-      if (!h1 || words < 2 || words > 3 || archiveText.includes(normalizeOverlapText(marker))) continue;
+      if (!h1 || words < 2 || words > 3 || occupiedPrimaryTopics.has(normalizeOverlapText(marker))) continue;
       markers.push({ cluster, marker, h1 });
     }
   }
@@ -197,34 +224,47 @@ function threeReadyStructures(h1) {
 function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
   const database = open(resolve(projectDatabasePath), true);
   try {
-    const archive = publishedArchiveText();
+    const coverage = coverageForPlanning(database);
     const cores = approvedSemanticCore302(database);
-    const candidates = [...new Map(cores.flatMap(({ core }) => freeHfMarkers(core.taxonomy, archive.text))
+    const candidates = [...new Map(cores.flatMap(({ core }) => freeHfMarkers(core.taxonomy, coverage.occupied_primary_topics))
       .map((item) => [item.marker.toLocaleLowerCase('ru-RU'), item])).values()];
     const systemError = (reason) => ({ code: 'E_AMBIGUOUS_TOPIC', reason,
       available_hf_markers: [...PLANNER_H1_HIGH_FREQUENCY_MARKERS] });
-    if (archive.error || cores.length !== 1 || candidates.length === 0) {
+    if (coverage.error || cores.length !== 1 || candidates.length === 0) {
       return { hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id, executor_profile: 'metrichit.editorial.planner.v1',
         status: 'blocked', background_mode: true, owner_question: 'prohibited',
-        published_archive_overlap: { scanned: !archive.error, archive_files: archive.files, selected_marker_overlaps: null },
-        system_error: systemError(archive.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'no_free_hf_markers')) };
+        coverage: { registry_scanned: !coverage.registry.error, registry_records: coverage.registry.records?.length ?? 0,
+          final_materials_scanned: !coverage.finals.error, final_materials: coverage.finals.files ?? 0, selected_primary_topic_occupied: null },
+        system_error: systemError(coverage.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'no_free_hf_markers')) };
     }
     const selection = candidates[0];
     const structureOptions = threeReadyStructures(selection.h1);
+    const preGenerationConflicts = platform?.id === 'oborot' ? [{
+      field: 'character_range', code: 'E_PLATFORM_VOLUME_CONFLICT',
+      general_rule: `article.minimum_characters=${EDITORIAL_CONTRACT.article.minimum_characters}`,
+      platform_rule: 'Oborot.ru long-form range 7001–9000',
+      resolution: 'owner_policy_decision_required_before_generation',
+    }] : [];
     return {
       hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id,
       executor_profile: 'metrichit.editorial.planner.v1', status: 'ready', background_mode: true,
-      owner_question: 'prohibited', published_archive_overlap: { scanned: true, archive_files: archive.files, selected_marker_overlaps: false },
+      owner_question: 'prohibited', coverage: { registry_scanned: true, registry_records: coverage.registry.records.length,
+        final_materials_scanned: true, final_materials: coverage.finals.files, selected_primary_topic_occupied: false },
       selected_priority_hf_marker: selection.marker, selected_cluster: selection.cluster,
       structure_options: structureOptions,
-      selected_structure: structureOptions[0],
-      structure_selection: 'deterministic_priority_first',
+      selected_structure: null,
+      structure_selection: 'owner_selection_required',
+      pre_generation_conflicts: preGenerationConflicts,
     };
   } finally { database.close(); }
 }
 
-function automaticEditorialSpec(projectDatabasePath, route, assignment) {
-  if (!assignment || assignment.status !== 'ready' || route.platform?.id !== 'oborot') return null;
+function automaticEditorialSpec(projectDatabasePath, route, assignment, taskBrief) {
+  const selected = taskBrief?.selectedStructure;
+  if (!assignment || assignment.status !== 'ready' || assignment.pre_generation_conflicts?.length
+    || taskBrief?.ownerStructureApproved !== true || !selected
+    || !assignment.structure_options.some((option) => canonical(option) === canonical(selected))) return null;
+  if (route.platform?.id !== 'oborot') return null;
   const database = open(resolve(projectDatabasePath), true);
   try {
     const core = approvedSemanticCore302(database)[0]?.core;
@@ -240,7 +280,7 @@ function automaticEditorialSpec(projectDatabasePath, route, assignment) {
     }
     secondary.splice(17);
     if (secondary.length !== 17) throw new Error('editorial spec requires 18 target queries for Oborot long-form');
-    const structure = assignment.selected_structure.sections;
+    const structure = selected.sections;
     const inline = structure.slice(0, 3).map((section, index) => ({
       path: `../assets/editorial-inline-${index + 1}.png`, medium: EDITORIAL_CONTRACT.visuals.allowed_medium,
       aspect_ratio: '3:2', section_anchor: section, semantic_role: ['explain_cause', 'show_action', 'show_result'][index],
@@ -250,7 +290,7 @@ function automaticEditorialSpec(projectDatabasePath, route, assignment) {
       composition: ['wide environmental', 'medium collaborative', 'close documentary'][index], device_role: 'none',
     }));
     return compileEditorialSpec({ platform: route.platform.name, character_range: { minimum: 7001, maximum: 9000 },
-      selected_h1: assignment.selected_structure.h1, primary_query: primary, secondary_queries: secondary,
+      selected_h1: selected.h1, primary_query: primary, secondary_queries: secondary,
       selected_clusters: selectedClusters, adjacent_cluster_rationale: selectedClusters.length > 1
         ? 'Кластеры объединены одной практической задачей подготовки и контроля запуска.' : null,
       user_intent: 'Практически подготовить и контролировать запуск накрутки ПФ',
@@ -683,8 +723,11 @@ function editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy = nu
   if (targetQueries.some((query) => !selectedClusterQueries.includes(query))) {
     throw new Error('execution card is incomplete: editorial_semantics.target_query_not_in_selected_approved_core_clusters');
   }
-  if (rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.geoDemandGate)
-    && semanticContext.selected_clusters.includes('geo_candidates_after_demand_validation')) {
+  const geoQueries = Object.values(semanticCoreTaxonomy ?? {}).flat()
+    .filter((query) => /(?:москв\p{L}*|мск|санкт[-\s]?петербург\p{L}*|спб|петербург\p{L}*)/iu.test(query));
+  const geoCandidate = targetQueries.some((query) => geoQueries.includes(query)
+    || /(?:москв\p{L}*|мск|санкт[-\s]?петербург\p{L}*|спб|петербург\p{L}*)/iu.test(query));
+  if (rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.geoDemandGate) && geoCandidate) {
     if (source.geoDemandOwnerConfirmed !== true) {
       throw new Error('execution card is incomplete: editorial_semantics.geo_demand_owner_confirmed');
     }
@@ -1192,10 +1235,11 @@ export function compileDeterministicContext(database, {
   const emptyTopicPlannerAssignment = pipelineTrigger
     ? automaticEmptyTopicPlannerAssignment(projectDatabasePath, resolvedRoute.platform) : null;
   const editorialSpec = pipelineTrigger
-    ? automaticEditorialSpec(projectDatabasePath, resolvedRoute, emptyTopicPlannerAssignment) : null;
+    ? automaticEditorialSpec(projectDatabasePath, resolvedRoute, emptyTopicPlannerAssignment, taskBrief) : null;
   const editorialPipeline = pipelineTrigger ? {
     ...loadEditorialPipeline(projectDatabasePath),
-    launch_directive: emptyTopicPlannerAssignment.status === 'blocked' ? 'blocked' : 'start',
+    launch_directive: emptyTopicPlannerAssignment.status === 'blocked' || emptyTopicPlannerAssignment.pre_generation_conflicts?.length ? 'blocked'
+      : editorialSpec ? 'start' : 'await_owner_structure_selection',
     empty_topic_planner_assignment: emptyTopicPlannerAssignment,
     editorial_spec: editorialSpec,
   } : null;
