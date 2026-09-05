@@ -229,18 +229,61 @@ function allTopicCandidates(taxonomy) {
   return candidates;
 }
 
-const PLANNER_STRUCTURE_TEMPLATES = Object.freeze([
-    { intent: 'Диагностировать исходные сигналы и подготовить безопасный план проверки.', sections: ['Какие сигналы проверяют до старта', 'Как отделить гипотезу от результата', 'Чек-лист подготовки страницы и метрик', 'Как зафиксировать следующий шаг'] },
-    { intent: 'Сопоставить варианты реализации с бизнес-ограничениями и критериями контроля.', sections: ['Когда возникает задача и что считать целью', 'Критерии сравнения вариантов', 'Ошибки в постановке ограничений', 'Как принять решение по данным'] },
-    { intent: 'Спланировать короткий цикл измерений без неподтверждённых обещаний.', sections: ['Исходные данные для цикла', 'Приоритеты измерения', 'План наблюдения за изменениями', 'Как интерпретировать результат'] },
+const PLANNER_SEMANTIC_RECIPES = Object.freeze([
+  Object.freeze({
+    h1: 'Накрутка ПФ', subject: 'service_selection',
+    preferred: /(?:^|\s)(?:сервис|сервисы|услуга|услуги)(?:\s|$)/iu,
+    priority: (query) => /(?:^|\s)сервис(?:\s|$)/iu.test(query) ? 0 : /(?:^|\s)услуг/iu.test(query) ? 1 : 2,
+    topic: (query) => `Выбор сервиса для задачи «${query}»: критерии контроля запуска`,
+    intent: 'Выбрать сервис для конкретной задачи и определить проверяемые критерии контроля запуска.',
+    angle: 'Практический разбор критериев выбора и контроля без заявлений о результате.',
+    sections: (query) => [
+      `Какая задача стоит за запросом «${query}»`,
+      'Какие входные данные нужны до выбора сервиса',
+      'Критерии контроля процесса и фиксации наблюдений',
+      'Как сформулировать следующий проверяемый шаг',
+    ],
+  }),
+  Object.freeze({
+    h1: 'Накрутка ПФ Яндекс', subject: 'yandex_preparation',
+    preferred: /(?:^|\s)(?:яндекс|yandex)(?:\s|$)/iu,
+    priority: (query) => /^накрутка\s+пф\s+яндекс$/iu.test(query) ? 0
+      : /(?:^|\s)яндекс(?:\s|$)/iu.test(query) ? 1 : /(?:^|\s)yandex(?:\s|$)/iu.test(query) ? 2 : 3,
+    topic: (query) => `Подготовка сайта к задаче «${query}»: что проверить до запуска`,
+    intent: 'Подготовить страницу и контрольные точки для работы с запросом в Яндексе.',
+    angle: 'Разбор подготовки страницы и наблюдаемых контрольных точек, без описания механики инструмента.',
+    sections: (query) => [
+      `Что именно пользователь ищет в запросе «${query}»`,
+      'Какие элементы страницы проверить до начала работ',
+      'Как задать контрольные точки для наблюдения',
+      'Как интерпретировать данные после первого периода наблюдения',
+    ],
+  }),
+  Object.freeze({
+    h1: 'Накрутка поведенческих факторов', subject: 'site_readiness',
+    preferred: /(?:^|\s)(?:сайт|сайта|поведенческих\s+факторов)(?:\s|$)/iu,
+    priority: (query) => /^накрутка\s+поведенческих\s+факторов\s+сайта$/iu.test(query) ? 0
+      : /поведенческих\s+факторов\s+сайта/iu.test(query) ? 1 : /(?:^|\s)(?:сайт|сайта)(?:\s|$)/iu.test(query) ? 2 : 3,
+    topic: (query) => `Готовность страницы к работе по запросу «${query}»: аудит до старта`,
+    intent: 'Оценить готовность страницы, сформировать гипотезу и план наблюдения по одному запросу.',
+    angle: 'Аудит страницы и разделение фактов, гипотез и дальнейших измерений.',
+    sections: (query) => [
+      `Контекст запроса «${query}» и границы задачи`,
+      'Какие факты о странице собрать до формулирования гипотезы',
+      'Как связать гипотезу с наблюдаемыми показателями',
+      'Как зафиксировать вывод и следующий шаг без неподтверждённых обещаний',
+    ],
+  }),
 ]);
 
 function normalizedPlannerRecord(record) {
+  const title = normalizeOverlapText(record.title);
+  const primaryTopic = normalizeOverlapText(record.primary_query);
+  const userIntent = normalizeOverlapText(record.primary_intent);
   return {
     platform: normalizeOverlapText(record.platform),
-    primary_topic: normalizeOverlapText(record.primary_query),
-    user_intent: normalizeOverlapText(record.primary_intent),
-    content_signature: normalizeOverlapText(record.title),
+    title, primary_topic: primaryTopic, user_intent: userIntent,
+    comparable_signature: { title, topic: primaryTopic, intent: userIntent },
   };
 }
 
@@ -250,31 +293,85 @@ function samePlatformRecords(records, platform) {
 }
 
 function materiallyIdenticalPlannerRecord(record, option) {
-  return record.primary_topic === normalizeOverlapText(option.primary_query)
-    && record.user_intent === normalizeOverlapText(option.user_intent)
-    && record.content_signature === normalizeOverlapText(option.content_signature);
+  const proposed = option.comparable_signature;
+  return record.comparable_signature.title === proposed.title
+    && record.comparable_signature.topic === proposed.topic
+    && record.comparable_signature.intent === proposed.intent;
+}
+
+function plannerCandidateScore(candidate, recipe) {
+  const query = normalizeOverlapText(candidate.primary_query);
+  const cluster = normalizeOverlapText(candidate.cluster);
+  const preferred = recipe.priority(query);
+  const sameSubjectCluster = recipe.subject === 'service_selection' ? /(?:service|сервис|commercial|commercial)/iu.test(cluster)
+    : recipe.subject === 'yandex_preparation' ? /(?:yandex|behavioral)/iu.test(cluster)
+      : /(?:behavioral|education|segment)/iu.test(cluster);
+  return [preferred, sameSubjectCluster ? 0 : 1, query.length, query, cluster];
+}
+
+function comparePlannerCandidates(left, right, recipe) {
+  const a = plannerCandidateScore(left, recipe);
+  const b = plannerCandidateScore(right, recipe);
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] < b[index]) return -1;
+    if (a[index] > b[index]) return 1;
+  }
+  return 0;
+}
+
+function relatedSecondaryQueries(candidate, candidates) {
+  const primaryTerms = new Set(normalizeOverlapText(candidate.primary_query).split(' ')
+    .filter((term) => term.length > 2 && term !== 'пф'));
+  return candidates.filter((item) => item.cluster === candidate.cluster
+    && normalizeOverlapText(item.primary_query) !== normalizeOverlapText(candidate.primary_query))
+    .sort((left, right) => {
+      const overlap = (item) => normalizeOverlapText(item.primary_query).split(' ')
+        .filter((term) => primaryTerms.has(term)).length;
+      const score = overlap(right) - overlap(left);
+      return score || normalizeOverlapText(left.primary_query).localeCompare(normalizeOverlapText(right.primary_query), 'ru-RU');
+    })
+    .slice(0, 4).map((item) => item.primary_query);
+}
+
+function proposedPlannerSignature(option) {
+  return {
+    title: normalizeOverlapText(option.title), topic: normalizeOverlapText(option.primary_query),
+    intent: normalizeOverlapText(option.user_intent),
+    content: normalizeOverlapText([option.title, option.topic, option.user_intent,
+      ...option.sections, ...option.secondary_queries].join(' ')),
+  };
 }
 
 function threeReadyStructures(candidates, platform, registryRecords) {
   const existing = samePlatformRecords(registryRecords, platform);
   const selectedTopics = new Set();
   const options = [];
-  for (const [index, template] of PLANNER_STRUCTURE_TEMPLATES.entries()) {
-    const prototype = {
-      h1: PLANNER_H1_HIGH_FREQUENCY_MARKERS[index], title: PLANNER_H1_HIGH_FREQUENCY_MARKERS[index],
-      user_intent: template.intent, content_signature: template.sections.join(' '), sections: template.sections,
-    };
-    const candidate = candidates.find((item) => {
+  for (const [index, recipe] of PLANNER_SEMANTIC_RECIPES.entries()) {
+    const ranked = [...candidates].sort((left, right) => comparePlannerCandidates(left, right, recipe));
+    const candidate = ranked.find((item) => {
       const topic = normalizeOverlapText(item.primary_query);
-      const option = { ...prototype, primary_query: item.primary_query };
+      const secondary_queries = relatedSecondaryQueries(item, candidates);
+      const sections = recipe.sections(item.primary_query);
+      const option = {
+        h1: recipe.h1, title: recipe.h1, topic: recipe.topic(item.primary_query),
+        user_intent: recipe.intent, sections, secondary_queries,
+        primary_query: item.primary_query,
+      };
+      option.comparable_signature = proposedPlannerSignature(option);
       return !selectedTopics.has(topic)
-        && !existing.some((record) => record.primary_topic === topic)
         && !existing.some((record) => materiallyIdenticalPlannerRecord(record, option));
     });
     if (!candidate) return null;
     selectedTopics.add(normalizeOverlapText(candidate.primary_query));
-    options.push({ number: index + 1, ...prototype, primary_query: candidate.primary_query,
-      selected_cluster: candidate.cluster });
+    const secondary_queries = relatedSecondaryQueries(candidate, candidates);
+    const sections = recipe.sections(candidate.primary_query);
+    const option = { number: index + 1, h1: recipe.h1, title: recipe.h1,
+      topic: recipe.topic(candidate.primary_query), primary_query: candidate.primary_query,
+      selected_cluster: candidate.cluster, secondary_queries, user_intent: recipe.intent,
+      safe_evidence_angle: recipe.angle, sections };
+    option.comparable_signature = proposedPlannerSignature(option);
+    option.content_signature = option.comparable_signature.content;
+    options.push(option);
   }
   return options;
 }
@@ -302,7 +399,10 @@ function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
       executor_profile: 'metrichit.editorial.planner.v1', status: 'ready', background_mode: true,
       owner_question: 'prohibited', coverage: { registry_scanned: true, registry_records: coverage.registry.records.length,
         final_materials_scanned: true, final_materials: coverage.finals.files, selected_primary_topic_occupied: false },
-      selected_priority_hf_marker: structureOptions[0].primary_query, selected_cluster: structureOptions[0].selected_cluster,
+      selected_h1_high_frequency_marker: structureOptions[0].h1,
+      selected_primary_query: structureOptions[0].primary_query,
+      selected_cluster: structureOptions[0].selected_cluster,
+      selection_basis: 'Each option is ranked by declared semantic suitability, then canonical query and cluster ordering; taxonomy row order is not a priority signal.',
       structure_options: structureOptions,
       selected_structure: null,
       structure_selection: 'owner_selection_required',
@@ -438,12 +538,13 @@ function inheritedRevisionSemantics(source) {
     };
   }
   const assignment = source.card.editorial_pipeline?.empty_topic_planner_assignment;
-  if (!assignment?.selected_cluster || !assignment?.selected_priority_hf_marker || !source.platform) {
+  const primaryTargetQuery = assignment?.selected_primary_query ?? assignment?.selected_priority_hf_marker;
+  if (!assignment?.selected_cluster || !primaryTargetQuery || !source.platform) {
     throw new Error('editorial revision source lacks required article semantics');
   }
   return {
     selectedClusters: [assignment.selected_cluster], adjacentClusterRationale: null,
-    primaryTargetQuery: assignment.selected_priority_hf_marker, secondaryTargetQueries: [],
+    primaryTargetQuery, secondaryTargetQueries: [],
     userIntent: 'Сохранить поисковый интент исходной статьи при визуальной доработке.',
     platform: source.platform.name, format: 'article',
   };

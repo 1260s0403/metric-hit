@@ -442,6 +442,10 @@ test('article_pipeline_trigger creates a platform card with the registered safe 
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.coverage.registry_scanned, true);
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.coverage.final_materials_scanned, true);
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.length, 3);
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.selected_h1_high_frequency_marker, 'Накрутка ПФ');
+    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.selected_primary_query,
+      card.editorial_pipeline.empty_topic_planner_assignment.structure_options[0].primary_query);
+    assert.match(card.editorial_pipeline.empty_topic_planner_assignment.selection_basis, /taxonomy row order is not a priority signal/u);
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.selected_structure, null);
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_selection,
       'owner_selection_required');
@@ -452,6 +456,14 @@ test('article_pipeline_trigger creates a platform card with the registered safe 
       allowedH1.has(option.h1) && option.title === option.h1 && option.primary_query && option.user_intent
       && option.content_signature && !/\b(?:руководство|диагностика|софт)\b/iu.test(option.h1)));
     assert.equal(new Set(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.map((option) => option.primary_query)).size, 3);
+    for (const option of card.editorial_pipeline.empty_topic_planner_assignment.structure_options) {
+      assert.match(option.topic, new RegExp(option.primary_query.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
+      assert.ok(option.sections.some((section) => section.includes(option.primary_query)));
+      assert.ok(option.secondary_queries.every((query) => dataJson.includes(query)));
+      assert.equal(option.comparable_signature.title, option.h1.toLocaleLowerCase('ru-RU'));
+      assert.equal(option.comparable_signature.topic.replace(/\s/gu, ''),
+        option.primary_query.toLocaleLowerCase('ru-RU').replace(/[\s-]/gu, ''));
+    }
     assert.ok(card.editorial_pipeline.stages.every((stage) => stage.hotfix.id === 'editorial.empty_topic.autoplanning.v1'));
     assert.equal(card.editorial_pipeline.stages[2].policy.routing.sole_text_assembler, true);
     assert.equal(card.editorial_pipeline.stages[3].policy.routing.output, 'media_staging');
@@ -482,6 +494,18 @@ test('article_pipeline_trigger creates a platform card with the registered safe 
     assert.deepEqual(repeatedH1Allowed.structure_options.map((option) => option.h1),
       ['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']);
 
+    const reusedPrimaryProject = new DatabaseSync(projectDatabasePath);
+    const reusedPrimary = repeatedH1Allowed.structure_options[0];
+    try {
+      reusedPrimaryProject.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES ('reused-primary-topic',?,?)")
+        .run(reusedPrimary.primary_query, 'Другой самостоятельный интент');
+      reusedPrimaryProject.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('reused-primary-material','reused-primary-topic','Предыдущая самостоятельная тема','articles')").run();
+      reusedPrimaryProject.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES ('reused-primary-publication','reused-primary-material','Oborot.ru','published')").run();
+    } finally { reusedPrimaryProject.close(); }
+    const reusedPrimaryAllowed = compileContextPack(databasePath, { text: 'Напиши новую статью для Dzen', projectDatabasePath })
+      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
+    assert.ok(reusedPrimaryAllowed.structure_options.some((option) => option.primary_query === reusedPrimary.primary_query));
+
     const crossPlatformProject = new DatabaseSync(projectDatabasePath);
     const crossPlatformOption = repeatedH1Allowed.structure_options[1];
     try {
@@ -502,12 +526,28 @@ test('article_pipeline_trigger creates a platform card with the registered safe 
       duplicateProject.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES ('duplicate-topic',?,?)")
         .run(duplicate.primary_query, duplicate.user_intent);
       duplicateProject.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('duplicate-material','duplicate-topic',?,'articles')")
-        .run(duplicate.content_signature);
+        .run(duplicate.title);
       duplicateProject.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES ('duplicate-publication','duplicate-material','Oborot.ru','published')").run();
     } finally { duplicateProject.close(); }
     const withoutActualDuplicate = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
       .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
     assert.equal(withoutActualDuplicate.structure_options.some((option) => option.primary_query === crossPlatformAllowed.structure_options[0].primary_query), false);
+
+    const reorderedProject = new DatabaseSync(projectDatabasePath);
+    try {
+      const original = JSON.parse(dataJson);
+      const taxonomy = Object.fromEntries(Object.entries(original.taxonomy).reverse()
+        .map(([cluster, queries]) => [cluster, [...queries].reverse()]));
+      reorderedProject.prepare("UPDATE memory_candidates SET data_json=? WHERE id='fixture-semantic-core'")
+        .run(JSON.stringify({ ...original, taxonomy }));
+    } finally { reorderedProject.close(); }
+    const reordered = compileContextPack(databasePath, { text: 'Напиши новую статью для Timeweb Cloud', projectDatabasePath })
+      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
+    assert.deepEqual(reordered.structure_options.map((option) => ({
+      h1: option.h1, primary_query: option.primary_query, selected_cluster: option.selected_cluster,
+    })), card.editorial_pipeline.empty_topic_planner_assignment.structure_options.map((option) => ({
+      h1: option.h1, primary_query: option.primary_query, selected_cluster: option.selected_cluster,
+    })));
 
     const project = new DatabaseSync(projectDatabasePath);
     try {
