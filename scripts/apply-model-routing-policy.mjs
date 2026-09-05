@@ -9,7 +9,7 @@ const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.
 const decisionPath = 'knowledge/decisions/model-routing-policy-2026-08-13.md';
 const owner = 'owner';
 const reviewedAt = '2026-09-05T00:00:00.000Z';
-const revision = 6;
+const revision = 7;
 
 function stableUuid(key) {
   const hex = createHash('sha256').update(`metrichit-model-routing:${key}`).digest('hex');
@@ -79,7 +79,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
     },
     standard_model: 'GPT-5.6 Terra / Medium',
     revision,
-    supersedes: 'ai.model_routing_policy revision 5',
+    supersedes: 'ai.model_routing_policy revision 6',
     evidence: { path: decisionPath },
   });
 
@@ -93,6 +93,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
       stableUuid('candidate:ai.model_routing_policy'),
       stableUuid('candidate:ai.model_routing_policy:4'),
       stableUuid('candidate:ai.model_routing_policy:5'),
+      stableUuid('candidate:ai.model_routing_policy:6'),
     ]);
     const competing = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key='ai.model_routing_policy' AND status IN ('pending','approved') AND id<>?").all(candidateId)
       .filter((row) => !(row.status === 'approved' && approvedLineage.has(row.id)));
@@ -125,7 +126,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
         SET status = 'approved', reviewed_by = ?, reviewed_at = ?,
             review_note = ?, updated_at = ?, version = version + 1
         WHERE id = ?
-      `).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 05.09.2026; заменяет редакцию 5, закрепляет критерии Terra/Luna/Sol и отдельное решение для Astra.', reviewedAt, candidateId);
+      `).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 05.09.2026; редакция 7 сохраняет поведение моделей и план, добавляет только неутверждённую точную proposal первого этапа.', reviewedAt, candidateId);
     }
     assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(candidateId), {
       type: 'ai_policy', semantic_key: 'ai.model_routing_policy', title,

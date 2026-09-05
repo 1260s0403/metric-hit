@@ -3,7 +3,7 @@
 ## Сила контракта
 
 - Этот файл задаёт роли, запреты и owner-gates. Обязательные процедуры и проверки находятся в `documents/operating-context.md`, scoped memory и execution card — в `documents/structured-memory.md`, статус — в `documents/roadmap.md`. Они действуют вместе; нижний scope не может ослабить запрет «Ядра».
-- Approved memory выше предположений. Работать только в `C:\MetricHit\workspace`; клиентские данные в repository не хранить.
+- Approved memory выше предположений. Canonical primary workspace остаётся `C:\MetricHit\workspace`. Исполнительские директории допускаются только в зарегистрированных неканонических Git worktree этого же репозитория внутри `C:\MetricHit\worktrees`, после штатной проверки регистрации, branch, HEAD, clean state и отсутствия конфликтующего lease. Это не самостоятельные клоны, не новый primary workspace и не разрешение на другие соседние каталоги или глобальные настройки. Продолжение той же линии переиспользует подходящий чистый зарегистрированный worktree штатным workflow; новый чат или повтор начатой задачи сами по себе не основание создавать ещё одну рабочую копию. Managed sandbox и owner-gates сохраняются. Клиентские данные в repository не хранить.
 
 ## Startup
 

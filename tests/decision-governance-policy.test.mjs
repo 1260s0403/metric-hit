@@ -113,7 +113,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.implementation_authorization.second_owner_lifecycle_command_required, false);
       assert.equal(data.implementation_authorization.executor_claims_internal_handoff_and_lease, true);
       assert.equal(data.implementation_authorization.missing_initial_handoff_is_blocker, false);
-      assert.deepEqual(data.implementation_authorization.finish_task_command, { meaning: 'prepare_for_manual_new_chat', completes_pending_result_first: true, cli: 'chat-finish', delivered_context_pack_required: true, preserves_old_chat: true, output: 'single_inline_code_scoped_startup_command_only' });
+      assert.deepEqual(data.implementation_authorization.finish_task_command, { meaning: 'prepare_for_manual_new_chat', completes_pending_result_first: true, cli: 'chat-finish', delivered_context_pack_required: true, preserves_old_chat: true, output: 'single_fenced_text_scoped_startup_command_only' });
       assert.deepEqual(data.implementation_authorization.separate_owner_decision_required_for, ['deletion', 'force_operations', 'external_publication', 'spending', 'access_or_permission_changes', 'strategy_changes', 'memory_policy_changes', 'settings_or_global_system_changes', 'material_scope_expansion']);
       assert.equal(data.implementation_authorization.managed_sandbox_prompts_removable, false);
       assert.deepEqual(data.owner_gates_preserved, ['deletion', 'force_operations', 'access_changes', 'publication', 'spending', 'strategy_changes', 'memory_changes', 'settings_changes', 'other_dangerous_actions']);
@@ -121,7 +121,8 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 21);
+      assert.equal(operations.revision, 22);
+      assert.deepEqual(operations.execution_workspace_boundary, { root: 'C:\\MetricHit\\worktrees', registered_same_repository_only: true, verify: ['registration', 'branch', 'head', 'clean_state', 'no_conflicting_lease'], reuse_same_line: true, new_chat_alone_requires_new_worktree: false, independent_clones_allowed: false, global_settings_changed: false });
       assert.equal(operations.startup_surface.agents_is_compact_contract, true);
       assert.equal(operations.startup_surface.safety_gates_preserved, true);
       assert.deepEqual(operations.context_routing_target.hierarchy, ['core', 'project', 'subproject', 'task']);
@@ -206,7 +207,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_writer_thread_requires_wait_or_owner_explicit_cancellation, false);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 34);
+      assert.equal(data.revision, 35);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();
