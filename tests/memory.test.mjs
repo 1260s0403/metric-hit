@@ -886,21 +886,19 @@ test('model routing decision is repeatable and creates an approved policy', (t) 
   database.close();
   assert.equal(policy.status, 'approved');
   assert.equal(policy.reviewed_by, 'owner');
-  assert.equal(policy.reviewed_at, '2026-08-26T00:00:00.000Z');
-  assert.equal(JSON.parse(policy.data_json).default_model, 'GPT-5.6 Terra');
-  assert.deepEqual(JSON.parse(policy.data_json).spark_for, [
-    'isolated_ui_fixes', 'css', 'interface_copy', 'narrow_fixes', 'documentation', 'short_test_cycles',
-  ]);
-  assert.equal(JSON.parse(policy.data_json).fast_path_model, 'fastest_available_compatible_approved');
-  assert.equal(JSON.parse(policy.data_json).fast_path_owner_confirmation_required, false);
-  assert.equal(JSON.parse(policy.data_json).fast_path_unavailable_blocks, false);
-  assert.equal(JSON.parse(policy.data_json).owner_visible_strategy_model_changes_automatically, false);
-  assert.equal(JSON.parse(policy.data_json).reclassify_before_each_new_task, true);
-  assert.equal(JSON.parse(policy.data_json).special_model_approval_carries_to_next_task, false);
-  assert.equal(JSON.parse(policy.data_json).engineering_task_thread_must_verify_actual_model_on_start, true);
-  assert.equal(JSON.parse(policy.data_json).special_model_mismatch_blocks_critical_actions, true);
-  assert.equal(JSON.parse(policy.data_json).special_model_mismatch_action, 'pause_and_request_owner_model_switch');
-  assert.equal(JSON.parse(policy.data_json).after_special_model_switch, 'continue_current_state_without_rollback_new_thread_or_restart');
+  assert.equal(policy.reviewed_at, '2026-09-05T00:00:00.000Z');
+  const policyData = JSON.parse(policy.data_json);
+  assert.equal(policyData.default_model, 'GPT-5.6 Terra / Medium');
+  assert.equal(policyData.strategy_recommendation, 'GPT-5.6 Terra / Medium');
+  assert.equal(policyData.owner_visible_strategy_model_changes_automatically, false);
+  assert.deepEqual(policyData.luna.requires, ['fully_defined_mechanical_task', 'explicit_scope', 'low_risk', 'simple_targeted_verification']);
+  assert.deepEqual(policyData.sol.roles, ['sole_writer', 'justified_independent_reviewer']);
+  assert.equal(policyData.luna_unavailable, 'fallback_to_GPT-5.6_Terra_Medium_without_blocker');
+  assert.equal(policyData.required_sol_unavailable, 'technical_blocker_no_silent_downgrade');
+  assert.equal(policyData.astra.owner_decision_required, true);
+  assert.equal(policyData.automatic_model_chain, false);
+  assert.equal(policyData.mandatory_luna_review, false);
+  assert.equal(policyData.future_agents_md_plan.status, 'approved_plan_pending_separate_implementation');
 });
 
 test('server primary workspace decision is repeatable and records approved context', (t) => {
@@ -1457,7 +1455,7 @@ test('current context export separates approved memory from open tasks', (t) => 
 
   const result = exportCurrentContext(databasePath, outputPath, '2026-08-13T12:00:00.000Z');
   assert.match(result.content, /# MetricHit — текущий рабочий контекст/);
-  assert.match(result.content, /GPT-5\.6 Terra/);
+  assert.match(result.content, /Terra Medium рекомендована/);
   assert.match(result.content, /накрутки и улучшения поведенческих факторов/);
   assert.doesNotMatch(result.content, /Не давать недоказуемых гарантий/);
   assert.match(result.content, /## Открытые задачи и планы/);

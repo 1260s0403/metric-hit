@@ -42,6 +42,10 @@
 
 ## Следующие этапы
 
+### План — ускорение Strategy и точечная доработка AGENTS.md
+
+Утверждён полный восьмишаговый план в `knowledge/decisions/model-routing-policy-2026-08-13.md`. Сначала подготовить и сверить точную редакцию `AGENTS.md`, затем проверить её на 2–3 реальных медленных задачах и исправить только подтверждённые инструкции или workflows. План не меняет действующие lifecycle-правила сам по себе. Отдельный backlog: расхождение между доказанным путём изолированного worktree и контрактной границей; применённое для этой задачи исключение не является глобальным правилом.
+
 ### Завершено — orchestration v1, пилот «MetricHit → Редакция»
 
 Реализован минимальный orchestration-контур поверх structured memory и HandoffStore без новой schema или сервиса. Strategy маршрутизирует задачу во временный read-only coordinator profile `metrichit.editorial.v1`; compiler ограничивает context цепочкой `Ядро → MetricHit → Редакция → задача`. Coordinator создаёт одну child execution card одному writer-у, выбирает skills из task-type allowlist, допускает до трёх read-only research/audit веток и выполняет предметную approve/reject-проверку. Handoff fail-closed enforce ownership, depth=2, lifecycle, повторную сдачу после reject, последовательную integration и Strategy completion только с закрытым parent pack и clean-delivery evidence. Глобальный предел четырёх writer leases и прежние resource/stale-base правила сохранены. Реальная редакционная задача в ходе внедрения не запускалась. UI, daemon, scheduler, API и автономная production-редакция остаются на паузе.

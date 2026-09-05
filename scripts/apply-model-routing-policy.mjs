@@ -8,8 +8,8 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/model-routing-policy-2026-08-13.md';
 const owner = 'owner';
-const reviewedAt = '2026-08-26T00:00:00.000Z';
-const revision = 5;
+const reviewedAt = '2026-09-05T00:00:00.000Z';
+const revision = 6;
 
 function stableUuid(key) {
   const hex = createHash('sha256').update(`metrichit-model-routing:${key}`).digest('hex');
@@ -33,39 +33,53 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
     sha256: createHash('sha256').update(bytes).digest('hex'),
     encoding: 'utf-8',
     authority: 'direct_owner_confirmation',
-    decision_date: '2026-08-15',
+    decision_date: '2026-09-05',
   });
   const sourceId = stableUuid(`source:${decisionPath}:${revision}`);
   const documentId = stableUuid(`document:${decisionPath}:${revision}`);
   const versionId = stableUuid(`document-version:${decisionPath}:${revision}`);
   const candidateId = stableUuid(`candidate:ai.model_routing_policy:${revision}`);
   const title = 'Политика выбора модели Codex';
-  const candidateContent = 'Стандартные задачи выполняются внутренним executor на GPT-5.6 Terra, reasoning Medium. Fast-path задачи автоматически используют самую быструю доступную совместимую одобренную модель без отдельного вопроса владельцу; если она недоступна, executor без blocker использует Terra Medium. Маршрутизация применяется только к внутреннему executor там, где платформа позволяет выбрать модель, и не меняет owner-visible Strategy-модель. Быстрая модель не используется для архитектуры, SQLite-схем, бизнес-логики, авторизации, security, backup/restore, миграций и больших сквозных модулей. Для сложной архитектуры, security и особо ответственных задач требуется GPT-5.6 Sol; для массовой однотипной обработки — GPT-5.6 Luna. Sol и Luna используются только после подтверждения владельца; разрешение действует только для конкретной задачи либо явно непрерывного этапа и не переносится автоматически. Task-thread сверяет фактическую модель с требуемой; mismatch блокирует критические действия только для обязательных Sol/Luna. После подтверждённого переключения thread продолжает с текущего состояния без отката, нового thread или перезапуска.';
+  const candidateContent = 'Terra Medium рекомендована для обычного Strategy и standard executor-задач, но не меняет автоматически owner-selected модель чата или глобальные настройки. Luna используется для полностью определённой механической low-risk задачи в явном scope с простой целевой проверкой; при её недоступности допустим fallback на Terra Medium без blocker. Terra используется для обычной локальной реализации с самостоятельным выбором решения внутри scope. Sol используется для фактической complex architecture, security/auth, schema/data integrity, shared runtime или существенной неоднозначности как единственный writer либо обоснованный независимый reviewer; когда Sol требуется для такого этапа и недоступна, это технический blocker без молчаливого downgrade. Критерии Luna/Sol действуют постоянно и не требуют отдельного вопроса на каждую задачу; один набор изменений сохраняет одного writer, автоматической цепочки моделей и обязательного review Luna нет. Astra применяется только по отдельному прямому решению владельца. Проверки зависят от изменения, а не модели; внешние owner-gates, editorial profile approvals и production pause сохранены. Полный восьмишаговый план будущей доработки AGENTS.md сохранён в исходном документе политики; он является планом, а не преждевременным изменением lifecycle-правил.';
   const candidateData = JSON.stringify({
-    default_model: 'GPT-5.6 Terra',
+    default_model: 'GPT-5.6 Terra / Medium',
     default_reasoning: 'Medium',
-    fast_path_model: 'fastest_available_compatible_approved',
-    fast_path_owner_confirmation_required: false,
-    fast_path_fallback: 'GPT-5.6 Terra / Medium',
-    fast_path_unavailable_blocks: false,
     routing_scope: 'internal_executor_where_platform_supports_model_selection',
     owner_visible_strategy_model_changes_automatically: false,
-    spark_for: ['isolated_ui_fixes', 'css', 'interface_copy', 'narrow_fixes', 'documentation', 'short_test_cycles'],
-    spark_excluded_for: ['architecture', 'sqlite_schema', 'business_logic', 'authorization', 'security', 'backup_restore', 'migrations', 'large_end_to_end_modules'],
-    sol_for: ['complex_architecture', 'security_critical', 'high_responsibility'],
-    luna_for: ['bulk_classification', 'bulk_extraction', 'large_homogeneous_processing', 'background_operations'],
-    special_model_owner_confirmation_required: true,
+    strategy_recommendation: 'GPT-5.6 Terra / Medium',
+    luna: {
+      standing_approval: true,
+      requires: ['fully_defined_mechanical_task', 'explicit_scope', 'low_risk', 'simple_targeted_verification'],
+      excludes: ['architecture_choice', 'ambiguous_requirements'],
+      on_ambiguity: 'route_with_collected_facts_to_terra_or_sol',
+    },
+    terra: { use_for: ['standard_local_implementation', 'ordinary_technical_judgment_within_scope'] },
+    sol: {
+      standing_approval: true,
+      use_for: ['complex_architecture', 'security_or_auth', 'schema_or_data_integrity', 'shared_runtime', 'material_ambiguity'],
+      roles: ['sole_writer', 'justified_independent_reviewer'],
+    },
+    astra: { owner_decision_required: true, automatic_selection: false },
+    automatic_model_chain: false,
+    mandatory_luna_review: false,
     reclassify_before_each_new_task: true,
-    special_model_approval_scope: 'task_or_explicit_continuous_stage_only',
-    special_model_approval_carries_to_next_task: false,
-    engineering_task_thread_must_verify_actual_model_on_start: true,
-    special_model_mismatch_blocks_critical_actions: true,
-    ordinary_fast_path_mismatch_blocks: false,
-    special_model_mismatch_action: 'pause_and_request_owner_model_switch',
-    after_special_model_switch: 'continue_current_state_without_rollback_new_thread_or_restart',
+    actual_model_verification: 'when_platform_supports_selection_before_critical_actions',
+    luna_unavailable: 'fallback_to_GPT-5.6_Terra_Medium_without_blocker',
+    required_sol_unavailable: 'technical_blocker_no_silent_downgrade',
+    handoff_between_models: 'preserve_facts_diff_and_completed_checks',
+    checks_depend_on: 'actual_change_not_model',
+    owner_gates_preserved: ['external_publication', 'spending', 'access_changes', 'deletion'],
+    editorial_profile_approvals_preserved: true,
+    production_pause_preserved: true,
+    future_agents_md_plan: {
+      status: 'approved_plan_pending_separate_implementation',
+      source_path: decisionPath,
+      steps: 8,
+      changes_lifecycle_automatically: false,
+    },
     standard_model: 'GPT-5.6 Terra / Medium',
     revision,
-    supersedes: 'ai.model_routing_policy revision 4',
+    supersedes: 'ai.model_routing_policy revision 5',
     evidence: { path: decisionPath },
   });
 
@@ -78,6 +92,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
       stableUuid('candidate:ai.model_routing_policy:3'),
       stableUuid('candidate:ai.model_routing_policy'),
       stableUuid('candidate:ai.model_routing_policy:4'),
+      stableUuid('candidate:ai.model_routing_policy:5'),
     ]);
     const competing = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key='ai.model_routing_policy' AND status IN ('pending','approved') AND id<>?").all(candidateId)
       .filter((row) => !(row.status === 'approved' && approvedLineage.has(row.id)));
@@ -85,22 +100,22 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
     created.sources += Number(database.prepare(`
       INSERT OR IGNORE INTO sources
         (id, type, title, content, data_json, status, author, valid_at, access_level)
-      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-08-15', 'internal')
+      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, '2026-09-05', 'internal')
     `).run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);
     created.documents += Number(database.prepare(`
       INSERT OR IGNORE INTO documents
         (id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
-      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-15', 'internal', 1)
+      VALUES (?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-09-05', 'internal', 1)
     `).run(documentId, title, content, metadata, sourceId, owner).changes);
     created.versions += Number(database.prepare(`
       INSERT OR IGNORE INTO document_versions
         (id, document_id, type, title, content, data_json, status, source_id, author, valid_at, access_level, version)
-      VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-08-15', 'internal', 2)
+      VALUES (?, ?, 'owner_decision', ?, ?, ?, 'active', ?, ?, '2026-09-05', 'internal', 2)
     `).run(versionId, documentId, title, content, metadata, sourceId, owner).changes);
     created.candidates += Number(database.prepare(`
       INSERT OR IGNORE INTO memory_candidates
         (id, type, semantic_key, title, content, data_json, status, source_id, author, valid_at, access_level, version)
-      VALUES (?, 'ai_policy', 'ai.model_routing_policy', ?, ?, ?, 'pending', ?, ?, '2026-08-15', 'internal', 1)
+      VALUES (?, 'ai_policy', 'ai.model_routing_policy', ?, ?, ?, 'pending', ?, ?, '2026-09-05', 'internal', 1)
     `).run(candidateId, title, candidateContent, candidateData, sourceId, owner).changes);
 
     const candidate = database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(candidateId);
@@ -110,7 +125,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
         SET status = 'approved', reviewed_by = ?, reviewed_at = ?,
             review_note = ?, updated_at = ?, version = version + 1
         WHERE id = ?
-      `).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 26.08.2026; заменяет редакцию 4 и ускоряет fast-path routing без ослабления Sol/Luna gates.', reviewedAt, candidateId);
+      `).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 05.09.2026; заменяет редакцию 5, закрепляет критерии Terra/Luna/Sol и отдельное решение для Astra.', reviewedAt, candidateId);
     }
     assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(candidateId), {
       type: 'ai_policy', semantic_key: 'ai.model_routing_policy', title,

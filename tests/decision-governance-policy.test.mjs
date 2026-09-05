@@ -241,7 +241,9 @@ test('canonical workflow documents preserve the small-change fast path and sandb
   assert.doesNotMatch(roadmap, /режиме Full access \+ Never ask/);
   assert.match(operating, /Карта быстрых целевых проверок/);
   assert.match(operating, /test_operator_panel_e2e\.py/);
-  assert.match(agents, /самую быструю доступную совместимую/);
+  assert.match(agents, /Terra Medium — рекомендуемая модель/);
+  assert.match(agents, /при её недоступности применяется Terra Medium без blocker/);
+  assert.match(agents, /Sol обязательна.*технический blocker/);
   assert.match(agents, /owner-facing порт/);
   for (const document of [agents, decision, operating]) assert.match(document, /(?:multi-agent|read-only pilot|Контролируемый pilot)/i);
   assert.match(agents, /текущем чате с владельцем/);
