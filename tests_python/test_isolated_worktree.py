@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import subprocess
+import shutil
 from pathlib import Path
 
 import pytest
@@ -42,6 +43,26 @@ def test_prepare_fast_forwards_clean_stale_worktree_to_canonical_head(tmp_path: 
     assert refreshed["head"] == subprocess.run(
         ["git", "-C", str(canonical), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
     ).stdout.strip()
+
+
+def test_prepare_prunes_a_registered_missing_target_and_retries(tmp_path: Path) -> None:
+    canonical, root = repo(tmp_path)
+    service = IsolatedWorktree(canonical, root)
+    first = service.prepare(scope_key="scope:editorial", branch="codex/editorial")
+    target = Path(first["execution_worktree"])
+    shutil.rmtree(target)
+
+    registered = subprocess.run(
+        ["git", "-C", str(canonical), "worktree", "list", "--porcelain"],
+        check=True, capture_output=True, text=True,
+    ).stdout
+    assert target.name in registered
+    assert "prunable" in registered
+
+    recovered = service.prepare(scope_key="scope:editorial", branch="codex/editorial")
+    assert recovered["execution_worktree"] == str(target)
+    assert target.is_dir()
+    assert service.verify(target, "codex/editorial", recovered["head"]) == recovered
 
 
 def test_prepare_refuses_existing_unregistered_target_and_branch_collision(tmp_path: Path) -> None:

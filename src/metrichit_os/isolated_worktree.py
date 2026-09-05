@@ -89,7 +89,19 @@ class IsolatedWorktree:
         existing = next((item for item in registered if _same(Path(item["worktree"]), target)), None)
         expected_ref = f"refs/heads/{branch}"
         if existing is not None:
-            return self.refresh(target, branch)
+            # Git retains a worktree registration when its directory disappears
+            # outside this process.  It cannot be refreshed, and its branch is
+            # still considered checked out until the stale registration is
+            # pruned.  Prune only this already-missing target, then continue
+            # through the ordinary add-and-verify path.
+            if not target.is_dir():
+                _git(self.canonical, "worktree", "prune")
+                registered = _worktrees(self.canonical)
+                existing = next((item for item in registered if _same(Path(item["worktree"]), target)), None)
+                if existing is not None:
+                    raise KnowledgeError("managed worktree target is registered but unavailable")
+            else:
+                return self.refresh(target, branch)
         if target.exists():
             raise KnowledgeError("managed worktree target already exists but is not registered by Git")
         if any(item.get("branch") == expected_ref for item in registered):
