@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
@@ -139,7 +139,10 @@ function referenceFixture() {
   project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status,reviewed_at)
     VALUES (?,?,?,?,?,'approved',?)`).run('fixture-semantic-core', 'content.metrichit_semantic_core',
       'Fixture semantic core', content, dataJson, '2026-09-04T00:00:00.000Z');
-  project.exec(readFileSync(resolve('data/project-migrations/editorial/007_editorial_agent_pipeline.sql'), 'utf8'));
+  for (const file of readdirSync(resolve('data/project-migrations/editorial'))
+    .filter((name) => /^(?:007|008)_.*\.sql$/u.test(name)).sort()) {
+    project.exec(readFileSync(resolve('data/project-migrations/editorial', file), 'utf8'));
+  }
   project.close();
 
   const control = new DatabaseSync(result.databasePath);
@@ -402,7 +405,7 @@ test('P3: router asks one question for material ambiguity and audit stores no pr
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('article_pipeline_trigger creates a platform card and launches Migration 007 sequentially', () => {
+test('article_pipeline_trigger creates a platform card with the registered safe parallel routing', () => {
   const { directory, databasePath, projectDatabasePath, dataJson } = referenceFixture();
   try {
     const compiled = compileContextPack(databasePath, {
@@ -418,7 +421,12 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
     assert.equal(card.scope[0], 'work/articles');
     assert.equal(card.editorial_pipeline.pipeline_id, 'metrichit.editorial.pipeline.v1');
     assert.equal(card.editorial_pipeline.launch_directive, 'await_owner_structure_selection');
-    assert.equal(card.editorial_pipeline.execution_mode, 'isolated_sequential');
+    assert.equal(card.editorial_pipeline.execution_mode, 'isolated_dag');
+    assert.deepEqual(card.editorial_pipeline.routing, {
+      planning_package: ['planner', 'architect'], text_assembler: 'writer',
+      parallel_after_text: ['designer', 'validator'],
+      final_hashes_required_from: ['article_text', 'media_staging'],
+    });
     assert.deepEqual(card.editorial_pipeline.stages.map((stage) => stage.profile_id), [
       'metrichit.editorial.planner.v1',
       'metrichit.editorial.architect.v1',
@@ -441,6 +449,10 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
       allowedH1.has(option.h1) && option.title === option.h1
       && !/\b(?:руководство|диагностика|софт)\b/iu.test(option.h1)));
     assert.ok(card.editorial_pipeline.stages.every((stage) => stage.hotfix.id === 'editorial.empty_topic.autoplanning.v1'));
+    assert.equal(card.editorial_pipeline.stages[2].policy.routing.sole_text_assembler, true);
+    assert.equal(card.editorial_pipeline.stages[3].policy.routing.output, 'media_staging');
+    assert.equal(card.editorial_pipeline.stages[4].policy.routing.read_only, true);
+    assert.equal(card.editorial_pipeline.stages[4].policy.routing.final_hashes_required, true);
     assert.equal(card.editorial_semantics, null);
     assert.equal(card.delivery_qa, null);
 

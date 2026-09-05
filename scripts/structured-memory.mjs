@@ -38,6 +38,13 @@ const EDITORIAL_PIPELINE_STAGES = Object.freeze([
   ['metrichit.editorial.designer.v1', 'designer', 'image'],
   ['metrichit.editorial.validator.v1', 'validator', 'compliance-qa'],
 ]);
+const EDITORIAL_PIPELINE_MODE = 'isolated_dag';
+const EDITORIAL_PIPELINE_ROUTING = Object.freeze({
+  planning_package: Object.freeze(['planner', 'architect']),
+  text_assembler: 'writer',
+  parallel_after_text: Object.freeze(['designer', 'validator']),
+  final_hashes_required_from: Object.freeze(['article_text', 'media_staging']),
+});
 const ARTICLE_PIPELINE_TRIGGER = /^напиши\s+новую\s+статью\s+для\s+(.+?)\s*[.!?]?$/iu;
 const ARTICLE_REVISION_TRIGGER = /(?:последн\p{L}*\s+стать\p{L}*|стать\p{L}*\s+(?:доработ|исправ|обнов|замен)\p{L}*).*(?:картин|изображ|иллюстрац|доработ|исправ|обнов|замен)|(?:картин|изображ|иллюстрац|доработ|исправ|обнов|замен).*(?:последн\p{L}*\s+стать\p{L}*)/iu;
 const ARTICLE_ASSET_PATTERN = /work\/articles\/assets\/[A-Za-z0-9._/-]+\.(?:png|jpe?g|webp|gif|svg)/giu;
@@ -109,7 +116,7 @@ function loadEditorialPipeline(projectDatabasePath) {
   const database = open(resolve(projectDatabasePath), true);
   try {
     if (!hasTable(database, 'editorial_agent_profiles')) {
-      throw new Error('Migration 007 editorial agent profiles are unavailable');
+      throw new Error('Migration 008 editorial pipeline routing is unavailable');
     }
     const rows = database.prepare(`SELECT profile_id,pipeline_id,stage_order,stage_name,capability,
       profile_kind,isolation_key,execution_mode,policy_json,status
@@ -117,15 +124,31 @@ function loadEditorialPipeline(projectDatabasePath) {
     if (rows.length !== EDITORIAL_PIPELINE_STAGES.length || rows.some((row, index) => {
       const [profileId, stageName, capability] = EDITORIAL_PIPELINE_STAGES[index];
       return row.stage_order !== index + 1 || row.profile_id !== profileId || row.stage_name !== stageName
-        || row.capability !== capability || row.status !== 'active' || row.execution_mode !== 'isolated_sequential';
+        || row.capability !== capability || row.status !== 'active' || row.execution_mode !== EDITORIAL_PIPELINE_MODE;
     })) {
-      throw new Error('Migration 007 editorial pipeline is incomplete or inactive');
+      throw new Error('Migration 008 editorial pipeline is incomplete or inactive');
+    }
+    const policies = rows.map((row) => parseJson(row.policy_json, null));
+    const routing = policies.map((policy) => policy?.routing);
+    const planner = routing[0];
+    const architect = routing[1];
+    const writer = routing[2];
+    const designer = routing[3];
+    const validator = routing[4];
+    if (planner?.package !== 'planning' || planner?.owner_selection_gate !== true
+      || architect?.package !== 'planning' || architect?.depends_on !== 'owner_selected_structure'
+      || writer?.sole_text_assembler !== true
+      || designer?.output !== 'media_staging' || designer?.read_only !== false
+      || validator?.read_only !== true || validator?.parallel_after !== 'article_text'
+      || validator?.final_hashes_required !== true) {
+      throw new Error('Migration 008 editorial routing contract is incomplete');
     }
     return {
       pipeline_id: EDITORIAL_PIPELINE_ID,
-      migration: '007_editorial_agent_pipeline.sql',
-      execution_mode: 'isolated_sequential',
+      migration: '008_editorial_pipeline_parallel_routes.sql',
+      execution_mode: EDITORIAL_PIPELINE_MODE,
       launch_directive: 'start',
+      routing: EDITORIAL_PIPELINE_ROUTING,
       stages: rows.map((row) => ({
         order: row.stage_order, profile_id: row.profile_id, stage: row.stage_name,
         capability: row.capability, profile_kind: row.profile_kind, isolation_key: row.isolation_key,
