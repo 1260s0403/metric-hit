@@ -1,6 +1,12 @@
 {
   "id": "metrichit.editorial_contract.v1",
-  "revision": 1,
+  "revision": 2,
+  "lifecycle": {
+    "media_staging": "external_temporary_directory_until_artifact_qa",
+    "revision_card_identity": ["article", "action", "parent_result"],
+    "contract_revision": "pinned_while_open",
+    "finish_order": ["artifact_validation", "commit", "serialized_integration", "domain_reconciliation", "close_card", "clean_checkpoint"]
+  },
   "semantic_core": {
     "semantic_key": "content.metrichit_semantic_core",
     "keyword_count": 302,

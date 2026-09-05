@@ -54,6 +54,7 @@ test('valid real article and assets produce computed evidence', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'editorial-contract-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
   const drafts = join(directory, 'drafts'); const assets = join(directory, 'assets'); mkdirSync(drafts); mkdirSync(assets);
   const input = validInput(); const spec = compileEditorialSpec(input, core);
+  assert.equal(spec.contract_snapshot.revision, spec.contract_revision);
   writeFileSync(join(assets, 'preview.png'), png(100, 100));
   for (let index = 1; index <= 3; index += 1) writeFileSync(join(assets, `inline-${index}.png`), png(150, 100));
   const targetQueries = [input.primary_query, ...input.secondary_queries].join('. ');

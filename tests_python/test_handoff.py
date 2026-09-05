@@ -364,6 +364,34 @@ def test_parallel_v1_declared_writer_requires_integration_lease_before_completio
         store.complete(created["handoff_id"], "f" * 40, "writer-a")
 
 
+def test_editorial_articles_parallelize_by_exact_article_but_same_article_fails_closed(tmp_path):
+    store = HandoffStore(temporary_database(tmp_path))
+    first = store.create_approved(parallel_payload(
+        tmp_path, "article-a", paths=["work/articles/drafts/article-a.md", "work/articles/assets/article-a.png"],
+    ))
+    independent = store.create_approved(parallel_payload(
+        tmp_path, "article-b", paths=["work/articles/drafts/article-b.md", "work/articles/assets/article-b.png"],
+    ))
+    same_article = store.create_approved(parallel_payload(
+        tmp_path, "article-a-retry", paths=["work/articles/drafts/article-a.md"],
+    ))
+    assert store.claim(first["handoff_id"], "editorial-a")["status"] == "in_progress"
+    assert store.claim(independent["handoff_id"], "editorial-b")["status"] == "in_progress"
+    with pytest.raises(HandoffError, match="path resource overlap"):
+        store.claim(same_article["handoff_id"], "editorial-c")
+
+
+def test_editorial_shared_policy_change_remains_exclusive(tmp_path):
+    store = HandoffStore(temporary_database(tmp_path))
+    policy = store.create_approved(parallel_payload(tmp_path, "editorial-policy", shared=["policy"]))
+    article = store.create_approved(parallel_payload(
+        tmp_path, "article-independent", paths=["work/articles/drafts/article.md"],
+    ))
+    store.claim(article["handoff_id"], "editorial-writer")
+    with pytest.raises(HandoffError, match="exclusive core or shared resource"):
+        store.claim(policy["handoff_id"], "policy-writer")
+
+
 @pytest.mark.parametrize(("field", "message"), [("worktree", "distinct worktrees"), ("branch", "distinct branches")])
 def test_parallel_v1_requires_distinct_worktrees_and_branches(tmp_path, field, message):
     store = HandoffStore(temporary_database(tmp_path))

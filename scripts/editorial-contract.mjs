@@ -65,6 +65,7 @@ export function compileEditorialSpec(input, taxonomy) {
     || links.some((link, index) => link.url !== EDITORIAL_CONTRACT.article.landing_url || link.position !== EDITORIAL_CONTRACT.article.landing_link_positions[index])) contractError('links', 'distribution');
   validateVisuals(input.image_package, range, platform);
   const spec = { schema_version: 1, contract_id: EDITORIAL_CONTRACT.id, contract_revision: EDITORIAL_CONTRACT.revision,
+    contract_snapshot: structuredClone(EDITORIAL_CONTRACT),
     status: 'valid', pre_generation_gate: 'passed', platform, format: 'article', character_range: range,
     h1_allowlist: [...EDITORIAL_CONTRACT.h1.approved_forms], selected_h1: selectedH1,
     primary_query: input.primary_query, secondary_queries: [...input.secondary_queries], selected_clusters: [...input.selected_clusters],
@@ -94,6 +95,10 @@ const occurrences = (value, needle) => normalized(value).split(normalized(needle
 
 export function validateEditorialArtifact(spec, { article_path, source_paths = [] }) {
   if (spec?.status !== 'valid' || spec?.pre_generation_gate !== 'passed') throw new Error('editorial_artifact_invalid:spec_not_valid');
+  const pinnedContract = spec.contract_snapshot ?? EDITORIAL_CONTRACT;
+  if (pinnedContract.id !== spec.contract_id || pinnedContract.revision !== spec.contract_revision) {
+    throw new Error('editorial_artifact_invalid:contract_pin');
+  }
   const articlePath = resolve(article_path);
   if (!existsSync(articlePath)) throw new Error('editorial_artifact_invalid:article_missing');
   const article = readFileSync(articlePath, 'utf8');
@@ -124,7 +129,7 @@ export function validateEditorialArtifact(spec, { article_path, source_paths = [
   return { computed: true, passed: true, contract_id: spec.contract_id, article_path: articlePath, content_sha256: createHash('sha256').update(article).digest('hex'),
     h1: { heading: h1, matched_query: h1 }, character_count: characterCount,
     target_queries: queries.map((query) => ({ query, occurrences: occurrences(bodyWithoutUrls, query) })),
-    lsi: spec.lsi.map((item) => ({ ...item, found: true })), links: { url: EDITORIAL_CONTRACT.article.landing_url, exact_count: urls.length, positions: spec.links.map((link) => link.position) },
+    lsi: spec.lsi.map((item) => ({ ...item, found: true })), links: { url: pinnedContract.article.landing_url, exact_count: urls.length, positions: spec.links.map((link) => link.position) },
     visuals: { count: assets.length, screenshots_prohibited: true, semantic_mapping: true, diversity: true, assets },
     originality: { method: 'local_deterministic_source_overlap', content_sha256: createHash('sha256').update(article).digest('hex'), compared_sources: comparedSources,
       max_overlap_percent: comparedSources.length ? Math.max(...comparedSources.map((item) => item.overlap_percent)) : 0, template_match: false } };

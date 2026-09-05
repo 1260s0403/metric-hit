@@ -5,6 +5,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { performance } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { EDITORIAL_CONTRACT, compileEditorialSpec, validateEditorialArtifact } from './editorial-contract.mjs';
+import { editorialContractPin, editorialRevisionCardIdentity, migrateEditorialCardToLatest } from './editorial-lifecycle.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
@@ -802,6 +803,23 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy, edito
   const editorialSemantics = pipelineTrigger ? null : editorialSemanticsFromBrief(taskBrief, rules, semanticCoreTaxonomy);
   const editorialIndexation = pipelineTrigger ? null : editorialIndexationFromBrief(taskBrief, rules);
   const publicationReconciliation = publicationReconciliationFromBrief(taskBrief, route);
+  const articlePath = scope.find((path) => /^work\/articles\/(?:drafts|published)\/.+\.md$/iu.test(path))
+    ?? route.articleRevisionContext?.article_path ?? null;
+  const parentResult = route.articleRevisionContext?.source_context_pack_id
+    ?? (articlePath ? nonEmptyText(taskBrief.parentResult) ?? nonEmptyText(taskBrief.result) : null);
+  const editorialLifecycle = articlePath ? {
+    card_identity: editorialRevisionCardIdentity({ article: articlePath,
+      action: route.articleRevisionContext ? 'revision' : 'create', parent_result: parentResult }),
+    article_path: articlePath,
+    action: route.articleRevisionContext ? 'revision' : 'create',
+    parent_result: parentResult,
+    article_commit: nonEmptyText(taskBrief.articleCommit),
+    article_content_sha256: existsSync(resolve(repositoryRoot, articlePath))
+      ? hash(readFileSync(resolve(repositoryRoot, articlePath))) : null,
+    contract_pin: editorialContractPin(),
+    contract_snapshot: structuredClone(EDITORIAL_CONTRACT),
+    media_staging: 'external_temporary_directory_until_artifact_qa',
+  } : null;
   const card = {
     result: nonEmptyText(taskBrief.result),
     scope,
@@ -815,6 +833,7 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy, edito
     editorial_semantics: editorialSemantics,
     editorial_indexation: editorialIndexation,
     editorial_revision: route.articleRevisionContext ?? null,
+    editorial_lifecycle: editorialLifecycle,
     editorial_visual_package: editorialVisualPackage(rules, editorialSemantics, editorialPipeline, route),
     editorial_spec: editorialPipeline?.editorial_spec ?? null,
     publication_reconciliation: publicationReconciliation,
@@ -1234,6 +1253,18 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
         request.explicitScopeId ?? null);
       throw error;
     }
+    const identity = payload.execution_card.editorial_lifecycle?.card_identity;
+    if (identity) {
+      for (const row of database.prepare("SELECT * FROM context_packs WHERE status='open' ORDER BY created_at DESC,id DESC").all()) {
+        const existingPayload = parseJson(row.payload_json, null);
+        if (existingPayload?.execution_card?.editorial_lifecycle?.card_identity === identity) {
+          writeAudit(database, { ...route, signals: [...route.signals, 'editorial_card_reused'] }, row.id,
+            request.explicitScopeId ?? null);
+          return { route, pack: { id: row.id, input_hash: row.input_hash, compiled_bytes: row.compiled_bytes,
+            status: row.status, payload: existingPayload, reused: true } };
+        }
+      }
+    }
     const serialized = canonical(payload);
     const pack = { id: randomUUID(), input_hash: hash(canonical({ scopeId: route.scopeId, taskType: route.taskType, includeHistory: Boolean(request.includeHistory), includeReferencedContent: Boolean(request.includeReferencedContent), taskBrief, coordinatorProfileId: request.coordinatorProfile?.id ?? null })), compiled_bytes: Buffer.byteLength(serialized) };
     database.prepare(`INSERT INTO context_packs
@@ -1242,6 +1273,28 @@ export function compileContextPack(databasePath = defaultDatabasePath, request =
         pack.input_hash, serialized, pack.compiled_bytes, now());
     writeAudit(database, route, pack.id, request.explicitScopeId ?? null);
     return { route, pack: { ...pack, status: 'open', payload } };
+  } finally { database.close(); }
+}
+
+export function migrateContextPackEditorialContract(databasePath = defaultDatabasePath, packId, evidence = {}) {
+  const database = open(resolve(databasePath));
+  database.exec('BEGIN IMMEDIATE');
+  try {
+    const row = database.prepare('SELECT * FROM context_packs WHERE id=?').get(packId);
+    if (!row || row.status !== 'open') throw new Error('editorial_lifecycle_blocked:open_card_required');
+    const payload = parseJson(row.payload_json, null);
+    const migratedCard = migrateEditorialCardToLatest(payload?.execution_card, evidence);
+    const migratedPayload = { ...payload, execution_card: migratedCard,
+      execution_card_hash: hash(canonical(migratedCard)) };
+    const serialized = canonical(migratedPayload);
+    database.prepare('UPDATE context_packs SET payload_json=?,compiled_bytes=? WHERE id=? AND status=\'open\'')
+      .run(serialized, Buffer.byteLength(serialized), packId);
+    database.exec('COMMIT');
+    return { id: packId, status: 'open', changed: true,
+      contract_pin: migratedCard.editorial_lifecycle.contract_pin };
+  } catch (error) {
+    database.exec('ROLLBACK');
+    throw error;
   } finally { database.close(); }
 }
 
@@ -1469,6 +1522,10 @@ if (isMainModule()) {
       contentQa: jsonObjectArgument(args['content-qa']),
       artifact: jsonObjectArgument(args.artifact),
     }), null, 2));
-    else throw new Error('Usage: structured-memory.mjs <baseline|compile|close> [--db path]');
+    else if (args.command === 'migrate-contract') console.log(JSON.stringify(migrateContextPackEditorialContract(
+      databasePath, args.id, { article_path: args['article-path'], article_commit: args['article-commit'],
+        article_content_sha256: args['content-sha256'] },
+    ), null, 2));
+    else throw new Error('Usage: structured-memory.mjs <baseline|compile|close|migrate-contract> [--db path]');
   } catch (error) { console.error(`structured-memory: ${error.message}`); process.exitCode = 1; }
 }
