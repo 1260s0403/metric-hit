@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -142,7 +143,7 @@ export function migrateEditorialCardToLatest(card, {
 }
 
 export async function finishEditorialScope({ owner_command, validate, commit, integrate, reconcile, close, checkpoint,
-  staging = null, completedStages = null }) {
+  staging = null }) {
   if (owner_command !== 'Заверши задачу.') throw new Error('editorial_finish_blocked:owner_command');
   if (staging && readManifest(staging).status !== 'promoted_after_qa') {
     const blocker = { stage: 'artifact_validation', message: 'editorial_lifecycle_blocked:assets_not_promoted' };
@@ -155,10 +156,10 @@ export async function finishEditorialScope({ owner_command, validate, commit, in
     ['artifact_validation', validate], ['commit', commit], ['serialized_integration', integrate],
     ['domain_reconciliation', reconcile], ['close_card', close], ['clean_checkpoint', checkpoint],
   ];
-  const evidence = {};
+  const evidence = staging ? { ...(readManifest(staging).finish?.evidence ?? {}) } : {};
   for (const [stage, operation] of steps) {
     try {
-      const result = completedStages ? completedStages[stage] : await operation(evidence);
+      const result = evidence[stage] ?? await operation(evidence);
       if (!result || result.passed === false || result.status === 'blocked') throw new Error(result?.blocker ?? 'stage_failed');
       evidence[stage] = result;
       if (staging) {
@@ -181,6 +182,219 @@ export async function finishEditorialScope({ owner_command, validate, commit, in
     writeManifest(staging, manifest);
   }
   return { status: 'delivered', order: steps.map(([stage]) => stage), evidence };
+}
+
+function run(command, args, cwd) {
+  return execFileSync(command, args, { cwd, encoding: 'utf8', windowsHide: true }).trim();
+}
+function runJson(command, args, cwd) {
+  const output = run(command, args, cwd);
+  try { return JSON.parse(output); } catch { throw new Error(`editorial_lifecycle_invalid:non_json_operation:${command}`); }
+}
+function git(cwd, ...args) { return run('git', args, cwd); }
+function jsonArray(value, field) {
+  try {
+    const parsed = JSON.parse(nonEmpty(value, field));
+    if (!Array.isArray(parsed) || !parsed.length || parsed.some((item) => typeof item !== 'string' || !item.trim())) throw new Error();
+    return parsed.map((item) => item.trim());
+  } catch { throw new Error(`editorial_lifecycle_invalid:${field}`); }
+}
+function stateFor(path, identity) {
+  if (!existsSync(path)) return { schema_version: 1, ...identity, status: 'in_progress', evidence: {} };
+  let state;
+  try { state = JSON.parse(readFileSync(path, 'utf8')); } catch { throw new Error('editorial_lifecycle_invalid:finish_state'); }
+  if (state.schema_version !== 1 || Object.entries(identity).some(([key, value]) => state[key] !== value)
+    || !state.evidence || typeof state.evidence !== 'object') throw new Error('editorial_lifecycle_invalid:finish_state_identity');
+  return state;
+}
+function persistState(path, state) {
+  mkdirSync(dirname(path), { recursive: true });
+  const pending = `${path}.pending`;
+  writeFileSync(pending, JSON.stringify(state)); renameSync(pending, path);
+}
+function changedPaths(worktree) {
+  const tracked = git(worktree, 'diff', '--name-only').split(/\r?\n/u).filter(Boolean);
+  const staged = git(worktree, 'diff', '--cached', '--name-only').split(/\r?\n/u).filter(Boolean);
+  const untracked = git(worktree, 'ls-files', '--others', '--exclude-standard').split(/\r?\n/u).filter(Boolean);
+  return [...new Set([...tracked, ...staged, ...untracked].map((path) => path.replaceAll('\\', '/')))].sort();
+}
+async function storedExecutionCard(databasePath, packId) {
+  const { DatabaseSync } = await import('node:sqlite');
+  const database = new DatabaseSync(resolve(databasePath), { readOnly: true });
+  try {
+    const row = database.prepare('SELECT status,payload_json FROM context_packs WHERE id=?').get(packId);
+    if (!row) throw new Error('editorial_lifecycle_invalid:context_pack');
+    const payload = JSON.parse(row.payload_json); const card = payload.execution_card;
+    if (!card?.result || !Array.isArray(card.scope) || !card.first_check || !Array.isArray(card.acceptance)) {
+      throw new Error('editorial_lifecycle_invalid:execution_card');
+    }
+    return { status: row.status, terminal_outcome: payload.terminal_outcome ?? null, card };
+  } finally { database.close(); }
+}
+async function storedCheckpoint(databasePath, expected) {
+  const { DatabaseSync } = await import('node:sqlite');
+  const database = new DatabaseSync(resolve(databasePath), { readOnly: true });
+  try {
+    const rows = database.prepare(`SELECT data_json FROM audit_log
+      WHERE type='chat_transition_checkpoint' AND json_extract(data_json,'$.context_pack_id')=?
+        AND json_extract(data_json,'$.branch')=? AND json_extract(data_json,'$.canonical_worktree')=?
+        AND json_extract(data_json,'$.execution_worktree')=? AND json_extract(data_json,'$.head')=?
+      ORDER BY created_at DESC,id DESC`).all(expected.context_pack_id, expected.branch,
+      expected.canonical_worktree, expected.execution_worktree, expected.head);
+    return rows.length ? { ...JSON.parse(rows[0].data_json), matching_records: rows.length } : null;
+  } finally { database.close(); }
+}
+
+async function finishEditorialCli(args) {
+  if (args.evidence !== undefined) throw new Error('editorial_lifecycle_invalid:finish_evidence_is_not_accepted');
+  if (args['owner-command'] !== 'Заверши задачу.') throw new Error('editorial_finish_blocked:owner_command');
+  const worktree = resolve(nonEmpty(args.worktree, 'worktree'));
+  const canonicalWorktree = resolve(nonEmpty(args['canonical-worktree'], 'canonical_worktree'));
+  const databasePath = resolve(nonEmpty(args.db, 'db'));
+  const packId = nonEmpty(args['context-pack'], 'context_pack');
+  const handoffId = nonEmpty(args['handoff-id'], 'handoff_id');
+  const developer = nonEmpty(args.developer, 'developer');
+  const python = resolve(nonEmpty(args.python, 'python'));
+  const checkArgv = jsonArray(args['check-argv'], 'check_argv');
+  const scopeLabel = nonEmpty(args['scope-label'], 'scope_label');
+  const task = nonEmpty(args.task, 'task');
+  const statePath = resolve(args.state ?? join(tmpdir(), `metrichit-editorial-finish-${handoffId}.json`));
+  if (!relative(worktree, statePath).startsWith('..') || !relative(canonicalWorktree, statePath).startsWith('..')) {
+    throw new Error('editorial_lifecycle_invalid:finish_state_inside_worktree');
+  }
+  if (args.staging && readManifest(stagingFromRoot(args.staging)).status !== 'promoted_after_qa') {
+    throw new Error('editorial_lifecycle_blocked:assets_not_promoted');
+  }
+  const identity = { handoff_id: handoffId, context_pack_id: packId, worktree, canonical_worktree: canonicalWorktree };
+  const state = stateFor(statePath, identity);
+  const wasDelivered = state.status === 'delivered';
+  const stored = await storedExecutionCard(databasePath, packId);
+  let declared = state.execution_resources;
+  if (!state.evidence.commit) {
+    const handoff = runJson(python, ['-m', 'metrichit_os', 'handoff-claim', '--db', databasePath,
+      '--id', handoffId, '--developer', developer], worktree);
+    if (!handoff || handoff.handoff_id !== handoffId || handoff.lifecycle?.claimed_by !== developer
+      || handoff.status !== 'in_progress') throw new Error('editorial_lifecycle_blocked:claimed_handoff_not_active');
+    declared = handoff.execution_resources;
+    if (!declared || resolve(declared.worktree) !== worktree || resolve(declared.canonical_worktree) !== canonicalWorktree
+      || declared.branch !== git(worktree, 'branch', '--show-current')) throw new Error('editorial_lifecycle_blocked:handoff_resource_mismatch');
+    state.execution_resources = declared;
+    persistState(statePath, state);
+  } else if (!declared) {
+    throw new Error('editorial_lifecycle_invalid:finish_state_resources');
+  }
+  if (resolve(declared.worktree) !== worktree || resolve(declared.canonical_worktree) !== canonicalWorktree
+    || declared.branch !== git(worktree, 'branch', '--show-current')) {
+    throw new Error('editorial_lifecycle_blocked:finish_state_resource_mismatch');
+  }
+  const perform = async (stage, operation, verify = null) => {
+    if (state.evidence[stage]) {
+      if (verify) await verify(state.evidence[stage]);
+      return state.evidence[stage];
+    }
+    try {
+      const evidence = await operation();
+      if (!evidence || evidence.passed === false || evidence.status === 'blocked') throw new Error(evidence?.blocker ?? 'stage_failed');
+      state.evidence[stage] = evidence; state.status = 'in_progress'; delete state.blocker; persistState(statePath, state);
+      return evidence;
+    } catch (error) {
+      state.status = 'blocked'; state.blocker = { stage, message: error.message }; persistState(statePath, state); throw error;
+    }
+  };
+  const runFirstCheck = async () => {
+    if (checkArgv.join(' ') !== stored.card.first_check) throw new Error('editorial_lifecycle_blocked:first_check_mismatch');
+    run(checkArgv[0], checkArgv.slice(1), worktree);
+    return { passed: true, command: stored.card.first_check };
+  };
+  await perform('artifact_validation', runFirstCheck, runFirstCheck);
+  const verifyCommit = async (evidence) => {
+    if (!evidence || !/^[0-9a-f]{40,64}$/u.test(evidence.commit)) throw new Error('editorial_lifecycle_invalid:commit_evidence');
+    if (git(worktree, 'rev-parse', 'HEAD') !== evidence.commit || git(worktree, 'status', '--short')) {
+      throw new Error('editorial_lifecycle_blocked:commit_state_mismatch');
+    }
+    if (git(worktree, 'rev-parse', `${evidence.commit}^`) !== declared.base_head) {
+      throw new Error('editorial_lifecycle_blocked:commit_parent_mismatch');
+    }
+    const actualPaths = git(worktree, 'diff-tree', '--no-commit-id', '--name-only', '-r', evidence.commit)
+      .split(/\r?\n/u).filter(Boolean).map((path) => path.replaceAll('\\', '/')).sort();
+    const allowed = new Set(stored.card.scope.map((path) => path.replaceAll('\\', '/')));
+    if (!actualPaths.length || actualPaths.some((path) => !allowed.has(path))
+      || JSON.stringify(actualPaths) !== JSON.stringify([...(evidence.paths ?? [])].sort())) {
+      throw new Error('editorial_lifecycle_blocked:commit_scope_mismatch');
+    }
+  };
+  const commitEvidence = await perform('commit', async () => {
+    const paths = changedPaths(worktree); const allowed = new Set(stored.card.scope.map((path) => path.replaceAll('\\', '/')));
+    if (!paths.length) throw new Error('editorial_lifecycle_blocked:no_changes_to_commit');
+    const outside = paths.filter((path) => !allowed.has(path));
+    if (outside.length) throw new Error(`editorial_lifecycle_blocked:scope_drift:${outside.join(',')}`);
+    git(worktree, 'add', '--', ...paths); git(worktree, 'diff', '--cached', '--check');
+    run('git', ['-c', 'user.name=MetricHit Automation', '-c', 'user.email=metrichit@local.invalid',
+      'commit', '-m', nonEmpty(args['commit-message'], 'commit_message')], worktree);
+    const commit = git(worktree, 'rev-parse', 'HEAD');
+    if (git(worktree, 'status', '--short')) throw new Error('editorial_lifecycle_blocked:worktree_not_clean_after_commit');
+    return { passed: true, commit, paths };
+  }, verifyCommit);
+  const completeHandoff = () => runJson(python, ['-m', 'metrichit_os', 'handoff-complete', '--db', databasePath,
+    '--id', handoffId, '--developer', developer, '--commit', commitEvidence.commit], worktree);
+  const verifyIntegration = async () => {
+    if (git(canonicalWorktree, 'rev-parse', 'HEAD') !== commitEvidence.commit) {
+      throw new Error('editorial_lifecycle_blocked:integration_head');
+    }
+    const handoff = completeHandoff();
+    if (handoff.status !== 'completed' || handoff.lifecycle?.commit_hash !== commitEvidence.commit) {
+      throw new Error('editorial_lifecycle_blocked:handoff_not_completed');
+    }
+  };
+  await perform('serialized_integration', async () => {
+    const currentBase = git(canonicalWorktree, 'rev-parse', 'HEAD');
+    if (currentBase !== commitEvidence.commit && currentBase !== declared.base_head) {
+      throw new Error(`editorial_lifecycle_blocked:stale_base:${currentBase}`);
+    }
+    if (currentBase !== commitEvidence.commit) {
+      runJson(python, ['-m', 'metrichit_os', 'handoff-integrate', '--db', databasePath, '--id', handoffId,
+        '--developer', developer, '--expected-base', declared.base_head, '--current-base', currentBase, '--conflict-free'], worktree);
+      git(canonicalWorktree, 'merge', '--ff-only', commitEvidence.commit);
+    }
+    await verifyIntegration();
+    return { passed: true, commit: commitEvidence.commit, mode: currentBase === commitEvidence.commit ? 'already_integrated' : 'fast_forward' };
+  }, verifyIntegration);
+  await perform('domain_reconciliation', async () => ({ passed: true, status: 'not_applicable_to_code_delivery' }));
+  const verifyClosedCard = async () => {
+    const current = await storedExecutionCard(databasePath, packId);
+    if (current.status !== 'closed' || current.terminal_outcome !== 'delivered') {
+      throw new Error('editorial_lifecycle_blocked:context_pack_not_delivered');
+    }
+  };
+  await perform('close_card', async () => {
+    const { closeContextPack } = await import('./structured-memory.mjs');
+    const closed = closeContextPack(databasePath, packId, { result: stored.card.result, checks: [stored.card.first_check],
+      satisfiedAcceptance: stored.card.acceptance, scopeCompliance: true, forbiddenChangesObserved: [] });
+    if (closed.status !== 'closed' || closed.terminal_outcome !== 'delivered') throw new Error('editorial_lifecycle_blocked:context_pack_not_delivered');
+    return { passed: true, id: packId, changed: closed.changed, terminal_outcome: closed.terminal_outcome };
+  }, verifyClosedCard);
+  const checkpointIdentity = { context_pack_id: packId, branch: declared.branch, canonical_worktree: canonicalWorktree,
+    execution_worktree: worktree, head: commitEvidence.commit };
+  const verifyCheckpoint = async () => {
+    const existing = await storedCheckpoint(databasePath, checkpointIdentity);
+    if (!existing || existing.matching_records !== 1) throw new Error('editorial_lifecycle_blocked:checkpoint_evidence');
+    return existing;
+  };
+  const checkpoint = await perform('clean_checkpoint', async () => {
+    const existing = await storedCheckpoint(databasePath, checkpointIdentity);
+    if (existing) return { passed: true, status: 'ready_for_new_chat', copy_command: existing.continuation_command,
+      head: existing.head, reused: true };
+    const result = runJson(python, ['-m', 'metrichit_os', 'chat-finish', '--db', databasePath, '--scope', scopeLabel,
+      '--branch', declared.branch, '--canonical-worktree', canonicalWorktree, '--worktree', worktree,
+      '--head', commitEvidence.commit, '--context-pack', packId, '--task', task], worktree);
+    if (result.status !== 'ready_for_new_chat') throw new Error('editorial_lifecycle_blocked:checkpoint');
+    return { passed: true, status: result.status, copy_command: result.copy_command, head: result.checkpoint?.head ?? commitEvidence.commit };
+  }, verifyCheckpoint);
+  const result = { status: 'delivered', order: ['artifact_validation', 'commit', 'serialized_integration',
+    'domain_reconciliation', 'close_card', 'clean_checkpoint'], evidence: state.evidence,
+    commit: commitEvidence.commit, copy_command: checkpoint.copy_command, state: statePath };
+  state.status = 'delivered'; state.result = result; persistState(statePath, state);
+  return wasDelivered ? { ...result, replayed: true } : result;
 }
 
 function cliArguments(argv) {
@@ -221,9 +435,7 @@ async function runCli(argv) {
     return promoteEditorialAssets(staging, assets, () => artifactQa);
   }
   if (command === 'finish') {
-    const staging = stagingFromRoot(args.staging);
-    const completedStages = jsonObject(args.evidence, 'evidence');
-    return finishEditorialScope({ owner_command: args['owner-command'], completedStages, staging });
+    return finishEditorialCli(args);
   }
   throw new Error('Usage: editorial-lifecycle.mjs <stage|promote|finish>');
 }

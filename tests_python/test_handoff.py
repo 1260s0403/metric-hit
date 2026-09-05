@@ -139,6 +139,11 @@ def test_idempotency_conflict_semantic_duplicate_and_explicit_evolution(tmp_path
     assert store.next()["task_id"] == evolved["task_id"]
     with sqlite3.connect(database) as connection:
         assert connection.execute("SELECT status FROM tasks WHERE id=?", (first["task_id"],)).fetchone()[0] == "cancelled"
+        lifecycle = json.loads(connection.execute(
+            "SELECT data_json FROM tasks WHERE id=?", (first["task_id"],),
+        ).fetchone()[0])["handoff"]["lifecycle"]
+        assert lifecycle["status"] == "cancelled"
+        assert lifecycle["cancellation_reason"] == "superseded_by_approved_decision"
 
     duplicate = payload(
         idempotency_key="duplicate",
@@ -148,6 +153,36 @@ def test_idempotency_conflict_semantic_duplicate_and_explicit_evolution(tmp_path
     )
     with pytest.raises(HandoffError, match="semantic duplicate"):
         store.create_approved(duplicate)
+
+
+def test_cancelled_handoff_lifecycle_reconciliation_is_truthful_audited_and_idempotent(tmp_path):
+    database = temporary_database(tmp_path)
+    store = HandoffStore(database)
+    handoff = store.create_approved(payload())
+    store.claim(handoff["handoff_id"], "stale-writer")
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE tasks SET status='cancelled' WHERE id=?", (handoff["handoff_id"],))
+
+    reconciled = store.reconcile_cancelled(
+        handoff["handoff_id"], "lifecycle-repair", "Task was already cancelled; no delivery evidence exists.",
+    )
+    assert reconciled["status"] == "cancelled"
+    assert reconciled["lifecycle"]["claimed_by"] == "stale-writer"
+    assert reconciled["lifecycle"]["reconciled_by"] == "lifecycle-repair"
+    replay = store.reconcile_cancelled(
+        handoff["handoff_id"], "lifecycle-repair", "Task was already cancelled; no delivery evidence exists.",
+    )
+    assert replay == reconciled
+    with sqlite3.connect(database) as connection:
+        assert connection.execute(
+            "SELECT count(*) FROM audit_log WHERE type='handoff_integrity_reconciliation' AND entity_id=?",
+            (handoff["handoff_id"],),
+        ).fetchone()[0] == 1
+        lifecycle = json.loads(connection.execute(
+            "SELECT data_json FROM tasks WHERE id=?", (handoff["handoff_id"],),
+        ).fetchone()[0])["handoff"]["lifecycle"]
+        assert lifecycle["status"] == "cancelled"
+        assert "commit_hash" not in lifecycle
 
 
 def test_next_returns_only_active_handoffs_and_does_not_break_user_tasks(tmp_path):

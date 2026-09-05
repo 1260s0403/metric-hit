@@ -10,6 +10,8 @@ import pytest
 
 from metrichit_os.chat_continuity import ChatContinuityStore
 from metrichit_os import cli
+from metrichit_os.editorial_store import WorkflowError
+from metrichit_os.handoff import HandoffStore
 from metrichit_os.isolated_worktree import IsolatedWorktree
 from metrichit_os.knowledge_store import KnowledgeError
 from metrichit_os.project_store import ProjectStore
@@ -157,7 +159,7 @@ def test_finish_prepares_one_continuation_only_after_delivered_result(tmp_path: 
     assert continuity.resume(result["copy_command"])["status"] == "resuming"
 
 
-def test_cli_runs_resumable_editorial_lifecycle_without_a_project_database(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_rejects_supplied_finish_evidence_instead_of_registering_it_as_delivery(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     active = tmp_path / "active"
     active.mkdir()
     source = tmp_path / "asset.png"
@@ -180,14 +182,108 @@ def test_cli_runs_resumable_editorial_lifecycle_without_a_project_database(tmp_p
     evidence = {stage: {"passed": True} for stage in (
         "artifact_validation", "commit", "serialized_integration", "domain_reconciliation", "close_card", "clean_checkpoint",
     )}
-    assert cli.run_workflow_command([
-        "editorial-lifecycle", "--operation", "finish", "--data", json.dumps({
-            "staging": staged["staging"]["root"], "owner-command": "Заверши задачу.",
-            "evidence": json.dumps(evidence),
-        }),
-    ]) == 0
-    assert json.loads(capsys.readouterr().out)["status"] == "delivered"
+    with pytest.raises((ValueError, WorkflowError), match="unsupported|evidence"):
+        cli.run_workflow_command([
+            "editorial-lifecycle", "--operation", "finish", "--data", json.dumps({
+                "staging": staged["staging"]["root"], "owner-command": "Заверши задачу.",
+                "evidence": json.dumps(evidence),
+            }),
+        ])
     assert (active / "work/articles/assets/article.png").read_bytes() == b"generated-image"
+
+
+def test_cli_finish_executes_and_resumes_real_delivery_without_duplicate_operations(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str],
+) -> None:
+    database, _, _ = fixture(tmp_path)
+    canonical, root = repository(tmp_path)
+    prepared = IsolatedWorktree(canonical, root).prepare(
+        scope_key="editorial-real-finish", branch="codex/editorial-real-finish",
+    )
+    execution = Path(prepared["execution_worktree"])
+    compiled = subprocess.run([
+        "node", "scripts/structured-memory.mjs", "compile", "--db", str(database), "--scope", "scope:core",
+        "--task-type", "code", "--text", "Проверить реальное завершение редакционной задачи",
+        "--result", "Изменение проверено и интегрировано", "--card-scope", '["README.md"]',
+        "--first-check", "git diff --check", "--acceptance", '["README интегрирован"]',
+        "--forbidden-changes", '["не публиковать"]',
+    ], check=True, capture_output=True, text=True, encoding="utf-8")
+    pack_id = json.loads(compiled.stdout)["pack"]["id"]
+    handoff = HandoffStore(database).create_approved({
+        "idempotency_key": "editorial-real-finish-v1",
+        "semantic_key": "editorial.real_finish_v1",
+        "goal": "Проверить реальное завершение редакционной задачи",
+        "scope": ["README.md"],
+        "constraints": ["Только изолированный worktree"],
+        "acceptance": ["README интегрирован"],
+        "source": "owner-approved test fixture",
+        "project_id": None,
+        "approved_by": "owner",
+        "execution_resources": {
+            "canonical_worktree": str(canonical.resolve()),
+            "worktree": str(execution.resolve()),
+            "branch": prepared["branch"],
+            "base_head": prepared["head"],
+            "paths": ["README.md"], "sqlite": ["data/database/test.sqlite"], "shared": ["integration"],
+        },
+    })
+    developer = "editorial-real-finish-writer"
+    HandoffStore(database).claim(handoff["handoff_id"], developer)
+    (execution / "README.md").write_text("fixture\nverified editorial lifecycle\n", encoding="utf-8")
+    state = tmp_path / "finish-state.json"
+
+    def finish(scope_label: str) -> dict[str, object]:
+        result = cli.run_workflow_command([
+            "editorial-lifecycle", "--operation", "finish", "--data", json.dumps({
+                "owner-command": "Заверши задачу.", "worktree": str(execution.resolve()),
+                "canonical-worktree": str(canonical.resolve()), "db": str(database.resolve()),
+                "context-pack": pack_id, "handoff-id": handoff["handoff_id"], "developer": developer,
+                "check-argv": json.dumps(["git", "diff", "--check"]), "scope-label": scope_label,
+                "task": "Реальный editorial finish", "state": str(state.resolve()),
+                "commit-message": "test: verify real editorial finish",
+            }, ensure_ascii=False),
+        ])
+        assert result == 0
+        return json.loads(capsys.readouterr().out)
+
+    with pytest.raises(WorkflowError, match="editorial-lifecycle"):
+        finish("Несуществующий контур")
+    interrupted = json.loads(state.read_text(encoding="utf-8"))
+    assert interrupted["blocker"]["stage"] == "clean_checkpoint"
+    assert interrupted["evidence"]["serialized_integration"]["passed"] is True
+    commit = interrupted["evidence"]["commit"]["commit"]
+    assert subprocess.run(
+        ["git", "-C", str(canonical), "rev-parse", "HEAD"], check=True, capture_output=True, text=True,
+    ).stdout.strip() == commit
+
+    delivered = finish("Лендинг")
+    assert delivered["status"] == "delivered"
+    replayed = finish("Лендинг")
+    assert replayed["status"] == "delivered"
+    assert replayed["replayed"] is True
+    assert replayed["commit"] == commit
+    partial_integration = json.loads(state.read_text(encoding="utf-8"))
+    partial_integration["status"] = "blocked"
+    partial_integration["evidence"].pop("serialized_integration")
+    state.write_text(json.dumps(partial_integration), encoding="utf-8")
+    recovered = finish("Лендинг")
+    assert recovered["status"] == "delivered"
+    assert recovered["evidence"]["serialized_integration"]["mode"] == "already_integrated"
+    assert subprocess.run(
+        ["git", "-C", str(canonical), "rev-list", "--count", "HEAD"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip() == "2"
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT status FROM tasks WHERE id=?", (handoff["handoff_id"],)).fetchone()[0] == "completed"
+        assert connection.execute("SELECT status FROM context_packs WHERE id=?", (pack_id,)).fetchone()[0] == "closed"
+        assert connection.execute(
+            "SELECT count(*) FROM audit_log WHERE type='chat_transition_checkpoint'"
+        ).fetchone()[0] == 1
+    tampered = json.loads(state.read_text(encoding="utf-8"))
+    tampered["evidence"]["commit"]["commit"] = "f" * 40
+    state.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(WorkflowError, match="commit_state_mismatch"):
+        finish("Лендинг")
 
 
 def test_resume_rejects_legacy_checkpoint(tmp_path: Path) -> None:

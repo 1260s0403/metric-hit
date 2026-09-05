@@ -32,7 +32,7 @@ test('media remains outside the active worktree until computed P0 artifact QA pa
   assert.equal(readFileSync(join(active, asset.target), 'utf8'), 'selected-media');
 });
 
-test('normal lifecycle CLI persists resumable stage, promotion, and finish evidence', (t) => {
+test('normal lifecycle CLI stages and promotes assets but rejects supplied finish evidence', (t) => {
   const { active, source } = fixture(t);
   const invoke = (...args) => {
     const result = spawnSync(process.execPath, ['scripts/editorial-lifecycle.mjs', ...args], {
@@ -50,12 +50,15 @@ test('normal lifecycle CLI persists resumable stage, promotion, and finish evide
   const evidence = Object.fromEntries([
     'artifact_validation', 'commit', 'serialized_integration', 'domain_reconciliation', 'close_card', 'clean_checkpoint',
   ].map((stage) => [stage, { passed: true, stage }]));
-  const finished = invoke('finish', '--staging', staged.staging.root, '--owner-command', 'Заверши задачу.',
-    '--evidence', JSON.stringify(evidence));
-  assert.equal(finished.status, 'delivered');
+  const finished = spawnSync(process.execPath, ['scripts/editorial-lifecycle.mjs', 'finish',
+    '--staging', staged.staging.root, '--owner-command', 'Заверши задачу.', '--evidence', JSON.stringify(evidence)], {
+    cwd: process.cwd(), encoding: 'utf8',
+  });
+  assert.notEqual(finished.status, 0);
+  assert.match(finished.stderr, /finish_evidence_is_not_accepted/);
   const manifest = JSON.parse(readFileSync(join(staged.staging.root, '.editorial-lifecycle.json'), 'utf8'));
-  assert.equal(manifest.finish.status, 'delivered');
-  assert.equal(manifest.finish.evidence.clean_checkpoint.passed, true);
+  assert.equal(manifest.status, 'promoted_after_qa');
+  assert.equal(manifest.finish, undefined);
 });
 
 test('asset promotion recovers after an interrupted pending rename without duplicating the asset', (t) => {

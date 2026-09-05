@@ -403,14 +403,26 @@ class HandoffStore:
                     ).fetchone()
                     if previous_task is None:
                         raise HandoffError("superseded decision is missing its engineering task")
-                    previous_handoff = self._object(previous_task["data_json"]).get("handoff")
+                    previous_metadata = self._object(previous_task["data_json"])
+                    previous_handoff = previous_metadata.get("handoff")
                     if not isinstance(previous_handoff, dict) or previous_handoff.get("decision_candidate_id") != supersedes:
                         raise HandoffError("superseded engineering task has inconsistent decision linkage")
                     if previous_task["status"] in {"pending", "in_progress"}:
                         previous_version = int(previous_task["version"])
+                        previous_lifecycle = previous_handoff.get("lifecycle")
+                        if not isinstance(previous_lifecycle, dict):
+                            raise HandoffError("superseded engineering task has invalid lifecycle")
+                        previous_lifecycle.update({
+                            "status": "cancelled", "cancelled_at": now,
+                            "reconciled_by": approved_by,
+                            "cancellation_reason": "superseded_by_approved_decision",
+                            "superseded_by_candidate_id": candidate_id,
+                        })
+                        previous_metadata["handoff"] = previous_handoff
                         connection.execute(
-                            "UPDATE tasks SET status='cancelled',updated_at=?,version=? WHERE id=?",
-                            (now, previous_version + 1, previous_task_id),
+                            "UPDATE tasks SET data_json=?,status='cancelled',updated_at=?,version=? WHERE id=?",
+                            (json.dumps(previous_metadata, ensure_ascii=False, sort_keys=True),
+                             now, previous_version + 1, previous_task_id),
                         )
                         connection.execute(
                             "INSERT INTO audit_log (id,type,title,data_json,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) VALUES (?, 'task_change','Codex engineering handoff superseded',?,?,?,?,'restricted',1,'task',?,'update')",
@@ -721,6 +733,58 @@ class HandoffStore:
 
     def complete(self, handoff_id: str, commit_hash: str, developer_id: str) -> dict[str, Any]:
         return self._complete(handoff_id, commit_hash, "Legacy handoff completion.", developer_id, require_thread=False)
+
+    def reconcile_cancelled(self, handoff_id: str, developer_id: str, reason: str) -> dict[str, Any]:
+        """Align stale embedded lifecycle with an already-cancelled task, without delivery evidence."""
+        handoff_id = self._handoff_id(handoff_id)
+        developer_id = self._developer_id(developer_id)
+        reason = _required_text({"reason": reason}, "reason")
+        with sqlite3.connect(self.path) as connection:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute("BEGIN IMMEDIATE")
+            row = self._handoff_row(connection, handoff_id)
+            metadata = self._object(row["data_json"])
+            handoff = metadata.get("handoff")
+            if not isinstance(handoff, dict) or handoff.get("kind") != "codex_engineering":
+                raise HandoffError("cancelled task has invalid handoff metadata")
+            lifecycle = handoff.get("lifecycle")
+            if not isinstance(lifecycle, dict):
+                raise HandoffError("cancelled task has invalid handoff lifecycle")
+            if row["status"] != "cancelled":
+                raise HandoffError("only an already-cancelled task can be reconciled")
+            if lifecycle.get("status") == "cancelled":
+                if lifecycle.get("reconciled_by") != developer_id or lifecycle.get("cancellation_reason") != reason:
+                    raise HandoffError("cancelled handoff has different reconciliation evidence")
+                return self._load_task(connection, handoff_id)
+            if lifecycle.get("status") not in {"ready", "dispatching", "in_progress"}:
+                raise HandoffError("cancelled task lifecycle is not reconcilable")
+            if lifecycle.get("integration") is not None:
+                raise HandoffError("cancelled handoff with integration evidence requires manual audit")
+            previous_status = lifecycle["status"]
+            now = _utc_text()
+            lifecycle.update({
+                "status": "cancelled", "cancelled_at": now,
+                "reconciled_by": developer_id, "cancellation_reason": reason,
+            })
+            metadata["handoff"] = handoff
+            next_version = int(row["version"]) + 1
+            connection.execute(
+                "UPDATE tasks SET data_json=?,updated_at=?,version=? WHERE id=?",
+                (json.dumps(metadata, ensure_ascii=False, sort_keys=True), now, next_version, handoff_id),
+            )
+            audit = {
+                "old": {"task_status": "cancelled", "lifecycle_status": previous_status, "version": row["version"]},
+                "new": {"task_status": "cancelled", "lifecycle_status": "cancelled", "version": next_version},
+                "reconciled_by": developer_id, "reason": reason, "delivery_evidence_added": False,
+            }
+            connection.execute(
+                "INSERT INTO audit_log (id,type,title,content,data_json,author,created_at,updated_at,access_level,version,entity_type,entity_id,action) "
+                "VALUES (?, 'handoff_integrity_reconciliation','Cancelled handoff lifecycle reconciled',?,?,?,?,?,'restricted',1,'task',?,'update')",
+                (_uuid(f"audit:reconcile-cancelled:{handoff_id}"), reason,
+                 json.dumps(audit, ensure_ascii=False, sort_keys=True), developer_id, now, now, handoff_id),
+            )
+            return self._load_task(connection, handoff_id)
 
     def begin_integration(self, handoff_id: str, developer_id: str, expected_base_head: str, current_base_head: str, conflict_free: bool) -> dict[str, Any]:
         handoff_id = self._handoff_id(handoff_id)
@@ -1102,10 +1166,13 @@ class HandoffStore:
         if project_id is not None and (not isinstance(project_id, str) or not project_id.strip()):
             raise HandoffError("engineering task has invalid handoff metadata")
         lifecycle = handoff.get("lifecycle")
-        if not isinstance(lifecycle, dict) or lifecycle.get("status") not in {"ready", "dispatching", "in_progress", "completed"}:
+        if not isinstance(lifecycle, dict) or lifecycle.get("status") not in {"ready", "dispatching", "in_progress", "completed", "cancelled"}:
             raise HandoffError("engineering task has invalid handoff lifecycle")
         status = lifecycle["status"]
-        expected_task_status = {"ready": "pending", "dispatching": "pending", "in_progress": "in_progress", "completed": "completed"}[status]
+        expected_task_status = {
+            "ready": "pending", "dispatching": "pending", "in_progress": "in_progress",
+            "completed": "completed", "cancelled": "cancelled",
+        }[status]
         if row.get("status") != expected_task_status:
             raise HandoffError("engineering task lifecycle is inconsistent with task status")
         commit_hash = lifecycle.get("commit_hash")
@@ -1116,6 +1183,11 @@ class HandoffStore:
                 raise HandoffError("completed handoff has an invalid result")
         elif commit_hash is not None:
             raise HandoffError("open handoff cannot have a commit hash")
+        if status == "cancelled" and any(
+            not isinstance(lifecycle.get(key), str) or not lifecycle[key].strip()
+            for key in ("cancelled_at", "reconciled_by", "cancellation_reason")
+        ):
+            raise HandoffError("cancelled handoff has invalid reconciliation evidence")
         if status in {"dispatching", "in_progress", "completed"} and not isinstance(lifecycle.get("claimed_by"), str):
             raise HandoffError("claimed handoff has an invalid developer identifier")
         if status in {"in_progress", "completed"} and lifecycle.get("executor_thread_id") is not None and not isinstance(lifecycle["executor_thread_id"], str):

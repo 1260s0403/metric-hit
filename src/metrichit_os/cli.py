@@ -237,6 +237,11 @@ def workflow_parser() -> argparse.ArgumentParser:
     handoff_complete.add_argument("--id", required=True)
     handoff_complete.add_argument("--commit", required=True)
     handoff_complete.add_argument("--developer", required=True)
+    handoff_reconcile = subparsers.add_parser("handoff-reconcile-cancelled")
+    handoff_reconcile.add_argument("--db", required=True)
+    handoff_reconcile.add_argument("--id", required=True)
+    handoff_reconcile.add_argument("--developer", required=True)
+    handoff_reconcile.add_argument("--reason", required=True)
     coordinator_claim = subparsers.add_parser("handoff-coordinator-claim")
     coordinator_claim.add_argument("--db", required=True)
     coordinator_claim.add_argument("--id", required=True)
@@ -352,10 +357,15 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         allowed = {
             "stage": {"worktree", "key", "source", "target", "staging"},
             "promote": {"staging", "assets", "artifact-qa"},
-            "finish": {"staging", "owner-command", "evidence"},
+            "finish": {
+                "staging", "owner-command", "worktree", "canonical-worktree", "db", "context-pack",
+                "handoff-id", "developer", "check-argv", "scope-label", "task", "state", "commit-message",
+            },
         }[arguments.operation]
         if set(payload) - allowed:
             raise ValueError("editorial lifecycle data contains unsupported fields")
+        if arguments.operation == "finish":
+            payload["python"] = sys.executable
         script = Path(__file__).resolve().parents[2] / "scripts" / "editorial-lifecycle.mjs"
         command = ["node", str(script), arguments.operation]
         for key, value in payload.items():
@@ -522,6 +532,11 @@ def run_workflow_command(arguments_list: list[str]) -> int:
         return 0
     if arguments.command == "handoff-complete":
         print_json(HandoffStore(database_path).complete(arguments.id, arguments.commit, arguments.developer))
+        return 0
+    if arguments.command == "handoff-reconcile-cancelled":
+        print_json(HandoffStore(database_path).reconcile_cancelled(
+            arguments.id, arguments.developer, arguments.reason,
+        ))
         return 0
     if arguments.command == "handoff-coordinator-claim":
         print_json(HandoffStore(database_path).coordinator_claim(arguments.id, arguments.coordinator))

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { deflateSync } from 'node:zlib';
 import { EDITORIAL_CONTRACT, compileEditorialSpec, validateEditorialArtifact } from '../scripts/editorial-contract.mjs';
 
 const core = { behavioral_factors_general: [
@@ -46,28 +48,49 @@ test('pre-generation spec rejects invalid H1, LSI and visual concept', () => {
   }
 });
 
-test('a short core H1 derivative requires the approved owner structure', () => {
+test('owner approval does not turn an arbitrary long core query into a short base H1', () => {
   const rejected = validInput();
-  rejected.selected_h1 = 'точный запрос 1';
-  assert.throws(() => compileEditorialSpec(rejected, core), /owner_approved_core_derivative/);
-  const approved = validInput();
-  approved.selected_h1 = 'точный запрос 1';
-  approved.owner_structure_approved = true;
-  approved.approved_structure = { h1: 'точный запрос 1' };
-  assert.equal(compileEditorialSpec(approved, core).h1_selection, 'owner_approved_core_derivative');
+  rejected.selected_h1 = 'накрутка поведенческих факторов купить заказать с длинным пояснением';
+  rejected.primary_query = rejected.selected_h1;
+  rejected.owner_structure_approved = true;
+  rejected.approved_structure = { h1: rejected.selected_h1 };
+  const taxonomy = { behavioral_factors_general: [
+    'Накрутка ПФ', rejected.selected_h1, ...Array.from({ length: 300 }, (_, index) => `точный запрос ${index + 1}`),
+  ] };
+  assert.throws(() => compileEditorialSpec(rejected, taxonomy), /selected_h1/);
 });
 
+function crc32(bytes) {
+  let crc = 0xffffffff;
+  for (const byte of bytes) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
 function png(width, height) {
+  const chunk = (type, data) => {
+    const header = Buffer.alloc(8); header.writeUInt32BE(data.length, 0); header.write(type, 4);
+    const checksum = Buffer.alloc(4); checksum.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type), data])));
+    return Buffer.concat([header, data, checksum]);
+  };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const rows = Buffer.alloc(height * (1 + width * 3));
+  for (let row = 0; row < height; row += 1) rows[row * (1 + width * 3)] = 0;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+function headerOnlyPng(width, height) {
   const chunk = (type, data) => { const header = Buffer.alloc(8); header.writeUInt32BE(data.length, 0); header.write(type, 4); return Buffer.concat([header, data, Buffer.alloc(4)]); };
   const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2;
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IEND', Buffer.alloc(0))]);
 }
 
-test('valid real article and assets produce computed evidence', (t) => {
+function artifactFixture(t) {
   const directory = mkdtempSync(join(tmpdir(), 'editorial-contract-')); t.after(() => rmSync(directory, { recursive: true, force: true }));
   const drafts = join(directory, 'drafts'); const assets = join(directory, 'assets'); mkdirSync(drafts); mkdirSync(assets);
   const input = validInput(); const spec = compileEditorialSpec(input, core);
-  assert.equal(spec.contract_snapshot.revision, spec.contract_revision);
   writeFileSync(join(assets, 'preview.png'), png(100, 100));
   for (let index = 1; index <= 3; index += 1) writeFileSync(join(assets, `inline-${index}.png`), png(150, 100));
   const targetQueries = [input.primary_query, ...input.secondary_queries].join('. ');
@@ -76,10 +99,67 @@ test('valid real article and assets produce computed evidence', (t) => {
   article += 'Практическая рекомендация для управления кампанией. '.repeat(150);
   article += '\n### Дополнительный контроль\nПрактика.\n';
   while (article.replace(/https?:\/\/\S+/gu, '').length < 7001) article += 'Контроль результата. ';
-  article += '\nhttps://go.mtrhit.ru/\n';
+  article += '\nhttps://go.mtrhit.ru/\nИтог.';
   const articlePath = join(drafts, 'article.md'); writeFileSync(articlePath, article);
-  const evidence = validateEditorialArtifact(spec, { article_path: articlePath });
+  const reviewedAssets = [
+    ['../assets/preview.png', 'preview.png'],
+    ...Array.from({ length: 3 }, (_, index) => [`../assets/inline-${index + 1}.png`, `inline-${index + 1}.png`]),
+  ].map(([path, file]) => ({ path, sha256: createHash('sha256').update(readFileSync(join(assets, file))).digest('hex'), passed: true }));
+  const visualReview = { performed: true, passed: true, reviewer: 'visual-reviewer',
+    result: 'Every current image was inspected.', assets: reviewedAssets };
+  return { directory, drafts, assets, input, spec, article, articlePath, visualReview };
+}
+
+test('valid real article and assets produce computed evidence', (t) => {
+  const { spec, articlePath, visualReview } = artifactFixture(t);
+  assert.equal(spec.contract_snapshot.revision, spec.contract_revision);
+  const evidence = validateEditorialArtifact(spec, { article_path: articlePath, visual_review: visualReview });
   assert.equal(evidence.computed, true); assert.equal(evidence.passed, true);
   assert.equal(evidence.visuals.count, 4); assert.equal(evidence.links.exact_count, 4);
   assert.match(evidence.content_sha256, /^[a-f0-9]{64}$/u);
+});
+
+test('source overlap detects exact, near-full and embedded fragment borrowing and keeps no-source unknown', (t) => {
+  const fixture = artifactFixture(t);
+  const exactPath = join(fixture.directory, 'exact.txt'); writeFileSync(exactPath, fixture.article);
+  const nearPath = join(fixture.directory, 'near.txt'); writeFileSync(nearPath, `${fixture.article.slice(0, -1)}!`);
+  const fragment = fixture.article.split(/\s+/u).slice(80, 180).join(' ');
+  const partialPath = join(fixture.directory, 'partial.txt'); writeFileSync(partialPath, `Unrelated opening. ${fragment} Unrelated ending.`);
+  const run = (source_paths) => validateEditorialArtifact(fixture.spec, {
+    article_path: fixture.articlePath, source_paths, visual_review: fixture.visualReview,
+  }).originality;
+  assert.equal(run([exactPath]).max_overlap_percent, 100);
+  assert.ok(run([nearPath]).max_overlap_percent >= 99);
+  assert.ok(run([partialPath]).max_overlap_percent > 0);
+  assert.equal(run([]).comparison_status, 'not_performed_no_accessible_sources');
+  assert.equal(run([]).max_overlap_percent, null);
+});
+
+test('PNG headers without decodable image data and corrupted images are rejected', (t) => {
+  const fixture = artifactFixture(t);
+  writeFileSync(join(fixture.assets, 'preview.png'), headerOnlyPng(100, 100));
+  assert.throws(() => validateEditorialArtifact(fixture.spec, {
+    article_path: fixture.articlePath, visual_review: fixture.visualReview,
+  }), /image_unreadable/);
+  writeFileSync(join(fixture.assets, 'preview.png'), Buffer.alloc(0));
+  assert.throws(() => validateEditorialArtifact(fixture.spec, {
+    article_path: fixture.articlePath, visual_review: fixture.visualReview,
+  }), /image_unreadable/);
+});
+
+test('final artifact acceptance waits for a hash-bound review of every current image', (t) => {
+  const fixture = artifactFixture(t);
+  const pending = validateEditorialArtifact(fixture.spec, { article_path: fixture.articlePath });
+  assert.equal(pending.technical_checks.passed, true);
+  assert.equal(pending.passed, false);
+  assert.equal(pending.visuals.review.performed, false);
+  const reviewed = validateEditorialArtifact(fixture.spec, {
+    article_path: fixture.articlePath, visual_review: fixture.visualReview,
+  });
+  assert.equal(reviewed.passed, true);
+  const changed = png(100, 100); changed[changed.length - 20] ^= 1;
+  writeFileSync(join(fixture.assets, 'preview.png'), changed);
+  assert.throws(() => validateEditorialArtifact(fixture.spec, {
+    article_path: fixture.articlePath, visual_review: fixture.visualReview,
+  }), /visual_review_asset_hash|image_unreadable/);
 });
