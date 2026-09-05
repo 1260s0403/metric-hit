@@ -466,15 +466,48 @@ test('article_pipeline_trigger creates a platform card with the registered safe 
     assert.equal(oborot.editorial_spec, null);
     assert.deepEqual(oborot.editorial_pipeline.empty_topic_planner_assignment.pre_generation_conflicts, []);
 
+    const repeatedH1Project = new DatabaseSync(projectDatabasePath);
+    try {
+      for (const [index, h1] of ['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов'].entries()) {
+        repeatedH1Project.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES (?,?,?)")
+          .run(`repeated-h1-topic-${index}`, `earlier independent topic ${index}`, `Ранее опубликованный интент ${index}`);
+        repeatedH1Project.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES (?,?,?,'articles')")
+          .run(`repeated-h1-material-${index}`, `repeated-h1-topic-${index}`, h1);
+        repeatedH1Project.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES (?,?,'Oborot.ru','published')")
+          .run(`repeated-h1-publication-${index}`, `repeated-h1-material-${index}`);
+      }
+    } finally { repeatedH1Project.close(); }
+    const repeatedH1Allowed = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
+      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
+    assert.deepEqual(repeatedH1Allowed.structure_options.map((option) => option.h1),
+      ['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']);
+
+    const crossPlatformProject = new DatabaseSync(projectDatabasePath);
+    const crossPlatformOption = repeatedH1Allowed.structure_options[1];
+    try {
+      crossPlatformProject.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES ('cross-platform-topic',?,?)")
+        .run(crossPlatformOption.primary_query, crossPlatformOption.user_intent);
+      crossPlatformProject.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('cross-platform-material','cross-platform-topic',?,'articles')")
+        .run(crossPlatformOption.content_signature);
+      crossPlatformProject.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES ('cross-platform-publication','cross-platform-material','Sostav/SBlogs','published')").run();
+    } finally { crossPlatformProject.close(); }
+    const crossPlatformAllowed = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
+      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
+    assert.ok(crossPlatformAllowed.structure_options.some((option) => option.primary_query === crossPlatformOption.primary_query
+      && option.user_intent === crossPlatformOption.user_intent && option.content_signature === crossPlatformOption.content_signature));
+
     const duplicateProject = new DatabaseSync(projectDatabasePath);
     try {
-      duplicateProject.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES ('duplicate-topic','keyword-1','Диагностировать исходные сигналы и подготовить безопасный план проверки.')").run();
-      duplicateProject.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('duplicate-material','duplicate-topic','Какие сигналы проверяют до старта Как отделить гипотезу от результата Чек-лист подготовки страницы и метрик Как зафиксировать следующий шаг','articles')").run();
+      const duplicate = crossPlatformAllowed.structure_options[0];
+      duplicateProject.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES ('duplicate-topic',?,?)")
+        .run(duplicate.primary_query, duplicate.user_intent);
+      duplicateProject.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('duplicate-material','duplicate-topic',?,'articles')")
+        .run(duplicate.content_signature);
       duplicateProject.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES ('duplicate-publication','duplicate-material','Oborot.ru','published')").run();
     } finally { duplicateProject.close(); }
     const withoutActualDuplicate = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
       .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
-    assert.equal(withoutActualDuplicate.structure_options.some((option) => option.primary_query === 'keyword-1'), false);
+    assert.equal(withoutActualDuplicate.structure_options.some((option) => option.primary_query === crossPlatformAllowed.structure_options[0].primary_query), false);
 
     const project = new DatabaseSync(projectDatabasePath);
     try {

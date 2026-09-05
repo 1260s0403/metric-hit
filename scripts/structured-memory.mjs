@@ -203,12 +203,8 @@ function registryCoverage(database) {
 function coverageForPlanning(database) {
   const registry = registryCoverage(database);
   const finals = finalArticleCoverage();
-  if (registry.error || finals.error) return { error: registry.error ?? finals.error, registry, finals, occupied_primary_topics: new Set() };
-  const occupied_primary_topics = new Set([
-    ...registry.records.flatMap((record) => [record.primary_query, record.title]).map(normalizeOverlapText),
-    ...finals.primary_topics.map(normalizeOverlapText),
-  ].filter(Boolean));
-  return { registry, finals, occupied_primary_topics };
+  if (registry.error || finals.error) return { error: registry.error ?? finals.error, registry, finals };
+  return { registry, finals };
 }
 
 function approvedSemanticCore302(database) {
@@ -220,29 +216,67 @@ function approvedSemanticCore302(database) {
       && core?.taxonomy && typeof core.taxonomy === 'object');
 }
 
-function freeTopicCandidates(taxonomy, occupiedPrimaryTopics) {
+function allTopicCandidates(taxonomy) {
   const candidates = [];
   for (const [cluster, queries] of Object.entries(taxonomy)) {
     if (cluster === 'geo_candidates_after_demand_validation' || !Array.isArray(queries)) continue;
     for (const query of queries) {
       const primary_query = nonEmptyText(query);
-      if (!primary_query || occupiedPrimaryTopics.has(normalizeOverlapText(primary_query))) continue;
+      if (!primary_query) continue;
       candidates.push({ cluster, primary_query });
     }
   }
   return candidates;
 }
 
-function threeReadyStructures(candidates) {
-  const templates = [
+const PLANNER_STRUCTURE_TEMPLATES = Object.freeze([
     { intent: 'Диагностировать исходные сигналы и подготовить безопасный план проверки.', sections: ['Какие сигналы проверяют до старта', 'Как отделить гипотезу от результата', 'Чек-лист подготовки страницы и метрик', 'Как зафиксировать следующий шаг'] },
     { intent: 'Сопоставить варианты реализации с бизнес-ограничениями и критериями контроля.', sections: ['Когда возникает задача и что считать целью', 'Критерии сравнения вариантов', 'Ошибки в постановке ограничений', 'Как принять решение по данным'] },
     { intent: 'Спланировать короткий цикл измерений без неподтверждённых обещаний.', sections: ['Исходные данные для цикла', 'Приоритеты измерения', 'План наблюдения за изменениями', 'Как интерпретировать результат'] },
-  ];
-  return templates.map((template, index) => ({ number: index + 1, h1: PLANNER_H1_HIGH_FREQUENCY_MARKERS[index],
-    title: PLANNER_H1_HIGH_FREQUENCY_MARKERS[index], primary_query: candidates[index].primary_query,
-    selected_cluster: candidates[index].cluster, user_intent: template.intent,
-    content_signature: template.sections.join(' '), sections: template.sections }));
+]);
+
+function normalizedPlannerRecord(record) {
+  return {
+    platform: normalizeOverlapText(record.platform),
+    primary_topic: normalizeOverlapText(record.primary_query),
+    user_intent: normalizeOverlapText(record.primary_intent),
+    content_signature: normalizeOverlapText(record.title),
+  };
+}
+
+function samePlatformRecords(records, platform) {
+  const platformKey = normalizeOverlapText(platform?.name);
+  return records.map(normalizedPlannerRecord).filter((record) => record.platform === platformKey);
+}
+
+function materiallyIdenticalPlannerRecord(record, option) {
+  return record.primary_topic === normalizeOverlapText(option.primary_query)
+    && record.user_intent === normalizeOverlapText(option.user_intent)
+    && record.content_signature === normalizeOverlapText(option.content_signature);
+}
+
+function threeReadyStructures(candidates, platform, registryRecords) {
+  const existing = samePlatformRecords(registryRecords, platform);
+  const selectedTopics = new Set();
+  const options = [];
+  for (const [index, template] of PLANNER_STRUCTURE_TEMPLATES.entries()) {
+    const prototype = {
+      h1: PLANNER_H1_HIGH_FREQUENCY_MARKERS[index], title: PLANNER_H1_HIGH_FREQUENCY_MARKERS[index],
+      user_intent: template.intent, content_signature: template.sections.join(' '), sections: template.sections,
+    };
+    const candidate = candidates.find((item) => {
+      const topic = normalizeOverlapText(item.primary_query);
+      const option = { ...prototype, primary_query: item.primary_query };
+      return !selectedTopics.has(topic)
+        && !existing.some((record) => record.primary_topic === topic)
+        && !existing.some((record) => materiallyIdenticalPlannerRecord(record, option));
+    });
+    if (!candidate) return null;
+    selectedTopics.add(normalizeOverlapText(candidate.primary_query));
+    options.push({ number: index + 1, ...prototype, primary_query: candidate.primary_query,
+      selected_cluster: candidate.cluster });
+  }
+  return options;
 }
 
 function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
@@ -250,18 +284,19 @@ function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
   try {
     const coverage = coverageForPlanning(database);
     const cores = approvedSemanticCore302(database);
-    const candidates = [...new Map(cores.flatMap(({ core }) => freeTopicCandidates(core.taxonomy, coverage.occupied_primary_topics))
+    const candidates = [...new Map(cores.flatMap(({ core }) => allTopicCandidates(core.taxonomy))
       .map((item) => [item.primary_query.toLocaleLowerCase('ru-RU'), item])).values()];
     const systemError = (reason) => ({ code: 'E_AMBIGUOUS_TOPIC', reason,
       available_hf_markers: [...PLANNER_H1_HIGH_FREQUENCY_MARKERS] });
-    if (coverage.error || cores.length !== 1 || candidates.length < 3) {
+    const structureOptions = coverage.error || cores.length !== 1 ? null
+      : threeReadyStructures(candidates, platform, coverage.registry.records);
+    if (coverage.error || cores.length !== 1 || !structureOptions) {
       return { hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id, executor_profile: 'metrichit.editorial.planner.v1',
         status: 'blocked', background_mode: true, owner_question: 'prohibited',
         coverage: { registry_scanned: !coverage.registry.error, registry_records: coverage.registry.records?.length ?? 0,
           final_materials_scanned: !coverage.finals.error, final_materials: coverage.finals.files ?? 0, selected_primary_topic_occupied: null },
-        system_error: systemError(coverage.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'no_free_hf_markers')) };
+        system_error: systemError(coverage.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'no_independent_planner_topics')) };
     }
-    const structureOptions = threeReadyStructures(candidates);
     return {
       hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id,
       executor_profile: 'metrichit.editorial.planner.v1', status: 'ready', background_mode: true,
