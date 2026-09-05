@@ -39,6 +39,8 @@ test('model lifecycle and MVP speed policies are approved, exact and idempotent'
       assert.equal(modelData.automatic_model_chain, false);
       assert.equal(modelData.mandatory_luna_review, false);
       assert.equal(modelData.future_agents_md_plan.steps, 8);
+      assert.equal(modelData.future_agents_md_plan.status, 'approved_plan_first_stage_implemented');
+      assert.deepEqual(modelData.future_agents_md_plan.first_stage_approved_clarifications, ['consultation_and_read_only_review_no_writer_card_or_full_startup', 'bare_start_commands_owner_triggered_full_read_only_strategy_startup', 'active_isolated_worktree_clean_check_and_canonical_preparation_integration_check', 'approved_decision_recording_no_repeat_content_approval', 'delivery_separate_from_chat_finish']);
       assert.equal(JSON.parse(mvp.data_json).delivery, 'minimal_complete_user_scenario');
       assert.equal(JSON.parse(mvp.data_json).incomplete_is_mvp, false);
       assert.equal(db.prepare('SELECT count(*) AS count FROM memory_conflicts WHERE status=\'open\'').get().count, 0);

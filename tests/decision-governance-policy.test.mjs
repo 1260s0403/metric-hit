@@ -62,7 +62,8 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.execution.orchestration_v1.maximum_read_only_research_branches, 3);
       assert.equal(data.execution.orchestration_v1.permanent_department_chat, false);
       assert.deepEqual(data.execution.small_change_fast_path.eligible, ['isolated_ui_css_text', 'narrow_fix', 'documentation', 'approved_memory_rule_sync']);
-      assert.equal(data.execution.small_change_fast_path.strategy_full_startup_completed_once, true);
+      assert.equal(data.execution.small_change_fast_path.strategy_full_startup_completed_once, false);
+      assert.deepEqual(data.execution.small_change_fast_path.consultation_and_read_only_review, { writer_required: false, execution_card_required: false, full_strategy_startup_required: false, reads: 'verified_scope_context_or_named_files_and_direct_dependencies' });
       assert.deepEqual(data.execution.small_change_fast_path.handoff_context, ['owner_approval', 'exact_scope_acceptance', 'branch_head_status', 'relevant_canonical_references']);
       assert.deepEqual(data.execution.small_change_fast_path.executor_reads, ['agents_rules', 'branch_head_status', 'scope_files_and_contracts', 'targeted_read_only_memory']);
       assert.equal(data.execution.small_change_fast_path.repeat_full_context_required, false);
@@ -111,9 +112,10 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.deepEqual(data.implementation_authorization.includes, ['implementation', 'tests', 'ordinary_git_staging', 'one_commit', 'managed_sequential_integration']);
       assert.equal(data.implementation_authorization.redundant_intermediate_confirmation_required, false);
       assert.equal(data.implementation_authorization.second_owner_lifecycle_command_required, false);
+      assert.equal(data.implementation_authorization.approved_decision_recording_requires_reapproval, false);
       assert.equal(data.implementation_authorization.executor_claims_internal_handoff_and_lease, true);
       assert.equal(data.implementation_authorization.missing_initial_handoff_is_blocker, false);
-      assert.deepEqual(data.implementation_authorization.finish_task_command, { meaning: 'prepare_for_manual_new_chat', completes_pending_result_first: true, cli: 'chat-finish', delivered_context_pack_required: true, preserves_old_chat: true, output: 'single_fenced_text_scoped_startup_command_only' });
+      assert.deepEqual(data.implementation_authorization.finish_task_command, { meaning: 'prepare_for_manual_new_chat', completes_pending_result_first: true, cli: 'chat-finish', delivered_context_pack_required: true, preserves_old_chat: true, output: 'single_fenced_text_scoped_startup_command_only', separate_from_delivery: true });
       assert.deepEqual(data.implementation_authorization.separate_owner_decision_required_for, ['deletion', 'force_operations', 'external_publication', 'spending', 'access_or_permission_changes', 'strategy_changes', 'memory_policy_changes', 'settings_or_global_system_changes', 'material_scope_expansion']);
       assert.equal(data.implementation_authorization.managed_sandbox_prompts_removable, false);
       assert.deepEqual(data.owner_gates_preserved, ['deletion', 'force_operations', 'access_changes', 'publication', 'spending', 'strategy_changes', 'memory_changes', 'settings_changes', 'other_dangerous_actions']);
@@ -121,7 +123,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(operationsCandidates.length, 1);
       assert.equal(operationsCandidates[0].status, 'approved');
       const operations = JSON.parse(operationsCandidates[0].data_json);
-      assert.equal(operations.revision, 22);
+      assert.equal(operations.revision, 23);
       assert.deepEqual(operations.execution_workspace_boundary, { root: 'C:\\MetricHit\\worktrees', registered_same_repository_only: true, verify: ['registration', 'branch', 'head', 'clean_state', 'no_conflicting_lease'], reuse_same_line: true, new_chat_alone_requires_new_worktree: false, independent_clones_allowed: false, global_settings_changed: false });
       assert.equal(operations.startup_surface.agents_is_compact_contract, true);
       assert.equal(operations.startup_surface.safety_gates_preserved, true);
@@ -207,7 +209,7 @@ test('decision governance policy is approved, exact and idempotent', () => {
       assert.equal(data.handoff.active_writer_thread_requires_wait_or_owner_explicit_cancellation, false);
       assert.equal(data.handoff.thread_closed_after_commit_result_and_clean_git_status, true);
       assert.equal(data.handoff.completed_thread_reuse_allowed, false);
-      assert.equal(data.revision, 35);
+      assert.equal(data.revision, 36);
       assert.equal(db.prepare("SELECT count(*) AS count FROM memory_conflicts WHERE status='open'").get().count, 0);
     } finally {
       db.close();

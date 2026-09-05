@@ -9,7 +9,7 @@ const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.
 const decisionPath = 'knowledge/decisions/model-routing-policy-2026-08-13.md';
 const owner = 'owner';
 const reviewedAt = '2026-09-05T00:00:00.000Z';
-const revision = 7;
+const revision = 8;
 
 function stableUuid(key) {
   const hex = createHash('sha256').update(`metrichit-model-routing:${key}`).digest('hex');
@@ -32,7 +32,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
     bytes: bytes.length,
     sha256: createHash('sha256').update(bytes).digest('hex'),
     encoding: 'utf-8',
-    authority: 'direct_owner_confirmation',
+    authority: 'direct_owner_confirmation_after_five_clarifications_and_platform_risk',
     decision_date: '2026-09-05',
   });
   const sourceId = stableUuid(`source:${decisionPath}:${revision}`);
@@ -40,7 +40,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
   const versionId = stableUuid(`document-version:${decisionPath}:${revision}`);
   const candidateId = stableUuid(`candidate:ai.model_routing_policy:${revision}`);
   const title = 'Политика выбора модели Codex';
-  const candidateContent = 'Terra Medium рекомендована для обычного Strategy и standard executor-задач, но не меняет автоматически owner-selected модель чата или глобальные настройки. Luna используется для полностью определённой механической low-risk задачи в явном scope с простой целевой проверкой; при её недоступности допустим fallback на Terra Medium без blocker. Terra используется для обычной локальной реализации с самостоятельным выбором решения внутри scope. Sol используется для фактической complex architecture, security/auth, schema/data integrity, shared runtime или существенной неоднозначности как единственный writer либо обоснованный независимый reviewer; когда Sol требуется для такого этапа и недоступна, это технический blocker без молчаливого downgrade. Критерии Luna/Sol действуют постоянно и не требуют отдельного вопроса на каждую задачу; один набор изменений сохраняет одного writer, автоматической цепочки моделей и обязательного review Luna нет. Astra применяется только по отдельному прямому решению владельца. Проверки зависят от изменения, а не модели; внешние owner-gates, editorial profile approvals и production pause сохранены. Полный восьмишаговый план будущей доработки AGENTS.md сохранён в исходном документе политики; он является планом, а не преждевременным изменением lifecycle-правил.';
+  const candidateContent = 'Terra Medium рекомендована для обычного Strategy и standard executor-задач, но не меняет автоматически owner-selected модель чата или глобальные настройки. Luna используется для полностью определённой механической low-risk задачи в явном scope с простой целевой проверкой; при её недоступности допустим fallback на Terra Medium без blocker. Terra используется для обычной локальной реализации с самостоятельным выбором решения внутри scope. Sol используется для фактической complex architecture, security/auth, schema/data integrity, shared runtime или существенной неоднозначности как единственный writer либо обоснованный независимый reviewer; когда Sol требуется для такого этапа и недоступна, это технический blocker без молчаливого downgrade. Критерии Luna/Sol действуют постоянно и не требуют отдельного вопроса на каждую задачу; один набор изменений сохраняет одного writer, автоматической цепочки моделей и обязательного review Luna нет. Astra применяется только по отдельному прямому решению владельца. Проверки зависят от изменения, а не модели; внешние owner-gates, editorial profile approvals и production pause сохранены. Прямым решением владельца 05.09.2026 введены пять точных уточнений первого этапа: консультация и точечный read-only review не требуют writer, card или полного startup; обе bare-команды запускают полный read-only Strategy startup только по прямой команде; чистота перед mutation проверяется в active registered worktree, canonical — при preparation и integration; идемпотентная запись approved решения не требует повторного согласования содержания; delivery отделена от chat-finish. Остальной восьмишаговый план остаётся планом до отдельной реализации.';
   const candidateData = JSON.stringify({
     default_model: 'GPT-5.6 Terra / Medium',
     default_reasoning: 'Medium',
@@ -72,14 +72,15 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
     editorial_profile_approvals_preserved: true,
     production_pause_preserved: true,
     future_agents_md_plan: {
-      status: 'approved_plan_pending_separate_implementation',
+      status: 'approved_plan_first_stage_implemented',
       source_path: decisionPath,
       steps: 8,
       changes_lifecycle_automatically: false,
+      first_stage_approved_clarifications: ['consultation_and_read_only_review_no_writer_card_or_full_startup', 'bare_start_commands_owner_triggered_full_read_only_strategy_startup', 'active_isolated_worktree_clean_check_and_canonical_preparation_integration_check', 'approved_decision_recording_no_repeat_content_approval', 'delivery_separate_from_chat_finish'],
     },
     standard_model: 'GPT-5.6 Terra / Medium',
     revision,
-    supersedes: 'ai.model_routing_policy revision 6',
+    supersedes: 'ai.model_routing_policy revision 7',
     evidence: { path: decisionPath },
   });
 
@@ -94,6 +95,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
       stableUuid('candidate:ai.model_routing_policy:4'),
       stableUuid('candidate:ai.model_routing_policy:5'),
       stableUuid('candidate:ai.model_routing_policy:6'),
+      stableUuid('candidate:ai.model_routing_policy:7'),
     ]);
     const competing = database.prepare("SELECT id,status FROM memory_candidates WHERE semantic_key='ai.model_routing_policy' AND status IN ('pending','approved') AND id<>?").all(candidateId)
       .filter((row) => !(row.status === 'approved' && approvedLineage.has(row.id)));
@@ -126,7 +128,7 @@ export function applyModelRoutingPolicy(databasePath = defaultDatabasePath) {
         SET status = 'approved', reviewed_by = ?, reviewed_at = ?,
             review_note = ?, updated_at = ?, version = version + 1
         WHERE id = ?
-      `).run(owner, reviewedAt, 'Одобрено прямым решением владельца MetricHit от 05.09.2026; редакция 7 сохраняет поведение моделей и план, добавляет только неутверждённую точную proposal первого этапа.', reviewedAt, candidateId);
+      `).run(owner, reviewedAt, 'Прямое подтверждение владельца после перечисления пяти уточнений и platform risk: «Делай )», 05.09.2026.', reviewedAt, candidateId);
     }
     assertFields(database.prepare('SELECT * FROM memory_candidates WHERE id = ?').get(candidateId), {
       type: 'ai_policy', semantic_key: 'ai.model_routing_policy', title,
