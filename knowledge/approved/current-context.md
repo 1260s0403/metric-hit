@@ -1,6 +1,6 @@
 # MetricHit — текущий рабочий контекст
 
-Сформировано: 2026-09-04T18:30:00.000Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
+Сформировано: 2026-09-05T06:19:22.423Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
 
 ## Основные факты о продукте
 
@@ -57,6 +57,39 @@ Acceptance:
 
 Источник решения: explicit owner instruction 2026-09-04
 Проект: 00000000-0000-4000-a000-000000000102
+- **Реализовать P1 стабилизации Редакции:** Цель: Реализовать P1 стабилизации Редакции
+
+Scope:
+- config/editorial-contract.json
+- scripts/editorial-contract.mjs
+- scripts/editorial-lifecycle.mjs
+- scripts/structured-memory.mjs
+- src/metrichit_os/handoff.py
+- src/metrichit_os/chat_continuity.py
+- src/metrichit_os/cli.py
+- tests/editorial-contract.test.mjs
+- tests/editorial-lifecycle.test.mjs
+- tests/structured-memory.test.mjs
+- tests_python/test_handoff.py
+- tests_python/test_chat_continuity.py
+- knowledge/approved/current-context.md
+- documents/roadmap.md
+- data/database/metrichit.db
+
+Ограничения:
+- Один named writer, один commit, noncanonical worktree
+- Не переписывать P0 и не менять UI/runtime/publication/PF
+- Сохранить owner gates, audit history и fail-closed resource/stale-base rules
+
+Acceptance:
+- Media staging вне active worktree до artifact QA
+- Retry reuses same revision-card
+- Atomic finish end-to-end or one blocker
+- Contract pin and safe migrate-to-latest preserve content
+- Independent articles parallel; same article/shared writers blocked
+
+Источник решения: explicit owner approval 2026-09-04: Приступай к P1; Sol approved
+Проект: 00000000-0000-4000-a000-000000000102
 - **Независимые проектные контуры «Ядра»:** «Ядро» — OS и управляющий контур для нескольких независимых проектов. MetricHit — первый проект внутри «Ядра»; понятие «MetricHit OS» не используется для целевой модели. У каждого проекта должны быть собственные память, правила и бизнес-истина, независимые от «Ядра» и друг от друга. Ближайший приоритет до любой иной разработки — подготовить проектные контуры: отдельное физическое хранилище каждого проекта, безопасную миграцию существующих данных, экспорт/импорт самостоятельного проекта и изоляцию проектов в операторской панели. Реализация каждого направления начинается только после отдельного утверждения владельца; это решение не меняет схему, интерфейс или данные.
 - **Техническое разделение независимых проектов завершено:** На commit acff1db909c9cf9b7b85f0c2a18b035f3d3fa2c0 завершена универсальная маршрутизация независимых проектов. Любой зарегистрированный managed project направляется по canonical project_id в собственный project.sqlite; центральная SQLite остаётся control plane. Некорректные, неизвестные, незарегистрированные проекты и проекты без хранилища отклоняются fail-closed. Federated/project store и memory routing работают для N проектов, совместимость MetricHit сохранена. Два временных проекта подтвердили взаимную изоляцию и export/import; реальный второй проект не создавался. Подтверждены Python 196 passed, 1 skipped; Node 63/63; integrity и foreign keys valid; readiness unresolved=0, ready=true. Разделение технически завершено. Следующий продуктовый шаг нужен только при появлении реального второго проекта или по отдельному решению о UI; cleanup legacy-копий требует отдельного решения владельца.
 - **Контур «Авито»: доступ и изменяющие действия:** MetricHit → Автоматизация → Авито — активный изолированный scope с единственным рабочим корнем work/automation/avito. Разрешены local-browser login/access и API integration/use, но доступность API не предполагается. Создание, снятие, редактирование, публикация и любые изменяющие состояние form/API operations допускаются только по последующей точной команде владельца на операцию или пакет. Scheduler, платные услуги и расходы запрещены. Секреты, пароли, tokens, cookies и sessions остаются вне repository.
@@ -86,57 +119,45 @@ Acceptance:
 
 Источник решения: direct owner approval: Реализуй, corrected scope 2026-09-04
 Проект: 00000000-0000-4000-a000-000000000102
-- **Зафиксировать утверждённый ближайший план стабилизации и ускорения Редакции без…:** Цель: Зафиксировать утверждённый ближайший план стабилизации и ускорения Редакции без реализации
+- **Зафиксировать завершение утверждённого плана P0/P1 Редакции:** Цель: Зафиксировать завершение утверждённого плана P0/P1 Редакции
 
 Scope:
-- knowledge/decisions/editorial-reliability-plan-2026-09-04.md
 - documents/roadmap.md
 - knowledge/approved/current-context.md
 - data/database/metrichit.db
 
 Ограничения:
-- Без product code/runtime
-- Без публикации или ПФ
 - Сохранить audit history
-- Один commit
+- Не менять P0/P1 code, config или tests
+- Не реализовывать research-MVP
+- Не менять UI, runtime, публикации или ПФ
 
 Acceptance:
-- Причины, P0/P1, acceptance и speed principles сохранены
-- План ближайший перед необязательным editorial expansion
-- Current context отражает approved plan
-- Canonical clean после интеграции
+- P0 завершён на 30ebc598252ef4d8b9b28bd3d977eb3420e50aaf
+- P1 реализован 8c1255ac1b6500fb693bc571c63b66e00516ac64 и интегрирован 252698ac9753aa7b70cbd9d27a7c7807d4387461
+- Следующий необязательный этап — ещё не реализованный on-demand research-MVP
+- Два широких handoff-теста P1 не запускались из-за отсутствующей production SQLite и не считаются пройденными
 
-Источник решения: direct owner approval 2026-09-04
+Источник решения: owner instruction 2026-09-04 and verified P0/P1 delivery evidence
 Проект: 00000000-0000-4000-a000-000000000102
-- **Реализовать P0 стабилизации и ускорения Редакции:** Цель: Реализовать P0 стабилизации и ускорения Редакции
+- **Закрыть устаревшую active-задачу P0 после завершения плана P0/P1:** Цель: Закрыть устаревшую active-задачу P0 после завершения плана P0/P1
 
 Scope:
-- config/editorial-contract.json
-- scripts/editorial-contract.mjs
-- scripts/structured-memory.mjs
-- tests/editorial-contract.test.mjs
-- tests/structured-memory.test.mjs
-- knowledge/decisions/editorial-visual-standard-policy-2026-09-01.md
-- knowledge/decisions/public-editorial-semantic-core-2026-09-03.md
-- scripts/apply-editorial-visual-standard-policy.mjs
-- scripts/apply-public-editorial-semantic-core-revision-2026-09-03.mjs
+- documents/roadmap.md
 - knowledge/approved/current-context.md
 - data/database/metrichit.db
 
 Ограничения:
-- Без P1
-- Без UI/runtime/publication/PF
 - Сохранить audit history
+- Не менять code/config/tests/UI/runtime/publication/PF
+- Не реализовывать research-MVP
 
 Acceptance:
-- Полная spec
-- Pre-generation rejection
-- Artifact-computed close
-- Three H1 and 302 core
-- Long-form 1+3 visuals
-- Fast targeted regression
+- P0 больше не отображается как открытая задача
+- Единый полный статус поставки хранится в канонической completion-записи плана P0/P1
+- Предыдущие P0 revisions сохранены как audit history
 
-Источник решения: owner approval 2026-09-04
+Источник решения: owner instruction 2026-09-04 and verified P0/P1 delivery evidence
 Проект: 00000000-0000-4000-a000-000000000102
 - **Фокус публичных материалов MetricHit на поисковой выдаче:** В публичных статьях MetricHit не упоминать действия пользователей или ботов внутри сайта, внутренние поведенческие факторы, глубину просмотра, время, скроллы или клики и не вступать в спор об их влиянии. Материалы о сервисе фокусируются на поисковой выдаче, запросах, позициях, регионах, дневных лимитах, стоимости клика, бюджете и контроле результата.
 - **Внедрить утверждённый реалистичный визуальный стандарт статей и форматы Oborot:** Цель: Внедрить утверждённый реалистичный визуальный стандарт статей и форматы Oborot
@@ -354,6 +375,25 @@ Acceptance:
 - Целевые backend, JavaScript и E2E проверки проходят; Git чист после поставки
 
 Источник решения: direct owner command 2026-09-04
+Проект: 00000000-0000-4000-a000-000000000102
+- **Синхронизировать каноническую проекцию статуса P0/P1:** Цель: Синхронизировать каноническую проекцию статуса P0/P1
+
+Scope:
+- documents/roadmap.md
+- knowledge/approved/current-context.md
+- data/database/metrichit.db
+
+Ограничения:
+- Сохранить audit history
+- Не менять code/config/tests/UI/runtime/publication/PF
+- Не реализовывать research-MVP
+
+Acceptance:
+- Roadmap и current context отражают один канонический completion record
+- Устаревшие task blocks исключены после lifecycle completion
+- History сохранена, semantic-дубли в активной проекции отсутствуют
+
+Источник решения: owner instruction 2026-09-04 and verified P0/P1 delivery evidence
 Проект: 00000000-0000-4000-a000-000000000102
 - **Заменить семантическое ядро новых публичных материалов вне Telegram на список в…:** Цель: Заменить семантическое ядро новых публичных материалов вне Telegram на список владельца.
 
@@ -730,34 +770,4 @@ Acceptance:
 - 302 точных запросa применены и проверены.
 
 Источник решения: owner instruction 2026-09-03
-Проект: 00000000-0000-4000-a000-000000000102
-- **Реализовать P0 стабилизации и ускорения Редакции:** Цель: Реализовать P0 стабилизации и ускорения Редакции
-
-Scope:
-- config/editorial-contract.json
-- scripts/editorial-contract.mjs
-- scripts/structured-memory.mjs
-- tests/editorial-contract.test.mjs
-- tests/structured-memory.test.mjs
-- knowledge/decisions/editorial-visual-standard-policy-2026-09-01.md
-- knowledge/decisions/public-editorial-semantic-core-2026-09-03.md
-- scripts/apply-editorial-visual-standard-policy.mjs
-- scripts/apply-public-editorial-semantic-core-revision-2026-09-03.mjs
-- knowledge/approved/current-context.md
-- data/database/metrichit.db
-
-Ограничения:
-- Без P1
-- Без UI/runtime/publication/PF
-- Сохранить audit history
-
-Acceptance:
-- Полная spec
-- Pre-generation rejection
-- Artifact-computed close
-- Three H1 and 302 core
-- Long-form 1+3 visuals
-- Fast targeted regression
-
-Источник решения: owner approval 2026-09-04
 Проект: 00000000-0000-4000-a000-000000000102
