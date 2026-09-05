@@ -219,7 +219,14 @@ class ChatContinuityStore:
 
         workspace = IsolatedWorktree(canonical_worktree, worktree_root)
         try:
-            prepared = workspace.prepare(scope_key=str(scope["key"]), branch=branch, base=base)
+            # A named branch denotes a fresh execution line within a scope.  Its
+            # managed directory must therefore be distinct from a prior line of
+            # the same scope; otherwise prepare would try to refresh that prior
+            # directory against the new branch and correctly fail registration.
+            scope_key = str(scope["key"])
+            if branch is not None:
+                scope_key = f"{scope_key}:branch:{branch}"
+            prepared = workspace.prepare(scope_key=scope_key, branch=branch, base=base)
         except KnowledgeError:
             if branch is not None:
                 raise

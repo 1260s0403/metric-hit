@@ -366,6 +366,27 @@ def test_workspace_prepare_keeps_explicit_new_context_pack_separate_from_old_che
     assert prepared["checkpoint"]["execution_worktree"] != old["execution_worktree"]
 
 
+def test_workspace_prepare_uses_a_new_registered_worktree_for_an_explicit_branch_in_the_same_scope(tmp_path: Path) -> None:
+    path, _, continuity = fixture(tmp_path)
+    canonical, root = repository(tmp_path)
+    scope = continuity.scope_info("Лендинг")
+    old = IsolatedWorktree(canonical, root).prepare(
+        scope_key=str(scope["key"]), branch="codex/landing/old",
+    )
+
+    prepared = continuity.prepare_workspace(
+        scope_label="Лендинг", canonical_worktree=str(canonical), worktree_root=str(root),
+        branch="codex/landing/new", context_pack_id="new-pack", task_name="Новая задача",
+    )
+
+    assert prepared["status"] == "checkpoint_saved"
+    assert prepared["checkpoint"]["branch"] == "codex/landing/new"
+    assert prepared["checkpoint"]["execution_worktree"] != old["execution_worktree"]
+    assert IsolatedWorktree(canonical, root).verify(
+        prepared["checkpoint"]["execution_worktree"], "codex/landing/new", prepared["checkpoint"]["head"],
+    )["branch"] == "codex/landing/new"
+
+
 def test_parallel_start_isolates_each_telegram_bot(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     path, _, continuity = fixture(tmp_path)
     canonical, root = repository(tmp_path)

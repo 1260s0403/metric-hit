@@ -13,4 +13,5 @@ os.environ["PYTHONPATH"] = os.pathsep.join(filter(None, (SOURCE_ROOT, existing))
 
 
 def pytest_configure(config) -> None:
-    config.option.basetemp = Path(__file__).resolve().parents[1] / f".pytest-metrichit-{os.getpid()}"
+    if config.option.basetemp is None:
+        config.option.basetemp = Path(__file__).resolve().parents[1] / f".pytest-metrichit-{os.getpid()}"
