@@ -457,14 +457,16 @@ test('article_pipeline_trigger creates a platform card and launches Migration 00
     const artifactRoot = join(directory, 'artifact');
     const drafts = join(artifactRoot, 'drafts'); const assets = join(artifactRoot, 'assets');
     mkdirSync(drafts, { recursive: true }); mkdirSync(assets, { recursive: true });
-    const png = (width, height) => { const value = Buffer.alloc(24); value.writeUInt8(0x89, 0); value.write('PNG', 1); value.writeUInt32BE(width, 16); value.writeUInt32BE(height, 20); return value; };
+    const png = (width, height) => { const chunk = (type, data) => { const header = Buffer.alloc(8); header.writeUInt32BE(data.length, 0); header.write(type, 4); return Buffer.concat([header, data, Buffer.alloc(4)]); }; const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2; return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IEND', Buffer.alloc(0))]); };
     writeFileSync(join(assets, 'editorial-preview.png'), png(100, 100));
     for (let index = 1; index <= 3; index += 1) writeFileSync(join(assets, `editorial-inline-${index}.png`), png(150, 100));
     const spec = oborot.editorial_spec;
-    const lsiSections = spec.lsi.map((item, index) => `### ${item.section_anchor}\n${item.term}\n${index < 3 ? `![${item.category}](../assets/editorial-inline-${index + 1}.png)` : ''}`).join('\n');
-    let article = `# ${spec.selected_h1}\n![preview](../assets/editorial-preview.png)\n${[spec.primary_query, ...spec.secondary_queries].join('. ')}\nhttps://go.mtrhit.ru/\n${lsiSections}\nhttps://go.mtrhit.ru/\nhttps://go.mtrhit.ru/\nhttps://go.mtrhit.ru/\n`;
+    const lsiSections = spec.lsi.map((item, index) => `### ${item.section_anchor}\n- ${item.term}\n${index < 3 ? `![${item.category}](../assets/editorial-inline-${index + 1}.png)` : ''}\n${index === 0 || index === 1 ? 'https://go.mtrhit.ru/' : ''}`).join('\n');
+    let article = `# ${spec.selected_h1}\n![preview](../assets/editorial-preview.png)\n${[spec.primary_query, ...spec.secondary_queries].join('. ')}\nhttps://go.mtrhit.ru/\n${lsiSections}\n`;
     article += 'Практическая рекомендация для управления кампанией. '.repeat(130);
+    article += '\n### Дополнительный контроль\nПрактика.\n';
     while (article.replace(/https?:\/\/\S+/gu, '').length < 7001) article += 'Контроль результата. ';
+    article += '\nhttps://go.mtrhit.ru/\n';
     const articlePath = join(drafts, 'article.md'); writeFileSync(articlePath, article);
     const closedOborot = closeContextPack(databasePath, oborotCompiled.pack.id, {
       result: 'Корректный Oborot artifact проверен', checks: [oborot.first_check],
@@ -521,6 +523,7 @@ test('article image follow-up creates a new linked card from the latest closed a
         firstCheck: 'editorial-check', acceptance: ['source_ready'],
         forbiddenChanges: ['publication'], editorialSemantics: semantics,
         editorialIndexation: { seoIndexationObjective: 'Индексация статьи в Яндексе по утверждённой семантике.' },
+        editorialSpec: { status: 'valid', pre_generation_gate: 'passed' },
       },
     });
     const database = new DatabaseSync(databasePath);

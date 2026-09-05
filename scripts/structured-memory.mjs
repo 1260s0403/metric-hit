@@ -255,10 +255,10 @@ function automaticEditorialSpec(projectDatabasePath, route, assignment) {
         ? 'Кластеры объединены одной практической задачей подготовки и контроля запуска.' : null,
       user_intent: 'Практически подготовить и контролировать запуск накрутки ПФ',
       lsi: [
-        { term: 'поисковая выдача', category: 'search_context', section_anchor: structure[0], zone: 'h3' },
-        { term: 'релевантность страницы', category: 'page_quality', section_anchor: structure[1], zone: 'h3' },
-        { term: 'дневной лимит', category: 'campaign_control', section_anchor: structure[2], zone: 'h3' },
-        { term: 'динамика позиций', category: 'measurement', section_anchor: structure[3], zone: 'h3' },
+        { term: 'поисковая выдача', category: 'search_context', section_anchor: structure[0], zone: 'unordered_list' },
+        { term: 'релевантность страницы', category: 'page_quality', section_anchor: structure[1], zone: 'unordered_list' },
+        { term: 'дневной лимит', category: 'campaign_control', section_anchor: structure[2], zone: 'unordered_list' },
+        { term: 'динамика позиций', category: 'measurement', section_anchor: structure[3], zone: 'unordered_list' },
       ], structure,
       links: EDITORIAL_CONTRACT.article.landing_link_positions.map((position) => ({ position, url: EDITORIAL_CONTRACT.article.landing_url })),
       image_package: { preview: [{ path: '../assets/editorial-preview.png', medium: EDITORIAL_CONTRACT.visuals.allowed_medium, aspect_ratio: '1:1', is_screenshot: false }], inline },
@@ -370,6 +370,7 @@ function automaticArticleRevisionTaskBrief(route, taskBrief) {
     editorialSemantics: inheritedRevisionSemantics(source),
     editorialIndexation: inheritedIndexation ? { seoIndexationObjective: inheritedIndexation.seo_indexation_objective }
       : { seoIndexationObjective: 'Сохранить цель индексации исходной статьи при визуальной доработке.' },
+    editorialSpec: source.card.editorial_spec ?? null,
   };
   const overrides = Object.fromEntries(Object.entries(taskBrief ?? {})
     .filter(([, value]) => value !== undefined && value !== null));
@@ -820,6 +821,11 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy, edito
     contract_snapshot: structuredClone(EDITORIAL_CONTRACT),
     media_staging: 'external_temporary_directory_until_artifact_qa',
   } : null;
+  const editorialSpec = editorialPipeline?.editorial_spec ?? taskBrief.editorialSpec ?? null;
+  if (route.articleRevisionContext && (!editorialSpec || editorialSpec.status !== 'valid'
+    || editorialSpec.pre_generation_gate !== 'passed')) {
+    throw new Error('execution card is incomplete: editorial_spec');
+  }
   const card = {
     result: nonEmptyText(taskBrief.result),
     scope,
@@ -835,7 +841,7 @@ function buildExecutionCard(taskBrief, route, rules, semanticCoreTaxonomy, edito
     editorial_revision: route.articleRevisionContext ?? null,
     editorial_lifecycle: editorialLifecycle,
     editorial_visual_package: editorialVisualPackage(rules, editorialSemantics, editorialPipeline, route),
-    editorial_spec: editorialPipeline?.editorial_spec ?? null,
+    editorial_spec: editorialSpec,
     publication_reconciliation: publicationReconciliation,
     delivery_qa: pipelineTrigger ? null : editorialQaRequirements(rules, editorialSemantics, editorialIndexation),
     editorial_pipeline: editorialPipeline ? {

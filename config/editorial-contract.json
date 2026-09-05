@@ -1,6 +1,6 @@
 {
   "id": "metrichit.editorial_contract.v1",
-  "revision": 2,
+  "revision": 3,
   "lifecycle": {
     "media_staging": "external_temporary_directory_until_artifact_qa",
     "revision_card_identity": ["article", "action", "parent_result"],
@@ -33,6 +33,10 @@
     "landing_url": "https://go.mtrhit.ru/",
     "landing_link_positions": ["beginning", "body_1", "body_2", "final_cta"],
     "publication_requires_owner_confirmation_or_https_url": true
+  },
+  "content_source": {
+    "format": "metrichit.editorial.structured-source.v1",
+    "projection": "deterministic_plain_copy_paste_v1"
   },
   "lsi": {
     "allowed_zones": ["h3", "unordered_list", "checklist"],

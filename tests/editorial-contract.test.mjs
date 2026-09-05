@@ -18,10 +18,10 @@ function validInput() {
     primary_query: 'Накрутка ПФ', secondary_queries: Array.from({ length: 17 }, (_, index) => `точный запрос ${index + 1}`),
     selected_clusters: ['behavioral_factors_general'], user_intent: 'Подготовить управляемый запуск', structure,
     lsi: [
-      { term: 'поисковая выдача', category: 'search_context', section_anchor: structure[0], zone: 'h3' },
-      { term: 'релевантность страницы', category: 'page_quality', section_anchor: structure[1], zone: 'h3' },
-      { term: 'дневной лимит', category: 'campaign_control', section_anchor: structure[2], zone: 'h3' },
-      { term: 'динамика позиций', category: 'measurement', section_anchor: structure[3], zone: 'h3' },
+      { term: 'поисковая выдача', category: 'search_context', section_anchor: structure[0], zone: 'unordered_list' },
+      { term: 'релевантность страницы', category: 'page_quality', section_anchor: structure[1], zone: 'unordered_list' },
+      { term: 'дневной лимит', category: 'campaign_control', section_anchor: structure[2], zone: 'unordered_list' },
+      { term: 'динамика позиций', category: 'measurement', section_anchor: structure[3], zone: 'unordered_list' },
     ], links: EDITORIAL_CONTRACT.article.landing_link_positions.map((position) => ({ position, url: 'https://go.mtrhit.ru/' })),
     image_package: { preview: [{ path: '../assets/preview.png', medium: 'photorealistic_editorial_photo', aspect_ratio: '1:1' }], inline } };
 }
@@ -47,7 +47,9 @@ test('pre-generation spec rejects invalid H1, LSI and visual concept', () => {
 });
 
 function png(width, height) {
-  const bytes = Buffer.alloc(24); bytes.writeUInt8(0x89, 0); bytes.write('PNG', 1); bytes.writeUInt32BE(width, 16); bytes.writeUInt32BE(height, 20); return bytes;
+  const chunk = (type, data) => { const header = Buffer.alloc(8); header.writeUInt32BE(data.length, 0); header.write(type, 4); return Buffer.concat([header, data, Buffer.alloc(4)]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IEND', Buffer.alloc(0))]);
 }
 
 test('valid real article and assets produce computed evidence', (t) => {
@@ -58,10 +60,12 @@ test('valid real article and assets produce computed evidence', (t) => {
   writeFileSync(join(assets, 'preview.png'), png(100, 100));
   for (let index = 1; index <= 3; index += 1) writeFileSync(join(assets, `inline-${index}.png`), png(150, 100));
   const targetQueries = [input.primary_query, ...input.secondary_queries].join('. ');
-  const sections = input.lsi.map((item, index) => `### ${item.section_anchor}\n${item.term}\n![${item.semantic_role}](../assets/inline-${index + 1}.png)`).join('\n');
-  let article = `# ${input.selected_h1}\n![preview](../assets/preview.png)\n${targetQueries}\nhttps://go.mtrhit.ru/\n${sections}\nhttps://go.mtrhit.ru/\nhttps://go.mtrhit.ru/\nhttps://go.mtrhit.ru/\n`;
+  const sections = input.lsi.map((item, index) => `### ${item.section_anchor}\n- ${item.term}\n${index < 3 ? `![${item.semantic_role}](../assets/inline-${index + 1}.png)` : ''}\n${index === 0 || index === 1 ? 'https://go.mtrhit.ru/' : ''}`).join('\n');
+  let article = `# ${input.selected_h1}\n![preview](../assets/preview.png)\n${targetQueries}\nhttps://go.mtrhit.ru/\n${sections}\n`;
   article += 'Практическая рекомендация для управления кампанией. '.repeat(150);
+  article += '\n### Дополнительный контроль\nПрактика.\n';
   while (article.replace(/https?:\/\/\S+/gu, '').length < 7001) article += 'Контроль результата. ';
+  article += '\nhttps://go.mtrhit.ru/\n';
   const articlePath = join(drafts, 'article.md'); writeFileSync(articlePath, article);
   const evidence = validateEditorialArtifact(spec, { article_path: articlePath });
   assert.equal(evidence.computed, true); assert.equal(evidence.passed, true);
