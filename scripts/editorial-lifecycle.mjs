@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { EDITORIAL_CONTRACT } from './editorial-contract.mjs';
 
 const canonical = (value) => JSON.stringify(value);
@@ -21,6 +22,12 @@ function readManifest(staging) {
 function writeManifest(staging, manifest) {
   writeFileSync(manifestPath(staging), JSON.stringify(manifest));
   return manifest;
+}
+
+function stagingFromRoot(root) {
+  const stagingRoot = resolve(nonEmpty(root, 'staging'));
+  const manifest = readManifest({ root: stagingRoot });
+  return { root: stagingRoot, active_worktree: manifest.active_worktree, status: manifest.status };
 }
 
 export function editorialContractPin(contract = EDITORIAL_CONTRACT) {
@@ -134,8 +141,16 @@ export function migrateEditorialCardToLatest(card, {
     contract_migration: { from: priorPin, to: nextPin, article_path, article_commit, article_content_sha256 } } };
 }
 
-export async function finishEditorialScope({ owner_command, validate, commit, integrate, reconcile, close, checkpoint }) {
+export async function finishEditorialScope({ owner_command, validate, commit, integrate, reconcile, close, checkpoint,
+  staging = null, completedStages = null }) {
   if (owner_command !== 'Заверши задачу.') throw new Error('editorial_finish_blocked:owner_command');
+  if (staging && readManifest(staging).status !== 'promoted_after_qa') {
+    const blocker = { stage: 'artifact_validation', message: 'editorial_lifecycle_blocked:assets_not_promoted' };
+    const manifest = readManifest(staging);
+    manifest.finish = { owner_command, status: 'blocked', blocker, evidence: {} };
+    writeManifest(staging, manifest);
+    return { status: 'blocked', blocker, evidence: {} };
+  }
   const steps = [
     ['artifact_validation', validate], ['commit', commit], ['serialized_integration', integrate],
     ['domain_reconciliation', reconcile], ['close_card', close], ['clean_checkpoint', checkpoint],
@@ -143,12 +158,79 @@ export async function finishEditorialScope({ owner_command, validate, commit, in
   const evidence = {};
   for (const [stage, operation] of steps) {
     try {
-      const result = await operation(evidence);
+      const result = completedStages ? completedStages[stage] : await operation(evidence);
       if (!result || result.passed === false || result.status === 'blocked') throw new Error(result?.blocker ?? 'stage_failed');
       evidence[stage] = result;
+      if (staging) {
+        const manifest = readManifest(staging);
+        manifest.finish = { owner_command, status: 'in_progress', evidence };
+        writeManifest(staging, manifest);
+      }
     } catch (error) {
+      if (staging) {
+        const manifest = readManifest(staging);
+        manifest.finish = { owner_command, status: 'blocked', blocker: { stage, message: error.message }, evidence };
+        writeManifest(staging, manifest);
+      }
       return { status: 'blocked', blocker: { stage, message: error.message }, evidence };
     }
   }
+  if (staging) {
+    const manifest = readManifest(staging);
+    manifest.finish = { owner_command, status: 'delivered', evidence };
+    writeManifest(staging, manifest);
+  }
   return { status: 'delivered', order: steps.map(([stage]) => stage), evidence };
+}
+
+function cliArguments(argv) {
+  const result = { _: [] };
+  for (let index = 0; index < argv.length; index += 1) {
+    const token = argv[index];
+    if (!token.startsWith('--')) { result._.push(token); continue; }
+    const key = token.slice(2);
+    const value = argv[index + 1];
+    if (!value || value.startsWith('--')) throw new Error(`editorial_lifecycle_invalid:argument_${key}`);
+    result[key] = value;
+    index += 1;
+  }
+  return result;
+}
+
+function jsonObject(value, field) {
+  try {
+    const parsed = JSON.parse(nonEmpty(value, field));
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') throw new Error();
+    return parsed;
+  } catch { throw new Error(`editorial_lifecycle_invalid:${field}`); }
+}
+
+async function runCli(argv) {
+  const args = cliArguments(argv);
+  const command = args._[0];
+  if (command === 'stage') {
+    const staging = args.staging ? stagingFromRoot(args.staging) : createEditorialMediaStaging(args.worktree, args.key);
+    const asset = stageEditorialAsset(staging, nonEmpty(args.source, 'source'), nonEmpty(args.target, 'target'));
+    return { staging, asset };
+  }
+  if (command === 'promote') {
+    const staging = stagingFromRoot(args.staging);
+    const assets = JSON.parse(nonEmpty(args.assets, 'assets'));
+    if (!Array.isArray(assets)) throw new Error('editorial_lifecycle_invalid:assets');
+    const artifactQa = jsonObject(args['artifact-qa'], 'artifact_qa');
+    return promoteEditorialAssets(staging, assets, () => artifactQa);
+  }
+  if (command === 'finish') {
+    const staging = stagingFromRoot(args.staging);
+    const completedStages = jsonObject(args.evidence, 'evidence');
+    return finishEditorialScope({ owner_command: args['owner-command'], completedStages, staging });
+  }
+  throw new Error('Usage: editorial-lifecycle.mjs <stage|promote|finish>');
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  runCli(process.argv.slice(2)).then((result) => console.log(JSON.stringify(result))).catch((error) => {
+    console.error(`editorial-lifecycle: ${error.message}`);
+    process.exitCode = 1;
+  });
 }

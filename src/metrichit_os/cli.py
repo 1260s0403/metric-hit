@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -196,6 +197,9 @@ def workflow_parser() -> argparse.ArgumentParser:
     finish.add_argument("--head", required=True)
     finish.add_argument("--context-pack", required=True)
     finish.add_argument("--task")
+    editorial_lifecycle = subparsers.add_parser("editorial-lifecycle")
+    editorial_lifecycle.add_argument("--operation", choices=("stage", "promote", "finish"), required=True)
+    editorial_lifecycle.add_argument("--data", required=True, help="UTF-8 JSON object")
     workspace_prepare = subparsers.add_parser("chat-workspace-prepare")
     workspace_prepare.add_argument("--db", required=True)
     workspace_prepare.add_argument("--scope", required=True)
@@ -339,6 +343,27 @@ def run_workflow_command(arguments_list: list[str]) -> int:
             else ProjectStorage()
         )
         print_json(storage.import_package(Path(arguments.package)))
+        return 0
+    if arguments.command == "editorial-lifecycle":
+        payload = json.loads(arguments.data)
+        if not isinstance(payload, dict) or any(not isinstance(key, str) or not isinstance(value, str)
+                                                for key, value in payload.items()):
+            raise ValueError("--data must contain a JSON object with string values")
+        allowed = {
+            "stage": {"worktree", "key", "source", "target", "staging"},
+            "promote": {"staging", "assets", "artifact-qa"},
+            "finish": {"staging", "owner-command", "evidence"},
+        }[arguments.operation]
+        if set(payload) - allowed:
+            raise ValueError("editorial lifecycle data contains unsupported fields")
+        script = Path(__file__).resolve().parents[2] / "scripts" / "editorial-lifecycle.mjs"
+        command = ["node", str(script), arguments.operation]
+        for key, value in payload.items():
+            command.extend((f"--{key}", value))
+        completed = subprocess.run(command, check=False, capture_output=True, text=True, encoding="utf-8")
+        if completed.returncode != 0:
+            raise WorkflowError(completed.stderr.strip() or "editorial lifecycle command failed")
+        print(completed.stdout, end="")
         return 0
     database_path = Path(arguments.db)
     if arguments.command in {"chat-transition", "chat-finish", "chat-resume", "chat-workspace-prepare", "chat-parallel-start"}:

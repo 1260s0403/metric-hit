@@ -157,6 +157,39 @@ def test_finish_prepares_one_continuation_only_after_delivered_result(tmp_path: 
     assert continuity.resume(result["copy_command"])["status"] == "resuming"
 
 
+def test_cli_runs_resumable_editorial_lifecycle_without_a_project_database(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    active = tmp_path / "active"
+    active.mkdir()
+    source = tmp_path / "asset.png"
+    source.write_bytes(b"generated-image")
+    assert cli.run_workflow_command([
+        "editorial-lifecycle", "--operation", "stage", "--data", json.dumps({
+            "worktree": str(active), "key": "cli-lifecycle", "source": str(source),
+            "target": "work/articles/assets/article.png",
+        }),
+    ]) == 0
+    staged = json.loads(capsys.readouterr().out)
+    assert cli.run_workflow_command([
+        "editorial-lifecycle", "--operation", "promote", "--data", json.dumps({
+            "staging": staged["staging"]["root"],
+            "assets": json.dumps([{ "target": staged["asset"]["target"], "sha256": staged["asset"]["sha256"] }]),
+            "artifact-qa": json.dumps({"computed": True, "passed": True}),
+        }),
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "promoted_after_qa"
+    evidence = {stage: {"passed": True} for stage in (
+        "artifact_validation", "commit", "serialized_integration", "domain_reconciliation", "close_card", "clean_checkpoint",
+    )}
+    assert cli.run_workflow_command([
+        "editorial-lifecycle", "--operation", "finish", "--data", json.dumps({
+            "staging": staged["staging"]["root"], "owner-command": "Заверши задачу.",
+            "evidence": json.dumps(evidence),
+        }),
+    ]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "delivered"
+    assert (active / "work/articles/assets/article.png").read_bytes() == b"generated-image"
+
+
 def test_resume_rejects_legacy_checkpoint(tmp_path: Path) -> None:
     path, _, continuity = fixture(tmp_path)
     prepared = workspace(tmp_path, "landing", "codex/lending/tariffs")
