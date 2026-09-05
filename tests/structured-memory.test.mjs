@@ -12,6 +12,7 @@ import {
   compileCoordinatorContext, compileDeterministicContext, createTaskScope, loadReferencedMemory,
   registerScopedRecord, resolveScopedMemory, routeTask, selectCoordinatorSkills, supersedeScopedRecord,
 } from '../scripts/structured-memory.mjs';
+import { EDITORIAL_CONTRACT } from '../scripts/editorial-contract.mjs';
 import {
   CENTRAL_ORPHAN_PACK_IDS, PROJECT_ORPHAN_PACK_IDS, repairOrphanContextPacks,
 } from '../scripts/apply-integrity-repair.mjs';
@@ -632,6 +633,37 @@ test('delivery validation rejects a changed execution card', () => {
       result: 'done', checks: ['code-check'], satisfiedAcceptance: ['changed'],
       scopeCompliance: true, forbiddenChangesObserved: [],
     }), /execution_card_hash_mismatch/);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('closeContextPack keeps an article open when mandatory artifact acceptance fails', () => {
+  const { directory, databasePath } = fixture();
+  try {
+    const articlePath = join(directory, 'article.md');
+    writeFileSync(articlePath, '# Накрутка ПФ\nТехнически читаемый текст без выполненного visual review.\n');
+    const acceptance = ['artifact accepted'];
+    const firstCheck = 'node --test tests/structured-memory.test.mjs';
+    const compiled = compileContextPack(databasePath, {
+      text: 'Исправь проверку комплекта MetricHit', explicitScopeId: SCOPE_IDS.editorial, taskType: 'code',
+      taskBrief: {
+        result: 'Комплект принят', scope: ['scripts/structured-memory.mjs'], firstCheck,
+        acceptance, forbiddenChanges: ['publication'],
+        editorialSpec: {
+          status: 'valid', pre_generation_gate: 'passed', contract_id: EDITORIAL_CONTRACT.id,
+          contract_revision: EDITORIAL_CONTRACT.revision, contract_snapshot: structuredClone(EDITORIAL_CONTRACT),
+          content_source_format: EDITORIAL_CONTRACT.content_source.format, selected_h1: 'Накрутка ПФ',
+          character_range: { minimum: 1, maximum: 1000 }, primary_query: 'Накрутка ПФ',
+          secondary_queries: [], lsi: [], links: [], image_package: { preview: [], inline: [] },
+        },
+      },
+    });
+    assert.throws(() => closeContextPack(databasePath, compiled.pack.id, {
+      result: 'Комплект принят', checks: [firstCheck], satisfiedAcceptance: acceptance,
+      scopeCompliance: true, forbiddenChangesObserved: [], artifact: { article_path: articlePath },
+    }), /artifact_qa_failed/);
+    const database = new DatabaseSync(databasePath, { readOnly: true });
+    assert.equal(database.prepare('SELECT status FROM context_packs WHERE id=?').get(compiled.pack.id).status, 'open');
+    database.close();
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 

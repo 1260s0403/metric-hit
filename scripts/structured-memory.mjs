@@ -1123,6 +1123,10 @@ function validateDeliveryEvidence(card, delivery) {
   const contentQa = validateEditorialContentQa(card.delivery_qa, delivery.contentQa);
   const artifactValidation = card.editorial_spec
     ? validateEditorialArtifact(card.editorial_spec, delivery.artifact ?? {}) : null;
+  if (artifactValidation && (artifactValidation.passed !== true
+    || artifactValidation.final_acceptance?.passed !== true)) {
+    throw new Error('delivery validation failed: editorial_artifact_qa_failed');
+  }
   return {
     validated_at: now(), result: delivery.result.trim(), checks,
     satisfied_acceptance: satisfiedAcceptance, scope_compliant: true,

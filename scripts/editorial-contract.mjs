@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, extname, resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { inflateSync } from 'node:zlib';
 
@@ -13,6 +14,7 @@ const sha256 = (value) => createHash('sha256').update(value).digest('hex');
 const fail = (prefix, field) => { throw new Error(`${prefix}:${field}`); };
 const specFail = (field, reason) => fail('editorial_spec_invalid', `${field}:${reason}`);
 const artifactFail = (field) => fail('editorial_artifact_invalid', field);
+const require = createRequire(import.meta.url);
 const occurrences = (value, needle) => normalized(value).split(normalized(needle)).length - 1;
 const bandFor = (count) => EDITORIAL_CONTRACT.volume_bands.find((band) => count >= band.minimum_characters && count <= band.maximum_characters) ?? null;
 
@@ -118,12 +120,36 @@ function decodePng(bytes) {
   return { width: header.width, height: header.height };
 }
 
+function decodeJpeg(bytes) {
+  const candidates = [
+    'jpeg-js',
+    resolve(dirname(process.execPath), '..', 'node_modules', 'jpeg-js'),
+    process.env.USERPROFILE ? join(process.env.USERPROFILE, '.cache', 'codex-runtimes', 'codex-primary-runtime',
+      'dependencies', 'node', 'node_modules', 'jpeg-js') : null,
+  ].filter(Boolean);
+  let decoder = null;
+  for (const candidate of candidates) {
+    try { decoder = require(candidate); break; } catch (error) {
+      if (error?.code !== 'MODULE_NOT_FOUND') throw error;
+    }
+  }
+  if (!decoder?.decode) throw new Error('jpeg_decoder_unavailable');
+  const decoded = decoder.decode(bytes, { useTArray: true, formatAsRGBA: false, tolerantDecoding: false });
+  if (!Number.isInteger(decoded?.width) || decoded.width < 1 || !Number.isInteger(decoded?.height)
+    || decoded.height < 1 || !decoded.data || decoded.data.length < decoded.width * decoded.height * 3) {
+    throw new Error('jpeg_pixels');
+  }
+  return { width: decoded.width, height: decoded.height };
+}
+
 function imageSize(path) {
   const bytes = readFileSync(path);
   if (bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) {
     try { return decodePng(bytes); } catch { artifactFail(`image_unreadable:${extname(path)}`); }
   }
-  if (bytes.length >= 6 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes.at(-2) === 0xff && bytes.at(-1) === 0xd9) { let offset = 2; while (offset + 9 < bytes.length) { if (bytes[offset] !== 0xff) { offset += 1; continue; } const marker = bytes[offset + 1]; const length = bytes.readUInt16BE(offset + 2); if (length < 2 || offset + 2 + length > bytes.length) break; if ([0xc0, 0xc1, 0xc2].includes(marker) && length >= 7) return { height: bytes.readUInt16BE(offset + 5), width: bytes.readUInt16BE(offset + 7) }; offset += 2 + length; } }
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xd8) {
+    try { return decodeJpeg(bytes); } catch { artifactFail(`image_unreadable:${extname(path)}`); }
+  }
   artifactFail(`image_unreadable:${extname(path)}`);
 }
 const ratio = ({ width, height }) => { const value = width / height; return Math.abs(value - 1) < .02 ? '1:1' : Math.abs(value - 1.5) < .03 ? '3:2' : Math.abs(value - 16 / 9) < .03 ? '16:9' : `${width}:${height}`; };

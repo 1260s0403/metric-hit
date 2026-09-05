@@ -1,10 +1,10 @@
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { EDITORIAL_CONTRACT } from './editorial-contract.mjs';
+import { EDITORIAL_CONTRACT, validateEditorialArtifact } from './editorial-contract.mjs';
 
 const canonical = (value) => JSON.stringify(value);
 const sha256 = (value) => createHash('sha256').update(value).digest('hex');
@@ -120,7 +120,7 @@ export function promoteEditorialAssets(staging, selectedAssets, artifactQa) {
     writeManifest(staging, manifest);
     throw error;
   }
-  manifest.status = 'promoted_after_qa'; writeManifest(staging, manifest);
+  manifest.status = 'promoted_after_qa'; manifest.artifact_qa = qa; writeManifest(staging, manifest);
   return { status: 'promoted_after_qa', assets: promoted, artifact_qa: qa, staging_manifest: manifestPath(staging) };
 }
 
@@ -218,6 +218,56 @@ function changedPaths(worktree) {
   const untracked = git(worktree, 'ls-files', '--others', '--exclude-standard').split(/\r?\n/u).filter(Boolean);
   return [...new Set([...tracked, ...staged, ...untracked].map((path) => path.replaceAll('\\', '/')))].sort();
 }
+function validateStoredArtifact(card, artifactQa, worktree) {
+  if (!card.editorial_spec) return null;
+  if (artifactQa?.computed !== true || artifactQa.passed !== true
+    || artifactQa.final_acceptance?.passed !== true || !artifactQa.visuals?.review) {
+    throw new Error('editorial_lifecycle_blocked:artifact_qa');
+  }
+  const articlePath = resolve(worktree, safeRelative(card.editorial_lifecycle?.article_path, 'article_path'));
+  const fileIdentity = (path) => {
+    const stat = statSync(path);
+    return `${stat.dev}:${stat.ino}`;
+  };
+  try {
+    if (fileIdentity(artifactQa.article_path) !== fileIdentity(articlePath)) {
+      throw new Error('article_path');
+    }
+  } catch { throw new Error('editorial_lifecycle_blocked:artifact_qa_article'); }
+  const resolveEvidencePath = (path, field) => {
+    const value = nonEmpty(path, field);
+    const resolved = isAbsolute(value) ? resolve(value) : resolve(worktree, value);
+    statSync(resolved);
+    return resolved;
+  };
+  const sourcePaths = (artifactQa.originality?.compared_sources ?? [])
+    .map((source) => resolveEvidencePath(source?.path, 'artifact_qa_source_path'));
+  const structuredSourcePath = artifactQa.structured_source?.path
+    ? resolveEvidencePath(artifactQa.structured_source.path, 'artifact_qa_structured_source_path') : null;
+  const artifactInput = { article_path: articlePath, source_paths: sourcePaths,
+    ...(structuredSourcePath ? { structured_source_path: structuredSourcePath } : {}),
+    visual_review: artifactQa.visuals.review };
+  const actual = validateEditorialArtifact(card.editorial_spec, artifactInput);
+  if (actual.passed !== true || actual.final_acceptance?.passed !== true) {
+    throw new Error('editorial_lifecycle_blocked:artifact_qa');
+  }
+  const hashEvidence = (evidence) => canonical({
+    content_sha256: evidence.content_sha256,
+    assets: [...(evidence.visuals?.assets ?? [])].map(({ path, sha256: hash }) => ({ path, sha256: hash }))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+    sources: [...(evidence.originality?.compared_sources ?? [])].map((source) => ({
+      file: fileIdentity(resolveEvidencePath(source.path, 'artifact_qa_source_path')), sha256: source.sha256,
+    })).sort((left, right) => left.file.localeCompare(right.file)),
+    structured_source: evidence.structured_source?.sha256 ? {
+      file: fileIdentity(resolveEvidencePath(evidence.structured_source.path, 'artifact_qa_structured_source_path')),
+      sha256: evidence.structured_source.sha256,
+    } : null,
+  });
+  if (hashEvidence(actual) !== hashEvidence(artifactQa)) {
+    throw new Error('editorial_lifecycle_blocked:artifact_qa_hash_mismatch');
+  }
+  return { input: artifactInput, validation: actual };
+}
 async function storedExecutionCard(databasePath, packId) {
   const { DatabaseSync } = await import('node:sqlite');
   const database = new DatabaseSync(resolve(databasePath), { readOnly: true });
@@ -262,7 +312,8 @@ async function finishEditorialCli(args) {
   if (!relative(worktree, statePath).startsWith('..') || !relative(canonicalWorktree, statePath).startsWith('..')) {
     throw new Error('editorial_lifecycle_invalid:finish_state_inside_worktree');
   }
-  if (args.staging && readManifest(stagingFromRoot(args.staging)).status !== 'promoted_after_qa') {
+  const finishStaging = args.staging ? stagingFromRoot(args.staging) : null;
+  if (finishStaging && readManifest(finishStaging).status !== 'promoted_after_qa') {
     throw new Error('editorial_lifecycle_blocked:assets_not_promoted');
   }
   const identity = { handoff_id: handoffId, context_pack_id: packId, worktree, canonical_worktree: canonicalWorktree };
@@ -306,7 +357,14 @@ async function finishEditorialCli(args) {
     run(checkArgv[0], checkArgv.slice(1), worktree);
     return { passed: true, command: stored.card.first_check };
   };
-  await perform('artifact_validation', runFirstCheck, runFirstCheck);
+  const runArtifactValidation = async () => {
+    const firstCheck = await runFirstCheck();
+    if (!stored.card.editorial_spec) return { passed: true, first_check: firstCheck, artifact: null };
+    if (!finishStaging) throw new Error('editorial_lifecycle_blocked:artifact_qa_missing');
+    const artifact = validateStoredArtifact(stored.card, readManifest(finishStaging).artifact_qa, worktree);
+    return { passed: true, first_check: firstCheck, artifact: artifact.validation, artifact_input: artifact.input };
+  };
+  const artifactValidation = await perform('artifact_validation', runArtifactValidation, runArtifactValidation);
   const verifyCommit = async (evidence) => {
     if (!evidence || !/^[0-9a-f]{40,64}$/u.test(evidence.commit)) throw new Error('editorial_lifecycle_invalid:commit_evidence');
     if (git(worktree, 'rev-parse', 'HEAD') !== evidence.commit || git(worktree, 'status', '--short')) {
@@ -369,7 +427,8 @@ async function finishEditorialCli(args) {
   await perform('close_card', async () => {
     const { closeContextPack } = await import('./structured-memory.mjs');
     const closed = closeContextPack(databasePath, packId, { result: stored.card.result, checks: [stored.card.first_check],
-      satisfiedAcceptance: stored.card.acceptance, scopeCompliance: true, forbiddenChangesObserved: [] });
+      satisfiedAcceptance: stored.card.acceptance, scopeCompliance: true, forbiddenChangesObserved: [],
+      ...(artifactValidation.artifact_input ? { artifact: artifactValidation.artifact_input } : {}) });
     if (closed.status !== 'closed' || closed.terminal_outcome !== 'delivered') throw new Error('editorial_lifecycle_blocked:context_pack_not_delivered');
     return { passed: true, id: packId, changed: closed.changed, terminal_outcome: closed.terminal_outcome };
   }, verifyClosedCard);

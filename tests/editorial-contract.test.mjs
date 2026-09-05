@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -145,6 +146,30 @@ test('PNG headers without decodable image data and corrupted images are rejected
   assert.throws(() => validateEditorialArtifact(fixture.spec, {
     article_path: fixture.articlePath, visual_review: fixture.visualReview,
   }), /image_unreadable/);
+});
+
+test('JPEG readability requires decoding real image data', (t) => {
+  const fixture = artifactFixture(t);
+  const jpegPath = join(fixture.assets, 'preview.jpg');
+  const jpeg = createRequire(import.meta.url)(join(process.env.USERPROFILE, '.cache', 'codex-runtimes',
+    'codex-primary-runtime', 'dependencies', 'node', 'node_modules', 'jpeg-js'));
+  const validJpeg = jpeg.encode({ data: Buffer.from([255, 0, 0, 255]), width: 1, height: 1 }, 90).data;
+  fixture.spec.image_package.preview[0].path = '../assets/preview.jpg';
+  writeFileSync(fixture.articlePath, fixture.article.replace('../assets/preview.png', '../assets/preview.jpg'));
+  const validateJpeg = (bytes) => {
+    writeFileSync(jpegPath, bytes);
+    fixture.visualReview.assets[0] = { path: '../assets/preview.jpg',
+      sha256: createHash('sha256').update(bytes).digest('hex'), passed: true };
+    return validateEditorialArtifact(fixture.spec, {
+      article_path: fixture.articlePath, visual_review: fixture.visualReview,
+    });
+  };
+  assert.equal(validateJpeg(validJpeg).passed, true);
+  const truncated = Buffer.concat([validJpeg.subarray(0, Math.floor(validJpeg.length * .75)), validJpeg.subarray(-2)]);
+  assert.throws(() => validateJpeg(truncated), /image_unreadable/);
+  const headerOnly = Buffer.from([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x01,
+    0x00, 0x01, 0x01, 0x01, 0x11, 0x00, 0xff, 0xd9]);
+  assert.throws(() => validateJpeg(headerOnly), /image_unreadable/);
 });
 
 test('final artifact acceptance waits for a hash-bound review of every current image', (t) => {

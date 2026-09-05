@@ -1,15 +1,18 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { dirname, join, resolve } from 'node:path';
+import { execFileSync, spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { deflateSync } from 'node:zlib';
+import { DatabaseSync } from 'node:sqlite';
 import {
   createEditorialMediaStaging, editorialContractPin, editorialRevisionCardIdentity,
   finishEditorialScope, migrateEditorialCardToLatest, promoteEditorialAssets, stageEditorialAsset,
 } from '../scripts/editorial-lifecycle.mjs';
 import { compileContextPack, migrateContextPackEditorialContract } from '../scripts/structured-memory.mjs';
+import { EDITORIAL_CONTRACT, validateEditorialArtifact } from '../scripts/editorial-contract.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'editorial-p1-'));
@@ -151,4 +154,117 @@ test('exact owner finish runs the atomic order and returns one concrete blocker'
     commit: async () => { throw new Error('dirty worktree'); }, integrate: operation('never'),
     reconcile: operation('never'), close: operation('never'), checkpoint: operation('never') });
   assert.deepEqual(blocked.blocker, { stage: 'commit', message: 'dirty worktree' });
+});
+
+test('real editorial finish blocks stale artifact QA before commit and retries without duplicates', (t) => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'editorial-finish-e2e-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const canonical = join(root, 'canonical'); const worktreeRoot = join(root, 'worktrees');
+  const worktree = join(worktreeRoot, 'writer'); mkdirSync(canonical); mkdirSync(worktreeRoot);
+  execFileSync('git', ['init', canonical]);
+  writeFileSync(join(canonical, 'seed.txt'), 'base\n');
+  execFileSync('git', ['-C', canonical, 'add', 'seed.txt']);
+  execFileSync('git', ['-C', canonical, '-c', 'user.name=MetricHit Test', '-c', 'user.email=test@local.invalid',
+    'commit', '-m', 'base']);
+  const base = execFileSync('git', ['-C', canonical, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  const branch = 'codex/test/editorial-finish';
+  execFileSync('git', ['-C', canonical, 'worktree', 'add', '-b', branch, worktree, base]);
+
+  const databasePath = join(root, 'memory.sqlite');
+  execFileSync(process.execPath, [resolve('scripts/init-memory.mjs'), databasePath]);
+  const article = 'work/articles/drafts/article.md';
+  const preview = 'work/articles/assets/preview.png'; const inline = 'work/articles/assets/inline.png';
+  const spec = {
+    status: 'valid', pre_generation_gate: 'passed', contract_id: EDITORIAL_CONTRACT.id,
+    contract_revision: EDITORIAL_CONTRACT.revision, contract_snapshot: structuredClone(EDITORIAL_CONTRACT),
+    content_source_format: EDITORIAL_CONTRACT.content_source.format, selected_h1: 'Накрутка ПФ',
+    character_range: { minimum: 1, maximum: 1000 }, primary_query: 'Накрутка ПФ', secondary_queries: [],
+    lsi: [], links: [], image_package: {
+      preview: [{ path: '../assets/preview.png', aspect_ratio: '1:1' }],
+      inline: [{ path: '../assets/inline.png', aspect_ratio: '3:2', section_anchor: 'Проверка' }],
+    },
+  };
+  const acceptance = ['real bundle validated', 'retry idempotent']; const firstCheck = 'node --version';
+  const compiled = compileContextPack(databasePath, {
+    text: 'Исправь завершение реального комплекта', explicitScopeId: 'scope:subproject:editorial', taskType: 'code',
+    taskBrief: { result: 'Комплект завершён', scope: [article, preview, inline], firstCheck,
+      acceptance, forbiddenChanges: ['publication'], editorialSpec: spec, parentResult: 'owner-e2e' },
+  });
+
+  const commonGitDirectory = execFileSync('git', ['rev-parse', '--git-common-dir'], { encoding: 'utf8' }).trim();
+  const repository = dirname(resolve(commonGitDirectory));
+  const python = join(repository, '.venv', process.platform === 'win32' ? 'Scripts/python.exe' : 'bin/python');
+  const pythonEnvironment = { ...process.env, PYTHONPATH: resolve('src') };
+  const handoffPayload = {
+    idempotency_key: 'editorial-finish-e2e', semantic_key: 'test.editorial.finish-e2e',
+    goal: 'Finish one real editorial bundle', scope: [article, preview, inline], constraints: ['no publication'],
+    acceptance, source: 'owner test fixture', approved_by: 'owner', execution_resources: {
+      canonical_worktree: canonical, worktree, branch, base_head: base,
+      paths: [article, preview, inline], sqlite: [], shared: ['editorial_finish_e2e'],
+    },
+  };
+  const handoff = JSON.parse(execFileSync(python, ['-m', 'metrichit_os', 'handoff-create', '--db', databasePath,
+    '--data', JSON.stringify(handoffPayload)], { encoding: 'utf8', env: pythonEnvironment }));
+  assert.equal(handoff.execution_resources.branch, branch);
+
+  const crc32 = (bytes) => {
+    let crc = 0xffffffff;
+    for (const byte of bytes) { crc ^= byte; for (let bit = 0; bit < 8; bit += 1) crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0); }
+    return (crc ^ 0xffffffff) >>> 0;
+  };
+  const png = (width, height, pixel = 0) => {
+    const chunk = (type, data) => { const header = Buffer.alloc(8); header.writeUInt32BE(data.length, 0); header.write(type, 4);
+      const checksum = Buffer.alloc(4); checksum.writeUInt32BE(crc32(Buffer.concat([Buffer.from(type), data])));
+      return Buffer.concat([header, data, checksum]); };
+    const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2;
+    const rows = Buffer.alloc(height * (1 + width * 3));
+    for (let row = 0; row < height; row += 1) { rows[row * (1 + width * 3)] = 0; rows[row * (1 + width * 3) + 1] = pixel; }
+    return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+      chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+  };
+  const articlePath = join(worktree, article); const previewPath = join(worktree, preview); const inlinePath = join(worktree, inline);
+  mkdirSync(join(worktree, 'work/articles/drafts'), { recursive: true });
+  mkdirSync(join(worktree, 'work/articles/assets'), { recursive: true });
+  writeFileSync(articlePath, '# Накрутка ПФ\n![preview](../assets/preview.png)\nПроверка комплекта.\n![inline](../assets/inline.png)\n');
+  const previewBytes = png(10, 10); const inlineBytes = png(15, 10);
+  writeFileSync(previewPath, previewBytes); writeFileSync(inlinePath, inlineBytes);
+  const visualReview = { performed: true, passed: true, reviewer: 'visual-reviewer', result: 'Both current images inspected.',
+    assets: [{ path: '../assets/preview.png', sha256: createHash('sha256').update(previewBytes).digest('hex'), passed: true },
+      { path: '../assets/inline.png', sha256: createHash('sha256').update(inlineBytes).digest('hex'), passed: true }] };
+  const artifactQa = validateEditorialArtifact(spec, { article_path: articlePath, visual_review: visualReview });
+  const staging = createEditorialMediaStaging(worktree, 'finish-e2e');
+  const staged = [stageEditorialAsset(staging, previewPath, preview), stageEditorialAsset(staging, inlinePath, inline)];
+  promoteEditorialAssets(staging, staged, () => artifactQa);
+
+  const state = join(root, 'finish-state.json');
+  const finishArgs = ['scripts/editorial-lifecycle.mjs', 'finish', '--staging', staging.root,
+    '--owner-command', 'Заверши задачу.', '--worktree', handoff.execution_resources.worktree,
+    '--canonical-worktree', handoff.execution_resources.canonical_worktree,
+    '--db', databasePath, '--context-pack', compiled.pack.id, '--handoff-id', handoff.handoff_id,
+    '--developer', 'editorial-e2e-writer', '--python', python, '--check-argv', JSON.stringify(['node', '--version']),
+    '--scope-label', 'Редакция', '--task', 'Editorial finish E2E', '--state', state,
+    '--commit-message', 'test: deliver editorial bundle'];
+  writeFileSync(inlinePath, png(15, 10, 1));
+  const blocked = spawnSync(process.execPath, finishArgs, { cwd: process.cwd(), encoding: 'utf8', env: pythonEnvironment });
+  assert.notEqual(blocked.status, 0);
+  assert.equal(JSON.parse(readFileSync(state, 'utf8')).blocker.stage, 'artifact_validation');
+  assert.equal(execFileSync('git', ['-C', worktree, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), base);
+  assert.equal(execFileSync('git', ['-C', canonical, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), base);
+  let database = new DatabaseSync(databasePath, { readOnly: true });
+  assert.equal(database.prepare('SELECT status FROM context_packs WHERE id=?').get(compiled.pack.id).status, 'open');
+  database.close();
+
+  writeFileSync(inlinePath, inlineBytes);
+  const delivered = spawnSync(process.execPath, finishArgs, { cwd: process.cwd(), encoding: 'utf8', env: pythonEnvironment });
+  assert.equal(delivered.status, 0, delivered.stderr);
+  const result = JSON.parse(delivered.stdout); assert.equal(result.status, 'delivered');
+  assert.equal(execFileSync('git', ['-C', canonical, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), result.commit);
+  const replay = spawnSync(process.execPath, finishArgs, { cwd: process.cwd(), encoding: 'utf8', env: pythonEnvironment });
+  assert.equal(replay.status, 0, replay.stderr); assert.equal(JSON.parse(replay.stdout).replayed, true);
+  database = new DatabaseSync(databasePath, { readOnly: true });
+  assert.equal(database.prepare('SELECT status FROM context_packs WHERE id=?').get(compiled.pack.id).status, 'closed');
+  assert.equal(database.prepare("SELECT count(*) count FROM audit_log WHERE type='chat_transition_checkpoint' AND json_extract(data_json,'$.context_pack_id')=?")
+    .get(compiled.pack.id).count, 1);
+  database.close();
+  assert.equal(execFileSync('git', ['-C', canonical, 'rev-list', '--count', `${base}..HEAD`], { encoding: 'utf8' }).trim(), '1');
 });
