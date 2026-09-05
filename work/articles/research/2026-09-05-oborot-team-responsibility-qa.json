@@ -1,0 +1,434 @@
+{
+  "status": "validated_draft_not_published",
+  "context_pack_id": "f85d6830-dddf-4b65-885a-5048f6884cdf",
+  "handoff_id": "df264263-86c3-4ed8-a39e-8b5b26e73873",
+  "topic": "Распределение ответственности между собственником интернет-магазина, маркетологом и подрядчиком",
+  "first_check": {
+    "performed": true,
+    "passed": true,
+    "result": "Compiler loaded and validated all five active Migration009 profiles and stage routing before text generation."
+  },
+  "article": {
+    "computed": true,
+    "passed": true,
+    "technical_checks": {
+      "performed": true,
+      "passed": true
+    },
+    "final_acceptance": {
+      "passed": true,
+      "blocked_by": []
+    },
+    "contract_id": "metrichit.editorial_contract.v1",
+    "article_path": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\metrichit-editorial-59d5f9371f-5b9l1J\\work\\articles\\drafts\\2026-09-05-oborot-team-responsibility.md",
+    "content_sha256": "5ac5be02143be67c2b040e4d7a06026cbae40d960fc4209b41a4fd7ddcc31d8d",
+    "structured_source": {
+      "path": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\metrichit-editorial-59d5f9371f-5b9l1J\\work\\articles\\research\\2026-09-05-oborot-team-responsibility-source.json",
+      "sha256": "2254fedb28bc9a65a70b49afac34e338ea27c2eb76461a7a1acdbf73e49818e9",
+      "projection_sha256": "5ac5be02143be67c2b040e4d7a06026cbae40d960fc4209b41a4fd7ddcc31d8d"
+    },
+    "h1": {
+      "heading": "Накрутка ПФ",
+      "matched_query": "Накрутка ПФ"
+    },
+    "character_count": 14938,
+    "target_queries": [
+      {
+        "query": "накрутка пф",
+        "occurrences": 3
+      },
+      {
+        "query": "поведенческие факторы",
+        "occurrences": 2
+      },
+      {
+        "query": "поведенческие факторы сайта",
+        "occurrences": 1
+      },
+      {
+        "query": "поведенческое продвижение",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайтов поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайта поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "улучшение поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "оптимизация поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис для накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "сервисы для накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис по накрутке поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка пф сайта",
+        "occurrences": 1
+      }
+    ],
+    "lsi": [
+      {
+        "term": "журнал изменений",
+        "category": "campaign_control",
+        "section_anchor": "Как согласовывать изменения в течение месяца",
+        "zone": "checklist",
+        "found": true,
+        "section_start": "Как согласовывать изменения в течение месяца"
+      },
+      {
+        "term": "посадочная страница",
+        "category": "page_quality",
+        "section_anchor": "Что передать подрядчику до начала работы",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что передать подрядчику до начала работы"
+      }
+    ],
+    "links": {
+      "url": "https://go.mtrhit.ru/",
+      "exact_count": 4,
+      "positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ],
+      "actual_positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ]
+    },
+    "visuals": {
+      "count": 4,
+      "review": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "editorial_writer",
+        "result": "All four images visually inspected: candid lighting-retailer scenes, plausible anatomy, no interfaces or text. Cover square; three different inline actions and compositions (sorting ownership, measuring changed item, binder handover). Handover product-photo error corrected and reinspected.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-cover.png",
+            "sha256": "350eb1b0c6a73a9c270e3c04df72d6d4eb3c908127fcb97dfb2a053a86a0efe4",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-roles.png",
+            "sha256": "1b292b6a6266e4a02e38cf32869cb82828dc001fdd30c79a31b819c0212a4bae",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-change-log.png",
+            "sha256": "38b635a868100c4a1b40f85988af0725e3bb4ca8ca876ad81b2dd4597f3fd75c",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-handover.png",
+            "sha256": "3ae6f5a15fa1143bccc2f11e42f952062b7bc8f9bdc47bd45ad70fdd01de637f",
+            "passed": true
+          }
+        ]
+      },
+      "semantic_mapping": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "editorial_writer",
+        "result": "All four images visually inspected: candid lighting-retailer scenes, plausible anatomy, no interfaces or text. Cover square; three different inline actions and compositions (sorting ownership, measuring changed item, binder handover). Handover product-photo error corrected and reinspected.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-cover.png",
+            "sha256": "350eb1b0c6a73a9c270e3c04df72d6d4eb3c908127fcb97dfb2a053a86a0efe4",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-roles.png",
+            "sha256": "1b292b6a6266e4a02e38cf32869cb82828dc001fdd30c79a31b819c0212a4bae",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-change-log.png",
+            "sha256": "38b635a868100c4a1b40f85988af0725e3bb4ca8ca876ad81b2dd4597f3fd75c",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-handover.png",
+            "sha256": "3ae6f5a15fa1143bccc2f11e42f952062b7bc8f9bdc47bd45ad70fdd01de637f",
+            "passed": true
+          }
+        ]
+      },
+      "diversity": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "editorial_writer",
+        "result": "All four images visually inspected: candid lighting-retailer scenes, plausible anatomy, no interfaces or text. Cover square; three different inline actions and compositions (sorting ownership, measuring changed item, binder handover). Handover product-photo error corrected and reinspected.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-cover.png",
+            "sha256": "350eb1b0c6a73a9c270e3c04df72d6d4eb3c908127fcb97dfb2a053a86a0efe4",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-roles.png",
+            "sha256": "1b292b6a6266e4a02e38cf32869cb82828dc001fdd30c79a31b819c0212a4bae",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-change-log.png",
+            "sha256": "38b635a868100c4a1b40f85988af0725e3bb4ca8ca876ad81b2dd4597f3fd75c",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-handover.png",
+            "sha256": "3ae6f5a15fa1143bccc2f11e42f952062b7bc8f9bdc47bd45ad70fdd01de637f",
+            "passed": true
+          }
+        ]
+      },
+      "screenshots_prohibited": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "editorial_writer",
+        "result": "All four images visually inspected: candid lighting-retailer scenes, plausible anatomy, no interfaces or text. Cover square; three different inline actions and compositions (sorting ownership, measuring changed item, binder handover). Handover product-photo error corrected and reinspected.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-cover.png",
+            "sha256": "350eb1b0c6a73a9c270e3c04df72d6d4eb3c908127fcb97dfb2a053a86a0efe4",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-roles.png",
+            "sha256": "1b292b6a6266e4a02e38cf32869cb82828dc001fdd30c79a31b819c0212a4bae",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-change-log.png",
+            "sha256": "38b635a868100c4a1b40f85988af0725e3bb4ca8ca876ad81b2dd4597f3fd75c",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-05-oborot-team-responsibility-handover.png",
+            "sha256": "3ae6f5a15fa1143bccc2f11e42f952062b7bc8f9bdc47bd45ad70fdd01de637f",
+            "passed": true
+          }
+        ]
+      },
+      "assets": [
+        {
+          "path": "../assets/2026-09-05-oborot-team-responsibility-cover.png",
+          "sha256": "350eb1b0c6a73a9c270e3c04df72d6d4eb3c908127fcb97dfb2a053a86a0efe4",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1254,
+            "height": 1254
+          },
+          "aspect_ratio": "1:1",
+          "section_anchor": null,
+          "semantic_role": "preview"
+        },
+        {
+          "path": "../assets/2026-09-05-oborot-team-responsibility-roles.png",
+          "sha256": "1b292b6a6266e4a02e38cf32869cb82828dc001fdd30c79a31b819c0212a4bae",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Кто принимает решения и кто отвечает за изменения",
+          "semantic_role": "clarify_ownership"
+        },
+        {
+          "path": "../assets/2026-09-05-oborot-team-responsibility-change-log.png",
+          "sha256": "38b635a868100c4a1b40f85988af0725e3bb4ca8ca876ad81b2dd4597f3fd75c",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Что передать подрядчику до начала работы",
+          "semantic_role": "document_change"
+        },
+        {
+          "path": "../assets/2026-09-05-oborot-team-responsibility-handover.png",
+          "sha256": "3ae6f5a15fa1143bccc2f11e42f952062b7bc8f9bdc47bd45ad70fdd01de637f",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Как согласовывать изменения в течение месяца",
+          "semantic_role": "preserve_continuity"
+        }
+      ]
+    },
+    "originality": {
+      "method": "local_deterministic_source_overlap",
+      "algorithm": "token_shingle_v1",
+      "comparison_status": "performed",
+      "content_sha256": "5ac5be02143be67c2b040e4d7a06026cbae40d960fc4209b41a4fd7ddcc31d8d",
+      "compared_sources": [
+        {
+          "path": "C:\\MetricHit\\worktrees\\5eaf8a1b-9c67-5885-aa67-0f76815a9f9f-0c716dfa73\\work\\articles\\drafts\\2026-08-29-timeweb-cloud-pf-service-selection.md",
+          "sha256": "7e37b52282427ada420734e4b31071ab23c3832a9e73842317b240dcb2495e37",
+          "overlap_percent": 0,
+          "article_token_count": 1928,
+          "source_token_count": 1723,
+          "matched_article_token_count": 0,
+          "shingle_size": 5
+        },
+        {
+          "path": "C:\\MetricHit\\worktrees\\5eaf8a1b-9c67-5885-aa67-0f76815a9f9f-0c716dfa73\\work\\articles\\drafts\\2026-09-02-oborot-pf-site-readiness-business.md",
+          "sha256": "ad56903ab99aa063620c1b3f2e5285da308eb977f1bd2319b9f7b49f90fd6d40",
+          "overlap_percent": 0,
+          "article_token_count": 1928,
+          "source_token_count": 1794,
+          "matched_article_token_count": 0,
+          "shingle_size": 5
+        },
+        {
+          "path": "C:\\MetricHit\\worktrees\\5eaf8a1b-9c67-5885-aa67-0f76815a9f9f-0c716dfa73\\work\\articles\\drafts\\2026-09-03-oborot-nakrutka-pf-yandex.md",
+          "sha256": "a5fb31be1cb57dce46b2df6f3cfb3491b93b85d52323b9af71baf9d556299e0e",
+          "overlap_percent": 0,
+          "article_token_count": 1928,
+          "source_token_count": 1783,
+          "matched_article_token_count": 0,
+          "shingle_size": 5
+        },
+        {
+          "path": "C:\\MetricHit\\worktrees\\5eaf8a1b-9c67-5885-aa67-0f76815a9f9f-0c716dfa73\\work\\articles\\drafts\\2026-09-04-oborot-nakrutka-povedencheskih-faktorov.md",
+          "sha256": "2939b26290f81663dd5bf7d22fe55869c97da179ba88f843ff44a66436ac10db",
+          "overlap_percent": 0,
+          "article_token_count": 1928,
+          "source_token_count": 1806,
+          "matched_article_token_count": 0,
+          "shingle_size": 5
+        }
+      ],
+      "max_overlap_percent": 0,
+      "template_match": false
+    }
+  },
+  "semantic_rationale": "Для текста свыше 9000 знаков выбраны 15 точных запросов одного общего кластера. Они описывают предмет совместной работы и роли участников; добавление малограмотных поисковых формулировок создавало искусственные SEO-вставки и отклонено редакционным review. Верхний диапазон не задаёт новый количественный порог.",
+  "editorial_review": {
+    "performed": true,
+    "passed": true,
+    "reviewer": "Strategy /root and editorial_writer",
+    "result": "Concrete responsibility and handover topic, educational example explicitly labelled, two official sources verified; three unnatural phrases removed following independent review. No bot mechanics, invented case data or PF evaluation."
+  },
+  "independent_visual_review": {
+    "performed": true,
+    "passed": true,
+    "reviewer": "Strategy /root",
+    "result": "Four exact final generated images independently opened with view_image. Distinct lighting retailer scenes; no interfaces, logos, textual artifacts or noticeable anatomy errors. Final handover photo contains lamp.",
+    "assets": [
+      {
+        "path": "../assets/2026-09-05-oborot-team-responsibility-cover.png",
+        "sha256": "350eb1b0c6a73a9c270e3c04df72d6d4eb3c908127fcb97dfb2a053a86a0efe4",
+        "passed": true
+      },
+      {
+        "path": "../assets/2026-09-05-oborot-team-responsibility-roles.png",
+        "sha256": "1b292b6a6266e4a02e38cf32869cb82828dc001fdd30c79a31b819c0212a4bae",
+        "passed": true
+      },
+      {
+        "path": "../assets/2026-09-05-oborot-team-responsibility-change-log.png",
+        "sha256": "38b635a868100c4a1b40f85988af0725e3bb4ca8ca876ad81b2dd4597f3fd75c",
+        "passed": true
+      },
+      {
+        "path": "../assets/2026-09-05-oborot-team-responsibility-handover.png",
+        "sha256": "3ae6f5a15fa1143bccc2f11e42f952062b7bc8f9bdc47bd45ad70fdd01de637f",
+        "passed": true
+      }
+    ]
+  },
+  "external_checks": {
+    "plagiarism_detector": {
+      "status": "not_performed",
+      "reason": "No external detector used; only deterministic local source-overlap."
+    },
+    "ai_detector": {
+      "status": "not_performed",
+      "reason": "No external AI detector used."
+    }
+  },
+  "sources": [
+    {
+      "url": "https://yandex.ru/support/metrica/ru/general/access",
+      "checked": "2026-09-05",
+      "used": "Separate guest access and read-only permission."
+    },
+    {
+      "url": "https://yandex.ru/support/metrica/ru/reports/notes",
+      "checked": "2026-09-05",
+      "used": "Notes mark events by date/time and are created in reports."
+    }
+  ],
+  "generation": {
+    "tool": "built-in image_gen",
+    "prompts": [
+      {
+        "asset": "cover",
+        "prompt": "Square photorealistic candid three-person lighting retailer planning meeting; owner places sample lamp beside folder, colleagues compare product photographs. Natural daylight, plausible anatomy, no screens/text/logos, crop-safe central subjects."
+      },
+      {
+        "asset": "roles",
+        "prompt": "Landscape 3:2 lighting retailer team sorts product photographs into three trays to assign category ownership; wide doorway composition, natural concentration, no screens/readable writing."
+      },
+      {
+        "asset": "change-log",
+        "prompt": "Landscape 3:2 lighting shop employee measures desk lamp while catalog specialist records measurement in notebook; close side documentary composition, no screens/logos/readable text."
+      },
+      {
+        "asset": "handover",
+        "prompt": "Landscape 3:2 departing marketer passes open binder and explains product photo to incoming colleague; over-shoulder composition. Targeted edit replaces bottle product photograph with black desk lamp, preserving all else."
+      }
+    ]
+  },
+  "publication": {
+    "performed": false
+  },
+  "indexation": {
+    "status": "not_performed"
+  },
+  "pf_campaign": {
+    "status": "not_performed"
+  }
+}
