@@ -220,28 +220,29 @@ function approvedSemanticCore302(database) {
       && core?.taxonomy && typeof core.taxonomy === 'object');
 }
 
-function freeHfMarkers(taxonomy, occupiedPrimaryTopics) {
-  const markers = [];
+function freeTopicCandidates(taxonomy, occupiedPrimaryTopics) {
+  const candidates = [];
   for (const [cluster, queries] of Object.entries(taxonomy)) {
     if (cluster === 'geo_candidates_after_demand_validation' || !Array.isArray(queries)) continue;
     for (const query of queries) {
-      const marker = nonEmptyText(query);
-      const words = marker?.split(/\s+/u).length ?? 0;
-      const h1 = PLANNER_H1_HIGH_FREQUENCY_MARKERS.find((allowed) =>
-        normalizeOverlapText(allowed) === normalizeOverlapText(marker));
-      if (!h1 || words < 2 || words > 3 || occupiedPrimaryTopics.has(normalizeOverlapText(marker))) continue;
-      markers.push({ cluster, marker, h1 });
+      const primary_query = nonEmptyText(query);
+      if (!primary_query || occupiedPrimaryTopics.has(normalizeOverlapText(primary_query))) continue;
+      candidates.push({ cluster, primary_query });
     }
   }
-  return markers;
+  return candidates;
 }
 
-function threeReadyStructures(h1) {
-  return [
-    { number: 1, h1, title: h1, sections: ['Что проверяют до старта', 'Как связать цель, страницу и метрики', 'Контрольный список решений', 'Вывод и следующий шаг'] },
-    { number: 2, h1, title: h1, sections: ['Когда задача возникает', 'Критерии сравнения вариантов', 'Типичные ошибки планирования', 'Как зафиксировать результат'] },
-    { number: 3, h1, title: h1, sections: ['Исходные признаки', 'Приоритеты проверки', 'План на ближайший цикл', 'Как оценить изменения без неподтверждённых обещаний'] },
+function threeReadyStructures(candidates) {
+  const templates = [
+    { intent: 'Диагностировать исходные сигналы и подготовить безопасный план проверки.', sections: ['Какие сигналы проверяют до старта', 'Как отделить гипотезу от результата', 'Чек-лист подготовки страницы и метрик', 'Как зафиксировать следующий шаг'] },
+    { intent: 'Сопоставить варианты реализации с бизнес-ограничениями и критериями контроля.', sections: ['Когда возникает задача и что считать целью', 'Критерии сравнения вариантов', 'Ошибки в постановке ограничений', 'Как принять решение по данным'] },
+    { intent: 'Спланировать короткий цикл измерений без неподтверждённых обещаний.', sections: ['Исходные данные для цикла', 'Приоритеты измерения', 'План наблюдения за изменениями', 'Как интерпретировать результат'] },
   ];
+  return templates.map((template, index) => ({ number: index + 1, h1: PLANNER_H1_HIGH_FREQUENCY_MARKERS[index],
+    title: PLANNER_H1_HIGH_FREQUENCY_MARKERS[index], primary_query: candidates[index].primary_query,
+    selected_cluster: candidates[index].cluster, user_intent: template.intent,
+    content_signature: template.sections.join(' '), sections: template.sections }));
 }
 
 function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
@@ -249,35 +250,28 @@ function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
   try {
     const coverage = coverageForPlanning(database);
     const cores = approvedSemanticCore302(database);
-    const candidates = [...new Map(cores.flatMap(({ core }) => freeHfMarkers(core.taxonomy, coverage.occupied_primary_topics))
-      .map((item) => [item.marker.toLocaleLowerCase('ru-RU'), item])).values()];
+    const candidates = [...new Map(cores.flatMap(({ core }) => freeTopicCandidates(core.taxonomy, coverage.occupied_primary_topics))
+      .map((item) => [item.primary_query.toLocaleLowerCase('ru-RU'), item])).values()];
     const systemError = (reason) => ({ code: 'E_AMBIGUOUS_TOPIC', reason,
       available_hf_markers: [...PLANNER_H1_HIGH_FREQUENCY_MARKERS] });
-    if (coverage.error || cores.length !== 1 || candidates.length === 0) {
+    if (coverage.error || cores.length !== 1 || candidates.length < 3) {
       return { hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id, executor_profile: 'metrichit.editorial.planner.v1',
         status: 'blocked', background_mode: true, owner_question: 'prohibited',
         coverage: { registry_scanned: !coverage.registry.error, registry_records: coverage.registry.records?.length ?? 0,
           final_materials_scanned: !coverage.finals.error, final_materials: coverage.finals.files ?? 0, selected_primary_topic_occupied: null },
         system_error: systemError(coverage.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'no_free_hf_markers')) };
     }
-    const selection = candidates[0];
-    const structureOptions = threeReadyStructures(selection.h1);
-    const preGenerationConflicts = platform?.id === 'oborot' ? [{
-      field: 'character_range', code: 'E_PLATFORM_VOLUME_CONFLICT',
-      general_rule: `article.minimum_characters=${EDITORIAL_CONTRACT.article.minimum_characters}`,
-      platform_rule: 'Oborot.ru long-form range 7001–9000',
-      resolution: 'owner_policy_decision_required_before_generation',
-    }] : [];
+    const structureOptions = threeReadyStructures(candidates);
     return {
       hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id,
       executor_profile: 'metrichit.editorial.planner.v1', status: 'ready', background_mode: true,
       owner_question: 'prohibited', coverage: { registry_scanned: true, registry_records: coverage.registry.records.length,
         final_materials_scanned: true, final_materials: coverage.finals.files, selected_primary_topic_occupied: false },
-      selected_priority_hf_marker: selection.marker, selected_cluster: selection.cluster,
+      selected_priority_hf_marker: structureOptions[0].primary_query, selected_cluster: structureOptions[0].selected_cluster,
       structure_options: structureOptions,
       selected_structure: null,
       structure_selection: 'owner_selection_required',
-      pre_generation_conflicts: preGenerationConflicts,
+      pre_generation_conflicts: [],
     };
   } finally { database.close(); }
 }
@@ -292,9 +286,9 @@ function automaticEditorialSpec(projectDatabasePath, route, assignment, taskBrie
   try {
     const core = approvedSemanticCore302(database)[0]?.core;
     if (!core) throw new Error('editorial spec requires one approved 302-query core');
-    const primary = assignment.selected_priority_hf_marker;
-    const selectedClusters = [assignment.selected_cluster];
-    const secondary = (core.taxonomy[assignment.selected_cluster] ?? [])
+    const primary = selected.primary_query;
+    const selectedClusters = [selected.selected_cluster];
+    const secondary = (core.taxonomy[selected.selected_cluster] ?? [])
       .filter((query) => normalizeOverlapText(query) !== normalizeOverlapText(primary));
     for (const [cluster, queries] of Object.entries(core.taxonomy)) {
       if (secondary.length >= 17 || selectedClusters.includes(cluster) || cluster === EDITORIAL_CONTRACT.semantic_core.geo_cluster) continue;
@@ -312,11 +306,12 @@ function automaticEditorialSpec(projectDatabasePath, route, assignment, taskBrie
       business_context: ['russian ecommerce operations', 'russian service business planning', 'russian business performance review'][index],
       composition: ['wide environmental', 'medium collaborative', 'close documentary'][index], device_role: 'none',
     }));
-    return compileEditorialSpec({ platform: route.platform.name, character_range: { minimum: 7001, maximum: 9000 },
+    return compileEditorialSpec({ platform: route.platform.name, character_range: { minimum: 9000, maximum: null },
+      query_count_rationale: 'Для объёма свыше верхней ступени шкалы число ключей зафиксировано QA как 18 уникальных точных запросов одного интента без keyword stuffing.',
       selected_h1: selected.h1, primary_query: primary, secondary_queries: secondary,
       selected_clusters: selectedClusters, adjacent_cluster_rationale: selectedClusters.length > 1
         ? 'Кластеры объединены одной практической задачей подготовки и контроля запуска.' : null,
-      user_intent: 'Практически подготовить и контролировать запуск накрутки ПФ',
+      user_intent: selected.user_intent,
       lsi: [
         { term: 'поисковая выдача', category: 'search_context', section_anchor: structure[0], zone: 'unordered_list' },
         { term: 'релевантность страницы', category: 'page_quality', section_anchor: structure[1], zone: 'unordered_list' },

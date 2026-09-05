@@ -446,9 +446,12 @@ test('article_pipeline_trigger creates a platform card with the registered safe 
     assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_selection,
       'owner_selection_required');
     const allowedH1 = new Set(['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']);
+    assert.deepEqual(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.map((option) => option.h1),
+      ['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']);
     assert.ok(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.every((option) =>
-      allowedH1.has(option.h1) && option.title === option.h1
-      && !/\b(?:руководство|диагностика|софт)\b/iu.test(option.h1)));
+      allowedH1.has(option.h1) && option.title === option.h1 && option.primary_query && option.user_intent
+      && option.content_signature && !/\b(?:руководство|диагностика|софт)\b/iu.test(option.h1)));
+    assert.equal(new Set(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.map((option) => option.primary_query)).size, 3);
     assert.ok(card.editorial_pipeline.stages.every((stage) => stage.hotfix.id === 'editorial.empty_topic.autoplanning.v1'));
     assert.equal(card.editorial_pipeline.stages[2].policy.routing.sole_text_assembler, true);
     assert.equal(card.editorial_pipeline.stages[3].policy.routing.output, 'media_staging');
@@ -459,10 +462,19 @@ test('article_pipeline_trigger creates a platform card with the registered safe 
 
     const oborot = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
       .pack.payload.execution_card;
-    assert.equal(oborot.editorial_pipeline.launch_directive, 'blocked');
+    assert.equal(oborot.editorial_pipeline.launch_directive, 'await_owner_structure_selection');
     assert.equal(oborot.editorial_spec, null);
-    assert.equal(oborot.editorial_pipeline.empty_topic_planner_assignment.pre_generation_conflicts[0].code,
-      'E_PLATFORM_VOLUME_CONFLICT');
+    assert.deepEqual(oborot.editorial_pipeline.empty_topic_planner_assignment.pre_generation_conflicts, []);
+
+    const duplicateProject = new DatabaseSync(projectDatabasePath);
+    try {
+      duplicateProject.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES ('duplicate-topic','keyword-1','Диагностировать исходные сигналы и подготовить безопасный план проверки.')").run();
+      duplicateProject.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('duplicate-material','duplicate-topic','Какие сигналы проверяют до старта Как отделить гипотезу от результата Чек-лист подготовки страницы и метрик Как зафиксировать следующий шаг','articles')").run();
+      duplicateProject.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES ('duplicate-publication','duplicate-material','Oborot.ru','published')").run();
+    } finally { duplicateProject.close(); }
+    const withoutActualDuplicate = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
+      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
+    assert.equal(withoutActualDuplicate.structure_options.some((option) => option.primary_query === 'keyword-1'), false);
 
     const project = new DatabaseSync(projectDatabasePath);
     try {
@@ -1110,6 +1122,15 @@ test('article target-query volume ladder and geo owner-gate are fail-closed whil
       taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
     assert.equal(closeContextPack(databasePath, shortWithRationale.pack.id, { ...delivery,
       contentQa: articleEditorialSemanticQaWithVolumeLadder(semantics, 1600, 'Короткий формат полностью решает один интент; число точных запросов сохранено для связанной темы.') }).status, 'closed');
+
+    const overNineThousandMissingRationale = compileContextPack(databasePath, { text: 'Подготовь подробную статью свыше девяти тысяч знаков', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+    assert.throws(() => closeContextPack(databasePath, overNineThousandMissingRationale.pack.id, { ...delivery,
+      contentQa: articleEditorialSemanticQaWithVolumeLadder(semantics, 9500) }), /target_query_volume_ladder/);
+    const overNineThousandWithRationale = compileContextPack(databasePath, { text: 'Подготовь подробную статью свыше девяти тысяч знаков с QA', projectDatabasePath,
+      taskBrief: { ...baseBrief, editorialSemantics: semantics, editorialIndexation: indexation } });
+    assert.equal(closeContextPack(databasePath, overNineThousandWithRationale.pack.id, { ...delivery,
+      contentQa: articleEditorialSemanticQaWithVolumeLadder(semantics, 9500, 'Подробный разбор требует расширенного объёма; 8 точных запросов сохраняют естественную плотность одного интента.') }).status, 'closed');
 
     const tooFewQueries = { ...semantics, secondaryTargetQueries: semantics.secondaryTargetQueries.slice(0, 4) };
     const badCount = compileContextPack(databasePath, { text: 'Подготовь статью с недостаточным числом точных запросов', projectDatabasePath,

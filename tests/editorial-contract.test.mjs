@@ -49,6 +49,14 @@ test('pre-generation spec rejects invalid H1, LSI and visual concept', () => {
   }
 });
 
+test('unbounded Oborot length requires a documented key-count rationale', () => {
+  const rejected = validInput(); rejected.character_range = { minimum: 9000, maximum: null };
+  assert.throws(() => compileEditorialSpec(rejected, core), /query_count_rationale_required_above_9000/);
+  const accepted = validInput(); accepted.character_range = { minimum: 9000, maximum: null };
+  accepted.query_count_rationale = 'Объём выше шкалы; плотность точных ключей обоснована одним интентом.';
+  assert.equal(compileEditorialSpec(accepted, core).character_range.maximum, null);
+});
+
 test('owner approval does not turn an arbitrary long core query into a short base H1', () => {
   const rejected = validInput();
   rejected.selected_h1 = 'накрутка поведенческих факторов купить заказать с длинным пояснением';
