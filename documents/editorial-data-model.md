@@ -1,4 +1,14 @@
-# Автоматическая редакция MetricHit: модель данных
+# Редакция MetricHit: действующая модель комплекта статьи
+
+> Актуализация 2026-09-05. Историческая proposed editorial SQLite ниже не является командой создавать новую БД, сервис или таблицы.
+
+Активный минимальный контракт — существующие context card и project records плюс один versioned article spec: article/action/parent identity, platform/audience/intent, selected owner-approved structure, semantic and geo evidence, LSI zones, text/source/image hashes, refs/anchors/alt, applicable contract pin и QA evidence. Структурированный исходник детерминированно проецируется в copy-paste текст; это не два редактируемых источника.
+
+Публикационные IDs, URL, метрики индексации/ПФ и конверсий не требуются для подготовки комплекта. Их появление возможно только после отдельной публикации и предусмотренной штатной записи, без ручного SQL. Existing profiles остаются sequential; новая migration не выполняется docs-only этапом.
+
+---
+
+# Историческая модель автоматизации (неактивна)
 
 Дата проектирования: 2026-08-13
 Статус: целевая схема; миграции и SQLite в этой задаче не изменялись

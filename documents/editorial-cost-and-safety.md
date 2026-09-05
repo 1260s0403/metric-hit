@@ -1,4 +1,14 @@
-# Стоимость и безопасность автоматической редакции
+# Редакция MetricHit: действующие стоимость и безопасность
+
+> Актуализация 2026-09-05. Исторические расчёты Research, scheduler и publishing ниже не дают разрешения на их реализацию или расходы.
+
+Активные расходы относятся только к подготовке статьи, изображений и необходимому QA в пределах отдельного задания. Никакой расход, новый внешний provider, публикация, доступ или токен не включаются автоматически. Designer получает только устойчивый visual brief; secrets, client data, tokens и sessions не попадают в repository, spec или QA report.
+
+Fail-closed применим к неполной спецификации, неподтверждённому source-overlap, нечитаемому/отсутствующему image ref и непроведённому visual review. Staging assets не загрязняет принятый комплект до QA; удаление и cleanup сохраняют owner-gate. PФ, indexation и conversion metrics не являются метриками качества текущего комплекта.
+
+---
+
+# Исторические cost/safety допущения automation-MVP (неактивны)
 
 Статус: проектные ограничения MVP. Все цены и лимиты требуют проверки перед реализацией. Связанные документы: [архитектура](editorial-automation-architecture.md), [модель данных](editorial-data-model.md), [workflow](editorial-daily-workflow.md), [roadmap](editorial-mvp-roadmap.md), [открытые вопросы](editorial-open-questions.md).
 
