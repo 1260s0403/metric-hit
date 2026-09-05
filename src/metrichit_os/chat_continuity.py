@@ -206,12 +206,16 @@ class ChatContinuityStore:
                           context_pack_id: str | None = None) -> dict[str, object]:
         """Resume the newest usable checkpoint, or create a fresh isolated workspace."""
         scope = self._scope(scope_label)
-        try:
-            resumed = self.resume(self._command(scope))
-        except KnowledgeError:
-            resumed = None
-        if resumed is not None and resumed["status"] == "resuming":
-            return resumed
+        # An explicit branch, task, or context pack identifies a new execution
+        # request.  Reusing a checkpoint here would silently replace that
+        # request with whichever older task happened to be resumable.
+        if branch is None and task_name is None and context_pack_id is None:
+            try:
+                resumed = self.resume(self._command(scope))
+            except KnowledgeError:
+                resumed = None
+            if resumed is not None and resumed["status"] == "resuming":
+                return resumed
 
         workspace = IsolatedWorktree(canonical_worktree, worktree_root)
         try:
