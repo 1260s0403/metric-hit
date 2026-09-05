@@ -11,7 +11,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const defaultProjectDatabasePath = join(repositoryRoot, 'data', 'projects', '00000000-0000-4000-a000-000000000102', 'project.sqlite');
 const agentsPath = join(repositoryRoot, 'AGENTS.md');
-export const COMPILER_VERSION = 9;
+export const COMPILER_VERSION = 10;
 export const METRICHIT_PROJECT_ID = '00000000-0000-4000-a000-000000000102';
 export const YADRO_CONTROL_PLANE_PROJECT_ID = '00000000-0000-4000-a000-000000000101';
 export const SEMANTIC_CORE_REFERENCE_KEY = 'content.metrichit_semantic_core.reference';
@@ -45,7 +45,7 @@ const EDITORIAL_PIPELINE_ROUTING = Object.freeze({
   parallel_after_text: Object.freeze(['designer', 'validator']),
   final_hashes_required_from: Object.freeze(['article_text', 'media_staging']),
 });
-const ARTICLE_PIPELINE_TRIGGER = /^напиши\s+новую\s+статью\s+для\s+(.+?)\s*[.!?]?$/iu;
+const ARTICLE_PIPELINE_TRIGGER = /^напиши\s+(?:новую\s+)?статью\s+для\s+(.+?)(?:\s+на\s+тему\s+(.+))?\s*[.!?]?$/iu;
 const ARTICLE_REVISION_TRIGGER = /(?:последн\p{L}*\s+стать\p{L}*|стать\p{L}*\s+(?:доработ|исправ|обнов|замен)\p{L}*).*(?:картин|изображ|иллюстрац|доработ|исправ|обнов|замен)|(?:картин|изображ|иллюстрац|доработ|исправ|обнов|замен).*(?:последн\p{L}*\s+стать\p{L}*)/iu;
 const ARTICLE_ASSET_PATTERN = /work\/articles\/assets\/[A-Za-z0-9._/-]+\.(?:png|jpe?g|webp|gif|svg)/giu;
 const EMPTY_TOPIC_AUTOPLANNING_HOTFIX = Object.freeze({
@@ -62,7 +62,7 @@ const ARTICLE_PLATFORM_MATRIX = Object.freeze([
   { id: 'vk', name: 'VK', aliases: ['vk', 'вк', 'вконтакте'], contour: 'work/social/vk', mode: 'draft-only' },
   { id: 'dzen', name: 'Дзен', aliases: ['дзен', 'dzen'], contour: 'work/articles', mode: 'manual-package' },
   { id: 'sostav', name: 'Sostav/SBlogs', aliases: ['sostav', 'sblogs', 'sostav/sblogs', 'состав'], contour: 'work/articles', mode: 'manual-package' },
-  { id: 'oborot', name: 'Oborot.ru', aliases: ['oborot', 'oborot.ru', 'оборот', 'оборот.ру'], contour: 'work/articles', mode: 'manual-package' },
+  { id: 'oborot', name: 'Oborot.ru', aliases: ['oborot', 'oborot.ru', 'оборот', 'оборота', 'оброта', 'оборот.ру'], contour: 'work/articles', mode: 'manual-package' },
   { id: 'timeweb-cloud', name: 'Timeweb Cloud', aliases: ['timeweb', 'timeweb cloud', 'таймвеб', 'таймвеб клауд'], contour: 'work/articles', mode: 'manual-package' },
   { id: 'workspace', name: 'Workspace', aliases: ['workspace', 'workspace media', 'воркспейс'], contour: 'work/articles', mode: 'manual-package' },
   { id: 'max', name: 'MAX', aliases: ['max', 'макс'], contour: null, mode: 'outside-mvp' },
@@ -116,7 +116,7 @@ function loadEditorialPipeline(projectDatabasePath) {
   const database = open(resolve(projectDatabasePath), true);
   try {
     if (!hasTable(database, 'editorial_agent_profiles')) {
-      throw new Error('Migration 008 editorial pipeline routing is unavailable');
+      throw new Error('Migration 009 editorial pipeline routing is unavailable');
     }
     const rows = database.prepare(`SELECT profile_id,pipeline_id,stage_order,stage_name,capability,
       profile_kind,isolation_key,execution_mode,policy_json,status
@@ -126,7 +126,7 @@ function loadEditorialPipeline(projectDatabasePath) {
       return row.stage_order !== index + 1 || row.profile_id !== profileId || row.stage_name !== stageName
         || row.capability !== capability || row.status !== 'active' || row.execution_mode !== EDITORIAL_PIPELINE_MODE;
     })) {
-      throw new Error('Migration 008 editorial pipeline is incomplete or inactive');
+      throw new Error('Migration 009 editorial pipeline is incomplete or inactive');
     }
     const policies = rows.map((row) => parseJson(row.policy_json, null));
     const routing = policies.map((policy) => policy?.routing);
@@ -135,17 +135,17 @@ function loadEditorialPipeline(projectDatabasePath) {
     const writer = routing[2];
     const designer = routing[3];
     const validator = routing[4];
-    if (planner?.package !== 'planning' || planner?.owner_selection_gate !== true
-      || architect?.package !== 'planning' || architect?.depends_on !== 'owner_selected_structure'
+    if (planner?.package !== 'planning' || planner?.owner_selection_gate !== false
+      || architect?.package !== 'planning' || architect?.depends_on !== 'internal_selected_structure'
       || writer?.sole_text_assembler !== true
       || designer?.output !== 'media_staging' || designer?.read_only !== false
       || validator?.read_only !== true || validator?.parallel_after !== 'article_text'
       || validator?.final_hashes_required !== true) {
-      throw new Error('Migration 008 editorial routing contract is incomplete');
+      throw new Error('Migration 009 editorial routing contract is incomplete');
     }
     return {
       pipeline_id: EDITORIAL_PIPELINE_ID,
-      migration: '008_editorial_pipeline_parallel_routes.sql',
+      migration: '009_editorial_single_plan.sql',
       execution_mode: EDITORIAL_PIPELINE_MODE,
       launch_directive: 'start',
       routing: EDITORIAL_PIPELINE_ROUTING,
@@ -157,8 +157,8 @@ function loadEditorialPipeline(projectDatabasePath) {
           ...EMPTY_TOPIC_AUTOPLANNING_HOTFIX,
           planner_execution_required: row.profile_id === 'metrichit.editorial.planner.v1',
           downstream_input: row.profile_id === 'metrichit.editorial.planner.v1'
-            ? 'produce_three_reasoned_structures_and_wait_for_owner_selection'
-            : 'consume_owner_approved_structure_only',
+            ? 'produce_one_internal_structure'
+            : 'consume_internal_selected_structure',
         },
       })),
     };
@@ -229,154 +229,40 @@ function allTopicCandidates(taxonomy) {
   return candidates;
 }
 
-const PLANNER_SEMANTIC_RECIPES = Object.freeze([
-  Object.freeze({
-    h1: 'Накрутка ПФ', subject: 'service_selection',
-    preferred: /(?:^|\s)(?:сервис|сервисы|услуга|услуги)(?:\s|$)/iu,
-    priority: (query) => /(?:^|\s)сервис(?:\s|$)/iu.test(query) ? 0 : /(?:^|\s)услуг/iu.test(query) ? 1 : 2,
-    topic: (query) => `Выбор сервиса для задачи «${query}»: критерии контроля запуска`,
-    intent: 'Выбрать сервис для конкретной задачи и определить проверяемые критерии контроля запуска.',
-    angle: 'Практический разбор критериев выбора и контроля без заявлений о результате.',
-    sections: (query) => [
-      `Какая задача стоит за запросом «${query}»`,
-      'Какие входные данные нужны до выбора сервиса',
-      'Критерии контроля процесса и фиксации наблюдений',
-      'Как сформулировать следующий проверяемый шаг',
-    ],
-  }),
-  Object.freeze({
-    h1: 'Накрутка ПФ Яндекс', subject: 'yandex_preparation',
-    preferred: /(?:^|\s)(?:яндекс|yandex)(?:\s|$)/iu,
-    priority: (query) => /^накрутка\s+пф\s+яндекс$/iu.test(query) ? 0
-      : /(?:^|\s)яндекс(?:\s|$)/iu.test(query) ? 1 : /(?:^|\s)yandex(?:\s|$)/iu.test(query) ? 2 : 3,
-    topic: (query) => `Подготовка сайта к задаче «${query}»: что проверить до запуска`,
-    intent: 'Подготовить страницу и контрольные точки для работы с запросом в Яндексе.',
-    angle: 'Разбор подготовки страницы и наблюдаемых контрольных точек, без описания механики инструмента.',
-    sections: (query) => [
-      `Что именно пользователь ищет в запросе «${query}»`,
-      'Какие элементы страницы проверить до начала работ',
-      'Как задать контрольные точки для наблюдения',
-      'Как интерпретировать данные после первого периода наблюдения',
-    ],
-  }),
-  Object.freeze({
-    h1: 'Накрутка поведенческих факторов', subject: 'site_readiness',
-    preferred: /(?:^|\s)(?:сайт|сайта|поведенческих\s+факторов)(?:\s|$)/iu,
-    priority: (query) => /^накрутка\s+поведенческих\s+факторов\s+сайта$/iu.test(query) ? 0
-      : /поведенческих\s+факторов\s+сайта/iu.test(query) ? 1 : /(?:^|\s)(?:сайт|сайта)(?:\s|$)/iu.test(query) ? 2 : 3,
-    topic: (query) => `Готовность страницы к работе по запросу «${query}»: аудит до старта`,
-    intent: 'Оценить готовность страницы, сформировать гипотезу и план наблюдения по одному запросу.',
-    angle: 'Аудит страницы и разделение фактов, гипотез и дальнейших измерений.',
-    sections: (query) => [
-      `Контекст запроса «${query}» и границы задачи`,
-      'Какие факты о странице собрать до формулирования гипотезы',
-      'Как связать гипотезу с наблюдаемыми показателями',
-      'Как зафиксировать вывод и следующий шаг без неподтверждённых обещаний',
-    ],
-  }),
-]);
-
-function normalizedPlannerRecord(record) {
-  const title = normalizeOverlapText(record.title);
-  const primaryTopic = normalizeOverlapText(record.primary_query);
-  const userIntent = normalizeOverlapText(record.primary_intent);
-  return {
-    platform: normalizeOverlapText(record.platform),
-    title, primary_topic: primaryTopic, user_intent: userIntent,
-    comparable_signature: { title, topic: primaryTopic, intent: userIntent },
-  };
-}
-
-function samePlatformRecords(records, platform) {
-  const platformKey = normalizeOverlapText(platform?.name);
-  return records.map(normalizedPlannerRecord).filter((record) => record.platform === platformKey);
-}
-
-function materiallyIdenticalPlannerRecord(record, option) {
-  const proposed = option.comparable_signature;
-  return record.comparable_signature.title === proposed.title
-    && record.comparable_signature.topic === proposed.topic
-    && record.comparable_signature.intent === proposed.intent;
-}
-
-function plannerCandidateScore(candidate, recipe) {
-  const query = normalizeOverlapText(candidate.primary_query);
-  const cluster = normalizeOverlapText(candidate.cluster);
-  const preferred = recipe.priority(query);
-  const sameSubjectCluster = recipe.subject === 'service_selection' ? /(?:service|сервис|commercial|commercial)/iu.test(cluster)
-    : recipe.subject === 'yandex_preparation' ? /(?:yandex|behavioral)/iu.test(cluster)
-      : /(?:behavioral|education|segment)/iu.test(cluster);
-  return [preferred, sameSubjectCluster ? 0 : 1, query.length, query, cluster];
-}
-
-function comparePlannerCandidates(left, right, recipe) {
-  const a = plannerCandidateScore(left, recipe);
-  const b = plannerCandidateScore(right, recipe);
-  for (let index = 0; index < a.length; index += 1) {
-    if (a[index] < b[index]) return -1;
-    if (a[index] > b[index]) return 1;
+// H1 is a repeatable search marker. Topic/intent and final source overlap establish novelty.
+const PLANNER_GEO_QUERY = /москв|петербург|спб|казан|сочи|екатеринбург|новосибирск|город|регион|гео/iu;
+function oneInternalStructure(candidates, platform, records, requestedTopic) {
+  const terms = normalizeOverlapText(requestedTopic ?? '').split(' ').filter((term) => term.length > 3);
+  const eligible = candidates.filter((item) => !PLANNER_GEO_QUERY.test(item.primary_query));
+  const relevance = (item) => terms.filter((term) => normalizeOverlapText(item.primary_query).includes(term.slice(0, 5))).length;
+  const ranked = [...eligible].sort((a, b) => relevance(b) - relevance(a)
+    || a.primary_query.length - b.primary_query.length || a.primary_query.localeCompare(b.primary_query, 'ru-RU')
+    || a.cluster.localeCompare(b.cluster, 'ru-RU'));
+  for (const candidate of ranked) {
+    const topic = requestedTopic || `Как организовать работу интернет-магазина по направлению «${candidate.primary_query}»`;
+    const intent = `Практически раскрыть тему «${topic}»: решения, примеры и порядок действий для бизнеса.`;
+    // A used query or H1 alone cannot occupy a topic. Explicit owner topics are preserved;
+    // the writer must provide a fresh treatment and pass final source-overlap QA.
+    const duplicate = records.some((record) => normalizeOverlapText(record.platform) === normalizeOverlapText(platform?.name)
+      && normalizeOverlapText(record.primary_intent) === normalizeOverlapText(intent));
+    if (!requestedTopic && duplicate) continue;
+    const h1 = /яндекс|yandex/iu.test(topic) ? 'Накрутка ПФ Яндекс' : 'Накрутка ПФ';
+    const secondary = eligible.filter((item) => item.cluster === candidate.cluster
+      && normalizeOverlapText(item.primary_query) !== normalizeOverlapText(candidate.primary_query))
+      .sort((a, b) => relevance(b) - relevance(a) || a.primary_query.localeCompare(b.primary_query, 'ru-RU'))
+      .slice(0, 17).map((item) => item.primary_query);
+    return { h1, title: h1, topic, topic_source: requestedTopic ? 'owner' : 'planner',
+      primary_query: candidate.primary_query, selected_cluster: candidate.cluster,
+      secondary_queries: secondary, user_intent: intent,
+      sections: [`Задача бизнеса: ${topic}`, 'Как выбрать подход и подготовить исходные данные',
+        'Практический пример и последовательность действий', 'Чек-лист для применения в своей компании'],
+      content_signature: hash(canonical({ topic, intent })),
+      writing_directive: 'Раскрыть конкретную тему полезными примерами. Уточнять внутреннюю структуру по содержанию; не выводить варианты на согласование. Ключи подбирать по теме, не менять тему ради ключей. H1 не является темой.' };
   }
-  return 0;
+  return null;
 }
 
-function relatedSecondaryQueries(candidate, candidates) {
-  const primaryTerms = new Set(normalizeOverlapText(candidate.primary_query).split(' ')
-    .filter((term) => term.length > 2 && term !== 'пф'));
-  return candidates.filter((item) => item.cluster === candidate.cluster
-    && normalizeOverlapText(item.primary_query) !== normalizeOverlapText(candidate.primary_query))
-    .sort((left, right) => {
-      const overlap = (item) => normalizeOverlapText(item.primary_query).split(' ')
-        .filter((term) => primaryTerms.has(term)).length;
-      const score = overlap(right) - overlap(left);
-      return score || normalizeOverlapText(left.primary_query).localeCompare(normalizeOverlapText(right.primary_query), 'ru-RU');
-    })
-    .slice(0, 4).map((item) => item.primary_query);
-}
-
-function proposedPlannerSignature(option) {
-  return {
-    title: normalizeOverlapText(option.title), topic: normalizeOverlapText(option.primary_query),
-    intent: normalizeOverlapText(option.user_intent),
-    content: normalizeOverlapText([option.title, option.topic, option.user_intent,
-      ...option.sections, ...option.secondary_queries].join(' ')),
-  };
-}
-
-function threeReadyStructures(candidates, platform, registryRecords) {
-  const existing = samePlatformRecords(registryRecords, platform);
-  const selectedTopics = new Set();
-  const options = [];
-  for (const [index, recipe] of PLANNER_SEMANTIC_RECIPES.entries()) {
-    const ranked = [...candidates].sort((left, right) => comparePlannerCandidates(left, right, recipe));
-    const candidate = ranked.find((item) => {
-      const topic = normalizeOverlapText(item.primary_query);
-      const secondary_queries = relatedSecondaryQueries(item, candidates);
-      const sections = recipe.sections(item.primary_query);
-      const option = {
-        h1: recipe.h1, title: recipe.h1, topic: recipe.topic(item.primary_query),
-        user_intent: recipe.intent, sections, secondary_queries,
-        primary_query: item.primary_query,
-      };
-      option.comparable_signature = proposedPlannerSignature(option);
-      return !selectedTopics.has(topic)
-        && !existing.some((record) => materiallyIdenticalPlannerRecord(record, option));
-    });
-    if (!candidate) return null;
-    selectedTopics.add(normalizeOverlapText(candidate.primary_query));
-    const secondary_queries = relatedSecondaryQueries(candidate, candidates);
-    const sections = recipe.sections(candidate.primary_query);
-    const option = { number: index + 1, h1: recipe.h1, title: recipe.h1,
-      topic: recipe.topic(candidate.primary_query), primary_query: candidate.primary_query,
-      selected_cluster: candidate.cluster, secondary_queries, user_intent: recipe.intent,
-      safe_evidence_angle: recipe.angle, sections };
-    option.comparable_signature = proposedPlannerSignature(option);
-    option.content_signature = option.comparable_signature.content;
-    options.push(option);
-  }
-  return options;
-}
-
-function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
+function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform, requestedTopic = null) {
   const database = open(resolve(projectDatabasePath), true);
   try {
     const coverage = coverageForPlanning(database);
@@ -385,53 +271,52 @@ function automaticEmptyTopicPlannerAssignment(projectDatabasePath, platform) {
       .map((item) => [item.primary_query.toLocaleLowerCase('ru-RU'), item])).values()];
     const systemError = (reason) => ({ code: 'E_AMBIGUOUS_TOPIC', reason,
       available_hf_markers: [...PLANNER_H1_HIGH_FREQUENCY_MARKERS] });
-    const structureOptions = coverage.error || cores.length !== 1 ? null
-      : threeReadyStructures(candidates, platform, coverage.registry.records);
-    if (coverage.error || cores.length !== 1 || !structureOptions) {
+    const selected = coverage.error || cores.length !== 1 ? null
+      : oneInternalStructure(candidates, platform, coverage.registry.records, requestedTopic);
+    if (coverage.error || cores.length !== 1 || !selected) {
       return { hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id, executor_profile: 'metrichit.editorial.planner.v1',
         status: 'blocked', background_mode: true, owner_question: 'prohibited',
         coverage: { registry_scanned: !coverage.registry.error, registry_records: coverage.registry.records?.length ?? 0,
           final_materials_scanned: !coverage.finals.error, final_materials: coverage.finals.files ?? 0, selected_primary_topic_occupied: null },
-        system_error: systemError(coverage.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'no_independent_planner_topics')) };
+        system_error: systemError(coverage.error ?? (cores.length !== 1 ? 'semantic_core_conflict' : 'no_eligible_topic')) };
     }
     return {
       hotfix_id: EMPTY_TOPIC_AUTOPLANNING_HOTFIX.id,
       executor_profile: 'metrichit.editorial.planner.v1', status: 'ready', background_mode: true,
       owner_question: 'prohibited', coverage: { registry_scanned: true, registry_records: coverage.registry.records.length,
         final_materials_scanned: true, final_materials: coverage.finals.files, selected_primary_topic_occupied: false },
-      selected_h1_high_frequency_marker: structureOptions[0].h1,
-      selected_primary_query: structureOptions[0].primary_query,
-      selected_cluster: structureOptions[0].selected_cluster,
-      selection_basis: 'Each option is ranked by declared semantic suitability, then canonical query and cluster ordering; taxonomy row order is not a priority signal.',
-      structure_options: structureOptions,
-      selected_structure: null,
-      structure_selection: 'owner_selection_required',
+      selected_h1_high_frequency_marker: selected.h1,
+      selected_primary_query: selected.primary_query,
+      selected_cluster: selected.selected_cluster,
+      selection_basis: 'Owner topic takes priority; otherwise one topic is selected from the approved core and publication intents. H1 is repeatable; no frequency values are inferred.',
+      selected_structure: selected,
+      structure_selection: 'internal',
       pre_generation_conflicts: [],
     };
   } finally { database.close(); }
 }
 
 function automaticEditorialSpec(projectDatabasePath, route, assignment, taskBrief) {
-  const selected = taskBrief?.selectedStructure;
+  const selected = assignment?.selected_structure;
   if (!assignment || assignment.status !== 'ready' || assignment.pre_generation_conflicts?.length
-    || taskBrief?.ownerStructureApproved !== true || !selected
-    || !assignment.structure_options.some((option) => canonical(option) === canonical(selected))) return null;
-  if (route.platform?.id !== 'oborot') return null;
+    || !selected) return null;
   const database = open(resolve(projectDatabasePath), true);
   try {
     const core = approvedSemanticCore302(database)[0]?.core;
     if (!core) throw new Error('editorial spec requires one approved 302-query core');
+    if (taskBrief?.editorialSpec) {
+      if (taskBrief.editorialSpec.platform !== route.platform?.name) throw new Error('editorial spec platform mismatch');
+      if (selected.topic_source === 'owner' && !taskBrief.editorialSpec.user_intent?.includes(selected.topic)) {
+        throw new Error('editorial spec must preserve the owner topic');
+      }
+      return compileEditorialSpec(taskBrief.editorialSpec, core.taxonomy);
+    }
+    if (route.platform?.id !== 'oborot' || selected.topic_source === 'owner') return null;
     const primary = selected.primary_query;
     const selectedClusters = [selected.selected_cluster];
-    const secondary = (core.taxonomy[selected.selected_cluster] ?? [])
-      .filter((query) => normalizeOverlapText(query) !== normalizeOverlapText(primary));
-    for (const [cluster, queries] of Object.entries(core.taxonomy)) {
-      if (secondary.length >= 17 || selectedClusters.includes(cluster) || cluster === EDITORIAL_CONTRACT.semantic_core.geo_cluster) continue;
-      selectedClusters.push(cluster);
-      secondary.push(...queries.filter((query) => normalizeOverlapText(query) !== normalizeOverlapText(primary)));
-    }
-    secondary.splice(17);
-    if (secondary.length !== 17) throw new Error('editorial spec requires 18 target queries for Oborot long-form');
+    const secondary = [...selected.secondary_queries];
+    const queryCount = 1 + secondary.length;
+    if (queryCount < 18) return null; // Architect completes a topic-grounded spec internally; never asks for structure approval.
     const structure = selected.sections;
     const inline = structure.slice(0, 3).map((section, index) => ({
       path: `../assets/editorial-inline-${index + 1}.png`, medium: EDITORIAL_CONTRACT.visuals.allowed_medium,
@@ -442,7 +327,7 @@ function automaticEditorialSpec(projectDatabasePath, route, assignment, taskBrie
       composition: ['wide environmental', 'medium collaborative', 'close documentary'][index], device_role: 'none',
     }));
     return compileEditorialSpec({ platform: route.platform.name, character_range: { minimum: 9000, maximum: null },
-      query_count_rationale: 'Для объёма свыше верхней ступени шкалы число ключей зафиксировано QA как 18 уникальных точных запросов одного интента без keyword stuffing.',
+      query_count_rationale: `Для статьи от 9000 знаков выбраны ${queryCount} точных запросов одного кластера по теме; финальный QA проверяет естественность и фактическое покрытие.`,
       selected_h1: selected.h1, primary_query: primary, secondary_queries: secondary,
       selected_clusters: selectedClusters, adjacent_cluster_rationale: selectedClusters.length > 1
         ? 'Кластеры объединены одной практической задачей подготовки и контроля запуска.' : null,
@@ -463,12 +348,12 @@ function automaticArticleTaskBrief(route, taskBrief) {
   if (!route.signals.includes('article_pipeline_trigger')) return taskBrief;
   const platform = route.platform;
   const defaults = {
-    result: `Новая статья для ${platform.name} подготовлена и проверена последовательной цепочкой Migration 007`,
+    result: `Новая статья для ${platform.name} подготовлена и проверена по одной внутренней структуре Migration 009`,
     scope: [platform.contour],
-    firstCheck: 'Проверить активные профили и порядок стадий Migration 007',
+    firstCheck: 'Проверить активные профили и DAG стадий Migration 009',
     acceptance: [
       `Площадка ${platform.name} однозначно определена по редакционной матрице`,
-      'Planner, architect, writer, designer и validator выполнены строго последовательно',
+      'Planner+Architect подготовили одну внутреннюю структуру; Writer собрал текст; Designer и предварительный Validator используют независимые результаты; финальный QA проверил комплект',
       'Validator подтвердил обязательные правила execution card',
       'Готов только пакет материала; внешняя публикация не выполнялась',
     ],
@@ -1240,6 +1125,9 @@ function validateEditorialContentQa(specification, contentQa) {
 }
 
 function validateDeliveryEvidence(card, delivery) {
+  if (card.editorial_pipeline && (!card.editorial_spec || card.editorial_pipeline.launch_directive !== 'start')) {
+    throw new Error('delivery validation failed: internal_editorial_spec_required');
+  }
   const checks = nonEmptyList(delivery.checks);
   const satisfiedAcceptance = nonEmptyList(delivery.satisfiedAcceptance);
   const forbiddenChangesObserved = nonEmptyList(delivery.forbiddenChangesObserved);
@@ -1329,7 +1217,7 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
     if (articleRevisionMatch && explicitScopeId !== SCOPE_IDS.editorial) {
       throw new Error('editorial revision must use the Editorial scope');
     }
-    const routed = { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope', ...signals], fingerprint,
+    const routed = { outcome: 'routed', scopeId: explicitScopeId, taskType: inferredType, signals: ['explicit_scope', ...signals], fingerprint, requested_topic: articleTriggerMatch?.[2]?.trim() || null,
       platform: platform ? { id: platform.id, name: platform.name, contour: platform.contour, mode: platform.mode,
         source: 'documents/editorial-publishing-matrix.md' } : null };
     if (articleRevisionMatch) Object.defineProperty(routed, 'articleRevisionSource', {
@@ -1356,7 +1244,7 @@ export function routeTask(database, { text = '', explicitScopeId = null, taskTyp
       : signals.includes('core') && !signals.includes('metrichit') ? SCOPE_IDS.core : SCOPE_IDS.metrichit;
   scopeChain(database, scopeId);
   const articleRevisionSource = articleRevisionMatch ? latestDeliveredArticleContext(database, platform) : null;
-  const routed = { outcome: 'routed', scopeId, taskType: inferredType, signals, fingerprint,
+  const routed = { outcome: 'routed', scopeId, taskType: inferredType, signals, fingerprint, requested_topic: articleTriggerMatch?.[2]?.trim() || null,
     platform: platform ? { id: platform.id, name: platform.name, contour: platform.contour, mode: platform.mode,
       source: 'documents/editorial-publishing-matrix.md' } : null };
   if (articleRevisionSource) Object.defineProperty(routed, 'articleRevisionSource', { value: articleRevisionSource });
@@ -1391,13 +1279,13 @@ export function compileDeterministicContext(database, {
   const semanticCoreTaxonomy = !pipelineTrigger && rules.some((rule) => rule.semantic_key === REQUIRED_EDITORIAL_RULES.semanticCore)
     ? approvedSemanticCoreTaxonomy(projectDatabasePath, referenceRecords) : null;
   const emptyTopicPlannerAssignment = pipelineTrigger
-    ? automaticEmptyTopicPlannerAssignment(projectDatabasePath, resolvedRoute.platform) : null;
+    ? automaticEmptyTopicPlannerAssignment(projectDatabasePath, resolvedRoute.platform, resolvedRoute.requested_topic) : null;
   const editorialSpec = pipelineTrigger
     ? automaticEditorialSpec(projectDatabasePath, resolvedRoute, emptyTopicPlannerAssignment, taskBrief) : null;
   const editorialPipeline = pipelineTrigger ? {
     ...loadEditorialPipeline(projectDatabasePath),
     launch_directive: emptyTopicPlannerAssignment.status === 'blocked' || emptyTopicPlannerAssignment.pre_generation_conflicts?.length ? 'blocked'
-      : editorialSpec ? 'start' : 'await_owner_structure_selection',
+      : editorialSpec ? 'start' : 'compile_internal_spec',
     empty_topic_planner_assignment: emptyTopicPlannerAssignment,
     editorial_spec: editorialSpec,
   } : null;

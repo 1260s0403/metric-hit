@@ -78,11 +78,11 @@ test('editorial database initializes repeatably with the required schema', (t) =
   assert.equal(checkEditorialDatabase(databasePath).migrations, 2);
 });
 
-test('update-infrastructure mode registers the five-profile sequential project pipeline idempotently', (t) => {
+test('update-infrastructure mode registers the five-profile DAG project pipeline idempotently', (t) => {
   const { databasePath } = temporaryProjectDatabase(t);
   const first = updateEditorialInfrastructure(databasePath);
   const second = updateEditorialInfrastructure(databasePath);
-  assert.deepEqual(first.appliedNow, [1, 2, 3, 4, 5, 6, 7]);
+  assert.deepEqual(first.appliedNow, [1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.deepEqual(second.appliedNow, []);
   assert.equal(second.pipelineId, 'metrichit.editorial.pipeline.v1');
   assert.deepEqual(second.profiles.map(({ profile_id, stage_order, capability, profile_kind }) =>
@@ -110,7 +110,7 @@ test('hotfix mode applies the empty-topic directive to each isolated profile', (
   assert.equal(result.profiles.length, 5);
   assert.ok(result.profiles.every((profile) => profile.hotfix?.id === 'editorial.empty_topic.autoplanning.v1'));
   assert.equal(result.profiles.find((profile) => profile.profile_id === 'metrichit.editorial.planner.v1').hotfix.planner_execution_required, true);
-  assert.equal(result.profiles.filter((profile) => profile.profile_id !== 'metrichit.editorial.planner.v1').every((profile) => profile.hotfix.downstream_input === 'consume_owner_approved_structure_only'), true);
+  assert.equal(result.profiles.filter((profile) => profile.profile_id !== 'metrichit.editorial.planner.v1').every((profile) => profile.hotfix.downstream_input === 'consume_internal_selected_structure'), true);
 });
 
 test('editorial status, foreign-key, path, and hash constraints are enforced', (t) => {

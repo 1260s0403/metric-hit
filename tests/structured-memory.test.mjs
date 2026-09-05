@@ -141,7 +141,7 @@ function referenceFixture() {
     VALUES (?,?,?,?,?,'approved',?)`).run('fixture-semantic-core', 'content.metrichit_semantic_core',
       'Fixture semantic core', content, dataJson, '2026-09-04T00:00:00.000Z');
   for (const file of readdirSync(resolve('data/project-migrations/editorial'))
-    .filter((name) => /^(?:007|008)_.*\.sql$/u.test(name)).sort()) {
+    .filter((name) => /^(?:007|008|009)_.*\.sql$/u.test(name)).sort()) {
     project.exec(readFileSync(resolve('data/project-migrations/editorial', file), 'utf8'));
   }
   project.close();
@@ -406,169 +406,81 @@ test('P3: router asks one question for material ambiguity and audit stores no pr
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test('article_pipeline_trigger creates a platform card with the registered safe parallel routing', () => {
+test('article pipeline selects one internal topic, preserves owner topics and keeps QA/publication gates', () => {
   const { directory, databasePath, projectDatabasePath, dataJson } = referenceFixture();
+  let project;
   try {
-    const compiled = compileContextPack(databasePath, {
-      text: 'Напиши новую статью для Sostav/SBlogs', projectDatabasePath,
-      taskType: 'code', taskBrief: { result: undefined, scope: undefined, acceptance: undefined },
-    });
-    assert.equal(compiled.route.outcome, 'routed');
-    assert.equal(compiled.route.scopeId, SCOPE_IDS.editorial);
-    assert.equal(compiled.route.taskType, 'editorial');
-    assert.equal(compiled.route.platform.name, 'Sostav/SBlogs');
-    assert.equal(compiled.route.platform.contour, 'work/articles');
-    const card = compiled.pack.payload.execution_card;
-    assert.equal(card.scope[0], 'work/articles');
-    assert.equal(card.editorial_pipeline.pipeline_id, 'metrichit.editorial.pipeline.v1');
-    assert.equal(card.editorial_pipeline.launch_directive, 'await_owner_structure_selection');
-    assert.equal(card.editorial_pipeline.execution_mode, 'isolated_dag');
-    assert.deepEqual(card.editorial_pipeline.routing, {
-      planning_package: ['planner', 'architect'], text_assembler: 'writer',
-      parallel_after_text: ['designer', 'validator'],
-      final_hashes_required_from: ['article_text', 'media_staging'],
-    });
-    assert.deepEqual(card.editorial_pipeline.stages.map((stage) => stage.profile_id), [
-      'metrichit.editorial.planner.v1',
-      'metrichit.editorial.architect.v1',
-      'metrichit.editorial.writer.v1',
-      'metrichit.editorial.designer.v1',
-      'metrichit.editorial.validator.v1',
-    ]);
-    assert.ok(card.editorial_pipeline.stages.every((stage) => stage.policy.semantic_core.keyword_count === 302));
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.executor_profile, 'metrichit.editorial.planner.v1');
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.status, 'ready');
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.owner_question, 'prohibited');
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.coverage.registry_scanned, true);
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.coverage.final_materials_scanned, true);
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.length, 3);
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.selected_h1_high_frequency_marker, 'Накрутка ПФ');
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.selected_primary_query,
-      card.editorial_pipeline.empty_topic_planner_assignment.structure_options[0].primary_query);
-    assert.match(card.editorial_pipeline.empty_topic_planner_assignment.selection_basis, /taxonomy row order is not a priority signal/u);
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.selected_structure, null);
-    assert.equal(card.editorial_pipeline.empty_topic_planner_assignment.structure_selection,
-      'owner_selection_required');
-    const allowedH1 = new Set(['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']);
-    assert.deepEqual(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.map((option) => option.h1),
-      ['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']);
-    assert.ok(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.every((option) =>
-      allowedH1.has(option.h1) && option.title === option.h1 && option.primary_query && option.user_intent
-      && option.content_signature && !/\b(?:руководство|диагностика|софт)\b/iu.test(option.h1)));
-    assert.equal(new Set(card.editorial_pipeline.empty_topic_planner_assignment.structure_options.map((option) => option.primary_query)).size, 3);
-    for (const option of card.editorial_pipeline.empty_topic_planner_assignment.structure_options) {
-      assert.match(option.topic, new RegExp(option.primary_query.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&'), 'u'));
-      assert.ok(option.sections.some((section) => section.includes(option.primary_query)));
-      assert.ok(option.secondary_queries.every((query) => dataJson.includes(query)));
-      assert.equal(option.comparable_signature.title, option.h1.toLocaleLowerCase('ru-RU'));
-      assert.equal(option.comparable_signature.topic.replace(/\s/gu, ''),
-        option.primary_query.toLocaleLowerCase('ru-RU').replace(/[\s-]/gu, ''));
+    const compile = (text) => compileContextPack(databasePath, { text, projectDatabasePath });
+    const card = compile('Напиши новую статью для Oborot.ru').pack.payload.execution_card;
+    const pipeline = card.editorial_pipeline;
+    const assignment = pipeline.empty_topic_planner_assignment;
+    assert.equal(pipeline.launch_directive, 'start');
+    assert.equal(pipeline.execution_mode, 'isolated_dag');
+    assert.equal(pipeline.stages.length, 5);
+    assert.equal(pipeline.stages[0].policy.routing.owner_selection_gate, false);
+    assert.equal(pipeline.stages[1].policy.routing.depends_on, 'internal_selected_structure');
+    assert.equal(pipeline.stages[2].policy.routing.sole_text_assembler, true);
+    assert.equal(pipeline.stages[4].policy.routing.final_hashes_required, true);
+    assert.equal(assignment.status, 'ready');
+    assert.equal(assignment.structure_selection, 'internal');
+    assert.equal(assignment.owner_question, 'prohibited');
+    assert.equal(Object.hasOwn(assignment, 'structure_options'), false);
+    assert.equal(assignment.selected_structure.topic_source, 'planner');
+    assert.equal(card.editorial_spec.status, 'valid');
+    assert.equal(card.editorial_spec.character_range.minimum, 9000);
+    assert.equal(card.editorial_spec.publication_requirements.external_publication, 'owner_gated');
+    assert.ok(card.editorial_spec.secondary_queries.every((query) => dataJson.includes(query)));
+    assert.ok(card.editorial_spec.secondary_queries.every((query) => !/москв|спб|петербург/iu.test(query)));
+    const topic = 'Сезонный ассортимент: как подготовить категории магазина';
+    for (const platform of ['оборота', 'оброта', 'Oborot.ru']) {
+      const explicit = compile(`Напиши статью для ${platform} на тему ${topic}`).pack.payload.execution_card;
+      assert.ok(['start', 'compile_internal_spec'].includes(explicit.editorial_pipeline.launch_directive));
+      assert.equal(explicit.editorial_pipeline.empty_topic_planner_assignment.selected_structure.topic, topic);
+      assert.equal(explicit.editorial_pipeline.empty_topic_planner_assignment.selected_structure.topic_source, 'owner');
+      assert.equal(explicit.editorial_pipeline.empty_topic_planner_assignment.selected_structure.h1, 'Накрутка ПФ');
+      assert.ok(explicit.editorial_pipeline.empty_topic_planner_assignment.selected_structure.user_intent.includes(topic));
     }
-    assert.ok(card.editorial_pipeline.stages.every((stage) => stage.hotfix.id === 'editorial.empty_topic.autoplanning.v1'));
-    assert.equal(card.editorial_pipeline.stages[2].policy.routing.sole_text_assembler, true);
-    assert.equal(card.editorial_pipeline.stages[3].policy.routing.output, 'media_staging');
-    assert.equal(card.editorial_pipeline.stages[4].policy.routing.read_only, true);
-    assert.equal(card.editorial_pipeline.stages[4].policy.routing.final_hashes_required, true);
-    assert.equal(card.editorial_semantics, null);
-    assert.equal(card.delivery_qa, null);
+    project = new DatabaseSync(projectDatabasePath);
+    for (const [index, h1] of EDITORIAL_CONTRACT.h1.approved_forms.entries()) {
+      project.prepare('INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES (?,?,?)')
+        .run(`used-topic-${index}`, h1, `Предыдущая самостоятельная тема ${index}`);
+      project.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES (?,?,?,'articles')")
+        .run(`used-material-${index}`, `used-topic-${index}`, h1);
+      project.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES (?,?,'Oborot.ru','published')")
+        .run(`used-publication-${index}`, `used-material-${index}`);
+    }
+    assert.equal(compile('Напиши статью для оборота').pack.payload.execution_card.editorial_pipeline.launch_directive, 'start');
+    const chosen = assignment.selected_structure;
+    project.prepare('INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES (?,?,?)')
+      .run('duplicate-topic', chosen.primary_query, chosen.user_intent);
+    project.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('duplicate-material','duplicate-topic',?,'articles')").run(chosen.title);
+    project.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES ('duplicate-publication','duplicate-material','Oborot.ru','published')").run();
+    const next = compile('Напиши статью для оборота').pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment.selected_structure;
+    assert.notEqual(next.topic, chosen.topic);
+    const crossPlatform = compile('Напиши статью для Sostav/SBlogs').pack.payload.execution_card.editorial_pipeline;
+    assert.equal(crossPlatform.launch_directive, 'compile_internal_spec');
+    assert.equal(crossPlatform.empty_topic_planner_assignment.selected_structure.topic, chosen.topic);
+    const pending = compile('Напиши статью для Sostav/SBlogs');
+    assert.throws(() => closeContextPack(databasePath, pending.pack.id, {}), /internal_editorial_spec_required/);
+    const internalSpec = { ...card.editorial_spec, platform: 'Sostav/SBlogs', image_package: { ...card.editorial_spec.image_package, inline: card.editorial_spec.image_package.inline.slice(0, 2) } };
+    const completedPlanning = compileContextPack(databasePath, { text: 'Напиши статью для Sostav/SBlogs',
+      projectDatabasePath, taskBrief: { editorialSpec: internalSpec } });
+    assert.equal(completedPlanning.pack.payload.execution_card.editorial_pipeline.launch_directive, 'start');
 
-    const oborot = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
-      .pack.payload.execution_card;
-    assert.equal(oborot.editorial_pipeline.launch_directive, 'await_owner_structure_selection');
-    assert.equal(oborot.editorial_spec, null);
-    assert.deepEqual(oborot.editorial_pipeline.empty_topic_planner_assignment.pre_generation_conflicts, []);
-
-    const repeatedH1Project = new DatabaseSync(projectDatabasePath);
-    try {
-      for (const [index, h1] of ['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов'].entries()) {
-        repeatedH1Project.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES (?,?,?)")
-          .run(`repeated-h1-topic-${index}`, `earlier independent topic ${index}`, `Ранее опубликованный интент ${index}`);
-        repeatedH1Project.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES (?,?,?,'articles')")
-          .run(`repeated-h1-material-${index}`, `repeated-h1-topic-${index}`, h1);
-        repeatedH1Project.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES (?,?,'Oborot.ru','published')")
-          .run(`repeated-h1-publication-${index}`, `repeated-h1-material-${index}`);
-      }
-    } finally { repeatedH1Project.close(); }
-    const repeatedH1Allowed = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
-      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
-    assert.deepEqual(repeatedH1Allowed.structure_options.map((option) => option.h1),
-      ['Накрутка ПФ', 'Накрутка ПФ Яндекс', 'Накрутка поведенческих факторов']);
-
-    const reusedPrimaryProject = new DatabaseSync(projectDatabasePath);
-    const reusedPrimary = repeatedH1Allowed.structure_options[0];
-    try {
-      reusedPrimaryProject.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES ('reused-primary-topic',?,?)")
-        .run(reusedPrimary.primary_query, 'Другой самостоятельный интент');
-      reusedPrimaryProject.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('reused-primary-material','reused-primary-topic','Предыдущая самостоятельная тема','articles')").run();
-      reusedPrimaryProject.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES ('reused-primary-publication','reused-primary-material','Oborot.ru','published')").run();
-    } finally { reusedPrimaryProject.close(); }
-    const reusedPrimaryAllowed = compileContextPack(databasePath, { text: 'Напиши новую статью для Dzen', projectDatabasePath })
-      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
-    assert.ok(reusedPrimaryAllowed.structure_options.some((option) => option.primary_query === reusedPrimary.primary_query));
-
-    const crossPlatformProject = new DatabaseSync(projectDatabasePath);
-    const crossPlatformOption = repeatedH1Allowed.structure_options[1];
-    try {
-      crossPlatformProject.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES ('cross-platform-topic',?,?)")
-        .run(crossPlatformOption.primary_query, crossPlatformOption.user_intent);
-      crossPlatformProject.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('cross-platform-material','cross-platform-topic',?,'articles')")
-        .run(crossPlatformOption.content_signature);
-      crossPlatformProject.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES ('cross-platform-publication','cross-platform-material','Sostav/SBlogs','published')").run();
-    } finally { crossPlatformProject.close(); }
-    const crossPlatformAllowed = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
-      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
-    assert.ok(crossPlatformAllowed.structure_options.some((option) => option.primary_query === crossPlatformOption.primary_query
-      && option.user_intent === crossPlatformOption.user_intent && option.content_signature === crossPlatformOption.content_signature));
-
-    const duplicateProject = new DatabaseSync(projectDatabasePath);
-    try {
-      const duplicate = crossPlatformAllowed.structure_options[0];
-      duplicateProject.prepare("INSERT INTO editorial_topics(id,primary_query,primary_intent) VALUES ('duplicate-topic',?,?)")
-        .run(duplicate.primary_query, duplicate.user_intent);
-      duplicateProject.prepare("INSERT INTO editorial_materials(id,topic_id,title,direction) VALUES ('duplicate-material','duplicate-topic',?,'articles')")
-        .run(duplicate.title);
-      duplicateProject.prepare("INSERT INTO editorial_publications(id,material_id,platform,status) VALUES ('duplicate-publication','duplicate-material','Oborot.ru','published')").run();
-    } finally { duplicateProject.close(); }
-    const withoutActualDuplicate = compileContextPack(databasePath, { text: 'Напиши новую статью для Oborot.ru', projectDatabasePath })
-      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
-    assert.equal(withoutActualDuplicate.structure_options.some((option) => option.primary_query === crossPlatformAllowed.structure_options[0].primary_query), false);
-
-    const reorderedProject = new DatabaseSync(projectDatabasePath);
-    try {
-      const original = JSON.parse(dataJson);
-      const taxonomy = Object.fromEntries(Object.entries(original.taxonomy).reverse()
-        .map(([cluster, queries]) => [cluster, [...queries].reverse()]));
-      reorderedProject.prepare("UPDATE memory_candidates SET data_json=? WHERE id='fixture-semantic-core'")
-        .run(JSON.stringify({ ...original, taxonomy }));
-    } finally { reorderedProject.close(); }
-    const reordered = compileContextPack(databasePath, { text: 'Напиши новую статью для Timeweb Cloud', projectDatabasePath })
-      .pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
-    assert.deepEqual(reordered.structure_options.map((option) => ({
-      h1: option.h1, primary_query: option.primary_query, selected_cluster: option.selected_cluster,
-    })), card.editorial_pipeline.empty_topic_planner_assignment.structure_options.map((option) => ({
-      h1: option.h1, primary_query: option.primary_query, selected_cluster: option.selected_cluster,
-    })));
-
-    const project = new DatabaseSync(projectDatabasePath);
-    try {
-      project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status,reviewed_at)
-        VALUES (?,'content.metrichit_semantic_core','Conflicting core','Fixture conflict',?,'approved',?)`)
-        .run('fixture-semantic-core-conflict', dataJson, '2026-09-05T00:00:00.000Z');
-    } finally { project.close(); }
-    const blocked = compileContextPack(databasePath, { text: 'Напиши новую статью для Sostav/SBlogs', projectDatabasePath });
-    const assignment = blocked.pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment;
-    assert.equal(blocked.route.outcome, 'routed');
-    assert.equal(blocked.pack.payload.execution_card.editorial_pipeline.launch_directive, 'blocked');
-    assert.equal(assignment.status, 'blocked');
-    assert.equal(assignment.system_error.code, 'E_AMBIGUOUS_TOPIC');
-    assert.equal(assignment.system_error.available_hf_markers.length, 3);
-
-    const unsupported = compileContextPack(databasePath, {
-      text: 'Напиши новую статью для Avito', projectDatabasePath,
-    });
-    assert.equal(unsupported.route.outcome, 'needs_clarification');
-    assert.equal(unsupported.pack, null);
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+    const original = JSON.parse(dataJson);
+    project.prepare("UPDATE memory_candidates SET data_json=? WHERE id='fixture-semantic-core'")
+      .run(JSON.stringify({ ...original, taxonomy: Object.fromEntries(Object.entries(original.taxonomy).reverse()
+        .map(([cluster, queries]) => [cluster, [...queries].reverse()])) }));
+    assert.equal(compile('Напиши статью для Sostav/SBlogs').pack.payload.execution_card.editorial_pipeline.empty_topic_planner_assignment.selected_structure.topic, chosen.topic);
+    project.prepare(`INSERT INTO memory_candidates(id,semantic_key,title,content,data_json,status,reviewed_at)
+      VALUES ('conflicting-core','content.metrichit_semantic_core','Conflict','Conflict',?,'approved','2026-09-05')`).run(dataJson);
+    project.close();
+    project = null;
+    const blocked = compile('Напиши статью для оборота').pack.payload.execution_card.editorial_pipeline;
+    assert.equal(blocked.launch_directive, 'blocked');
+    assert.equal(blocked.empty_topic_planner_assignment.system_error.code, 'E_AMBIGUOUS_TOPIC');
+    assert.equal(compile('Напиши статью для Avito').pack, null);
+  } finally { if (project) project.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
 test('article image follow-up creates a new linked card from the latest closed article', () => {

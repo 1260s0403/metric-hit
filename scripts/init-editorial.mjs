@@ -24,7 +24,7 @@ const EMPTY_TOPIC_HOTFIX = Object.freeze({
   planner: {
     required: true,
     mode: 'background',
-    steps: ['scan_published_archive_overlap', 'select_free_priority_hf_marker_from_approved_302_core', 'return_exactly_three_ready_structures'],
+    steps: ['scan_published_archive_overlap', 'select_topic_independently_of_repeatable_h1', 'produce_one_internal_structure'],
   },
 });
 
@@ -34,8 +34,8 @@ function hotfixDirective(profileId) {
     profile_id: profileId,
     planner_execution_required: profileId === 'metrichit.editorial.planner.v1',
     downstream_input: profileId === 'metrichit.editorial.planner.v1'
-      ? 'produce_three_structures'
-      : 'consume_owner_approved_structure_only',
+      ? 'produce_one_internal_structure'
+      : 'consume_internal_selected_structure',
   };
 }
 
@@ -115,7 +115,7 @@ function verifyPipelineProfiles(database, { hotfix = false } = {}) {
     const expected = expectedPipelineProfiles[index];
     if ([profile.profile_id, profile.stage_order, profile.stage_name, profile.capability, profile.profile_kind]
       .some((value, field) => value !== expected[field])) throw new Error(`Editorial pipeline profile ${index + 1} differs`);
-    if (profile.pipeline_id !== 'metrichit.editorial.pipeline.v1' || profile.execution_mode !== 'isolated_sequential' || profile.status !== 'active') {
+    if (profile.pipeline_id !== 'metrichit.editorial.pipeline.v1' || profile.execution_mode !== 'isolated_dag' || profile.status !== 'active') {
       throw new Error(`Editorial pipeline profile ${profile.profile_id} is not active and isolated`);
     }
     const policy = JSON.parse(profile.policy_json);

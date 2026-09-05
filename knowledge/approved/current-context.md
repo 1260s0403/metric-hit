@@ -1,13 +1,10 @@
 # MetricHit — текущий рабочий контекст
 
-Сформировано: 2026-09-05T08:12:38.886Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
+Сформировано: 2026-09-05T17:39:40.570Z. Этот файл содержит только утверждённую память. Задачи и планы вынесены в отдельный раздел и не являются реализованными фактами.
 
-## Handoff редакционного closeout — 05.09.2026
+## Действующий маршрут редакции — 05.09.2026
 
-- Реализация интегрирована commit `3db63ba36c59895fc3d40177349e9975079a7e7c`; card `8436614d-12f0-4c01-a981-d0e08f222e7f` закрыта как `delivered`, handoff `f08569ef-41f9-4e45-a177-eb9a75fe9030` завершён, canonical и writer были clean на этом HEAD перед отдельной записью handoff.
-- `closeContextPack` теперь оставляет статью открытой при отрицательном обязательном artifact QA; JPEG проверяется фактическим декодированием через доступный `jpeg-js`, а PNG-проверка сохранена; editorial finish до commit/integration повторно валидирует фактические article/assets и hash-bound QA и передаёт тот же комплект в штатный close.
-- Доказательства: focused Node `38/38`, включая настоящий JPEG, truncated/header-only JPEG, реальный временный Git worktree + memory DB + handoff, отрицательный stale-hash QA до commit, успешный retry и replay без дублей; `check-memory` — integrity `ok`, `git diff --check` — успешно. Реальный production-пилот статьи не выполнялся. JPEG fail-closed зависит от доступности bundled `jpeg-js`; visual review остаётся обязательной внутренней проверкой редакции, привязанной к точным файлам и hashes, а не дополнительным owner-gate. Историческое отсутствие отдельных handoff у этапов 2–3 не заполнялось задним числом.
-- Точный следующий шаг: пилот одной реальной статьи. Сначала владелец выбирает площадку, затем planner выдаёт три структуры, и продолжение возможно только после утверждения владельцем одной структуры. Для Oborot повтор одного из трёх утверждённых коротких H1 допустим у новой самостоятельной темы; planner сверяет тему, интент и содержание на той же площадке. Минимум полноформатной статьи Oborot — 9 000 знаков; объём свыше 9 000 требует QA-обоснование числа ключей без верхнего лимита. Публикация, индексация и ПФ в пилот автоматически не входят.
+Одна статья с изображениями без выбора трёх структур и без утверждения плана владельцем. Тема владельца обязательна; без темы редакция выбирает её самостоятельно. H1 короткий и может повторяться: он не определяет тему. Это решение заменяет прежнее требование утверждать структуру в исторических handoff ниже. Visual review остаётся внутренним и обязательным, публикация требует отдельного разрешения. Следующий прикладной шаг — подготовка статьи Oborot и проверка готового комплекта.
 
 ## Основные факты о продукте
 
@@ -97,6 +94,40 @@ Acceptance:
 
 Источник решения: explicit owner approval 2026-09-04: Приступай к P1; Sol approved
 Проект: 00000000-0000-4000-a000-000000000102
+- **Исправить достоверность редакционного QA, реальный lifecycle и фактическое сост…:** Цель: Исправить достоверность редакционного QA, реальный lifecycle и фактическое состояние этапов 0-4
+
+Scope:
+- config/editorial-contract.json
+- scripts/editorial-contract.mjs
+- scripts/editorial-lifecycle.mjs
+- scripts/structured-memory.mjs
+- src/metrichit_os/cli.py
+- src/metrichit_os/handoff.py
+- src/metrichit_os/chat_continuity.py
+- tests/editorial-contract.test.mjs
+- tests/editorial-lifecycle.test.mjs
+- tests/structured-memory.test.mjs
+- tests_python/test_chat_continuity.py
+- tests_python/test_handoff.py
+- documents/roadmap.md
+- knowledge/approved/current-context.md
+- data/database/metrichit.db
+
+Ограничения:
+- Один Sol writer в зарегистрированном worktree
+- Без публикации, пилота, индексации, ПФ и внешних зависимостей
+- Не создавать фиктивное evidence и не удалять artifacts
+
+Acceptance:
+- Source overlap на фрагментах
+- Фактическая декодируемость PNG
+- Hash-bound mandatory visual review
+- Реальный recoverable finish без готового evidence
+- Короткий owner-approved derivative H1
+- Штатная достоверная терминализация подтверждённых старых записей
+
+Источник решения: explicit owner instruction 2026-09-05
+Проект: 00000000-0000-4000-a000-000000000102
 - **Независимые проектные контуры «Ядра»:** «Ядро» — OS и управляющий контур для нескольких независимых проектов. MetricHit — первый проект внутри «Ядра»; понятие «MetricHit OS» не используется для целевой модели. У каждого проекта должны быть собственные память, правила и бизнес-истина, независимые от «Ядра» и друг от друга. Ближайший приоритет до любой иной разработки — подготовить проектные контуры: отдельное физическое хранилище каждого проекта, безопасную миграцию существующих данных, экспорт/импорт самостоятельного проекта и изоляцию проектов в операторской панели. Реализация каждого направления начинается только после отдельного утверждения владельца; это решение не меняет схему, интерфейс или данные.
 - **Техническое разделение независимых проектов завершено:** На commit acff1db909c9cf9b7b85f0c2a18b035f3d3fa2c0 завершена универсальная маршрутизация независимых проектов. Любой зарегистрированный managed project направляется по canonical project_id в собственный project.sqlite; центральная SQLite остаётся control plane. Некорректные, неизвестные, незарегистрированные проекты и проекты без хранилища отклоняются fail-closed. Federated/project store и memory routing работают для N проектов, совместимость MetricHit сохранена. Два временных проекта подтвердили взаимную изоляцию и export/import; реальный второй проект не создавался. Подтверждены Python 196 passed, 1 skipped; Node 63/63; integrity и foreign keys valid; readiness unresolved=0, ready=true. Разделение технически завершено. Следующий продуктовый шаг нужен только при появлении реального второго проекта или по отдельному решению о UI; cleanup legacy-копий требует отдельного решения владельца.
 - **Контур «Авито»: доступ и изменяющие действия:** MetricHit → Автоматизация → Авито — активный изолированный scope с единственным рабочим корнем work/automation/avito. Разрешены local-browser login/access и API integration/use, но доступность API не предполагается. Создание, снятие, редактирование, публикация и любые изменяющие состояние form/API operations допускаются только по последующей точной команде владельца на операцию или пакет. Scheduler, платные услуги и расходы запрещены. Секреты, пароли, tokens, cookies и sessions остаются вне repository.
@@ -167,6 +198,35 @@ Acceptance:
 Источник решения: owner instruction 2026-09-04 and verified P0/P1 delivery evidence
 Проект: 00000000-0000-4000-a000-000000000102
 - **Фокус публичных материалов MetricHit на поисковой выдаче:** В публичных статьях MetricHit не упоминать действия пользователей или ботов внутри сайта, внутренние поведенческие факторы, глубину просмотра, время, скроллы или клики и не вступать в спор об их влиянии. Материалы о сервисе фокусируются на поисковой выдаче, запросах, позициях, регионах, дневных лимитах, стоимости клика, бюджете и контроле результата.
+- **Одна статья без выбора структуры; заданная тема приоритетна, H1 повторяем:** Цель: Одна статья без выбора структуры; заданная тема приоритетна, H1 повторяем
+
+Scope:
+- AGENTS.md
+- scripts/structured-memory.mjs
+- scripts/init-editorial.mjs
+- tests/structured-memory.test.mjs
+- tests/editorial-database.test.mjs
+- data/project-migrations/editorial/009_editorial_single_plan.sql
+- documents/structured-memory.md
+- documents/operating-context.md
+- documents/roadmap.md
+- documents/editorial-daily-workflow.md
+- documents/editorial-automation-architecture.md
+- knowledge/approved/current-context.md
+- knowledge/decisions/editorial-single-plan-2026-09-05.md
+- scripts/apply-editorial-single-plan-policy.mjs
+
+Ограничения:
+- Без публикации, удаления и соседних контуров
+
+Acceptance:
+- Одна внутренняя структура без согласования
+- Явная тема сохранена; H1 не ограничивает тему
+- Повтор H1 не блокирует новую статью
+- Целевые тесты и diff check пройдены; память идемпотентна
+
+Источник решения: Прямое поручение владельца в текущем чате 2026-09-05
+Проект: 00000000-0000-4000-a000-000000000102
 - **Внедрить утверждённый реалистичный визуальный стандарт статей и форматы Oborot:** Цель: Внедрить утверждённый реалистичный визуальный стандарт статей и форматы Oborot
 
 Scope:
@@ -190,6 +250,32 @@ Acceptance:
 
 Источник решения: direct owner approval in Strategy chat 2026-09-04
 Проект: 00000000-0000-4000-a000-000000000102
+- **Исправить правила Oborot, planner и регрессии для самостоятельной новой темы:** Цель: Исправить правила Oborot, planner и регрессии для самостоятельной новой темы
+
+Scope:
+- AGENTS.md
+- documents/operating-context.md
+- documents/structured-memory.md
+- knowledge/approved/current-context.md
+- knowledge/decisions/public-editorial-target-query-volume-ladder-2026-09-01.md
+- config/editorial-contract.json
+- scripts/editorial-contract.mjs
+- scripts/structured-memory.mjs
+- tests/editorial-contract.test.mjs
+- tests/structured-memory.test.mjs
+
+Ограничения:
+- Не писать статью
+- Не публиковать, не индексировать и не выполнять ПФ
+- Один writer, один commit, последовательная интеграция
+
+Acceptance:
+- H1 reuse accepted for new independent topic
+- real duplicate rejected
+- Oborot over 9000 requires QA rationale
+- target regressions and approved memory updated
+
+Источник решения: explicit owner authorization 2026-09-05
 - **Корректно подтвердить и закрыть replacement delivery-карточку уже интегрированн…:** Цель: Корректно подтвердить и закрыть replacement delivery-карточку уже интегрированного hotfix Редакция 1.6.
 
 Scope:
@@ -363,6 +449,51 @@ Acceptance:
 - Целевые проверки, память и Git-поставка подтверждены.
 
 Источник решения: owner recovery approval 2026-09-05; known edits predated recovery executor
+- **Исправить редакционный handoff: visual review является обязательной внутренней…:** Цель: Исправить редакционный handoff: visual review является обязательной внутренней hash-bound проверкой редакции, а не дополнительным owner-gate; сохранить утверждение структуры и owner-gate публикации
+
+Scope:
+- documents/roadmap.md
+- knowledge/approved/current-context.md
+- data/database/metrichit.db
+
+Ограничения:
+- Не менять code, QA implementation или tests
+- Не запускать пилот или внешнюю публикацию
+- Не чистить старые решения или lifecycle history
+- Context pack e4dfe622-ad23-4910-a3cb-9c28f471df51
+
+Acceptance:
+- Roadmap и current context исправлены
+- Approved-memory evolution supersedes ошибочный handoff без удаления истории
+- Owner approval структуры и owner-gate внешней публикации сохранены
+- Idempotent replay, check-memory и git diff --check проходят
+
+Источник решения: explicit owner correction 2026-09-05
+Проект: 00000000-0000-4000-a000-000000000102
+- **Исправить три узких дефекта обязательной сдачи, JPEG-декодирования и реального…:** Цель: Исправить три узких дефекта обязательной сдачи, JPEG-декодирования и реального редакционного lifecycle
+
+Scope:
+- scripts/structured-memory.mjs
+- scripts/editorial-contract.mjs
+- scripts/editorial-lifecycle.mjs
+- tests/structured-memory.test.mjs
+- tests/editorial-contract.test.mjs
+- tests/editorial-lifecycle.test.mjs
+
+Ограничения:
+- Без полного аудита и cleanup старых записей
+- Без внешней публикации, индексации и ПФ
+- Один Sol writer, один implementation commit, последовательная integration
+- Context pack 8436614d-12f0-4c01-a981-d0e08f222e7f
+
+Acceptance:
+- closeContextPack оставляет card open при failed artifact QA/final acceptance
+- JPEG валидируется доступным decoder, PNG сохраняется
+- Lifecycle валидирует реальный article/image/hash QA до commit/integration и retry идемпотентен
+- Целевые tests и git diff --check проходят
+
+Источник решения: explicit owner instruction 2026-09-05 current line
+Проект: 00000000-0000-4000-a000-000000000102
 - **Подготовить новую чистую статью Oborot.ru о том, что такое ПФ и для чего он нуж…:** Цель: Подготовить новую чистую статью Oborot.ru о том, что такое ПФ и для чего он нужен.
 
 Scope:
@@ -459,6 +590,25 @@ Acceptance:
 
 Источник решения: owner request 2026-09-04
 Проект: 00000000-0000-4000-a000-000000000102
+- **Исправить подмену явной execution card старым checkpoint при подготовке workspa…:** Цель: Исправить подмену явной execution card старым checkpoint при подготовке workspace
+
+Scope:
+- src/metrichit_os/chat_continuity.py
+- src/metrichit_os/cli.py
+- tests_python/test_chat_continuity.py
+
+Ограничения:
+- Only chat continuity/workspace preparation lifecycle
+- Do not edit editorial planner/spec/contracts/rules/content
+- No external actions
+
+Acceptance:
+- Explicit context pack is never replaced by another checkpoint
+- Orphan context pack eb30c17b-7c5b-42fc-8cd3-10ca062c5962 is abandoned with audit evidence
+- Targeted regression passes
+
+Источник решения: owner approval 2026-09-05
+Проект: 00000000-0000-4000-a000-000000000102
 - **Единое резервирование «Ядра» и управляемых проектов:** Штатный backup «Ядра» охватывает центральный контур и все фактически созданные физические хранилища управляемых проектов. Центральная и каждая проектная SQLite снимаются безопасным online backup; для всех включённых данных единообразно проверяются запрещённые пути, секреты, inventory, SHA-256, служебная принадлежность и целостность. Полный охват достижимой Git-истории не сокращается: объекты читаются одним пакетным процессом, обычные, пустые, бинарные, ZIP и вложенные ZIP blobs проверяются, а ошибка протокола блокирует backup. Решение не создаёт проекты, не мигрирует данные и не переключает runtime.
 - **Allow Strategy and engineering tasks to access the public MetricHit landing at…:** Цель: Allow Strategy and engineering tasks to access the public MetricHit landing at go.mtrhit.ru
 
@@ -486,6 +636,23 @@ Acceptance:
 - **Завершён этап устранения регрессий operator panel:** На поставке 9f0ac1e оставлена единая актуальная реализация экранов, устранены дублирующиеся и устаревшие скрытые элементы управления, E2E-контракты приведены к итоговому интерфейсу, а проверка состояния рабочей области больше не зависит от фиксированного количества открытых задач. Подтверждено: Python — 167 passed, 1 skipped; Node — 51 passed; проверки синтаксиса, зависимостей и изменений прошли. Исходная быстрая проверка качества остаётся историческим основанием этапа; результат не утверждает более широкую проверку или переработку проекта.
 - **Рабочий процесс SERVER, Strategy и executor:** Canonical primary workspace остаётся C:\MetricHit\workspace. Исполнительские директории допускаются только в зарегистрированных неканонических Git worktree этого же репозитория внутри C:\MetricHit\worktrees, после штатной проверки регистрации, branch, HEAD, clean state и отсутствия конфликтующего lease. Это не самостоятельные клоны, не новый primary workspace и не разрешение на другие соседние каталоги или глобальные настройки. Продолжение той же линии переиспользует подходящий чистый зарегистрированный worktree штатным workflow; новый чат или повтор начатой задачи сами по себе не основание создавать ещё одну рабочую копию. Managed sandbox и owner-gates сохраняются. SERVER и C:\MetricHit\workspace остаются primary workspace MetricHit. Strategy — read-only human-facing router. Controlled parallel execution v1 допускает максимум четыре независимых writer-а: каждый работает в отдельном неканоническом Git worktree и ветке, объявляет точные path/SQLite/shared resources и имеет один commit. Пересечения, пятая задача и core/shared resources блокируются fail-closed; разные project SQLite совместимы; central control-plane, context pack, memory/policy и integration сериализованы. Read-only research pilot 2–3 веток сохраняется. Orchestration v1 активирует первый временный read-only coordinator profile MetricHit → Редакция: compiler выдаёт только цепочку Ядро → MetricHit → Редакция → задача; coordinator создаёт одну child card, выбирает skills из allowlist и принимает domain evidence одного writer-а. Максимальная глубина два перехода, до трёх read-only веток, lifecycle и sequential integration enforced через handoff metadata; UI, daemon, scheduler, API и автономная production-редакция не добавлены. Fast path, clean Git, проверки, Sol/Luna gates, owner-gates и managed sandbox сохраняются. AGENTS.md является короткой конституцией Strategy. Перед задачей Strategy определяет scope и тип, затем compiler читает только паспорта и активную память цепочки Ядро → проект → подпроект → задача. Для executor формируется минимальный временный task context pack; sibling scope и история без основания не загружаются, а audit сохраняет fingerprint и технические сигналы без текста команды и внутреннего reasoning. P0–P5 реализованы и прошли acceptance на пилоте MetricHit «Редакция» и «Панель»; контракт находится в documents/structured-memory.md, schema — migration v11.
 - **Подтверждение работы задач и сохранение исторических записей:** Владелец подтвердил, что в живом использовании корректно работают переход задачи в открытое состояние и обратимое изменение статуса через галочку. Исторические завершённые внутренние записи о выполненных инженерных работах и аудите остаются в списке задач; их нельзя скрывать, архивировать, удалять или изменять без нового прямого решения владельца.
+- **Перенести проверенное исправление регистрации явной ветки на текущую canonical…:** Цель: Перенести проверенное исправление регистрации явной ветки на текущую canonical основу.
+
+Scope:
+- src/metrichit_os/chat_continuity.py
+- tests_python/conftest.py
+- tests_python/test_chat_continuity.py
+
+Ограничения:
+- Использовать только существующий чистый зарегистрированный worktree.
+- Не изменять редакционные planner/spec/contracts, не выполнять внешние действия, удаление или force-операции.
+
+Acceptance:
+- Явная новая ветка получает отдельный зарегистрированный worktree в том же scope.
+- Целевой тест chat continuity проходит.
+- Интеграция выполнена без force на текущую canonical основу.
+
+Источник решения: explicit owner approval 2026-09-05: continue stale-base workspace registration integration
 - **Read-only доступ к публичным веб-источникам:** Strategy и engineering-задачи могут открывать любые публично доступные URL только для read-only исследования и анализа. Запрещены login или иная авторизация, отправка форм, публикации, покупки и иные расходы, изменения аккаунтов, доступов или настроек, а также скачивание либо обработка приватных клиентских данных. CRM и сайт регистрации/личного кабинета https://mtrhit.ru/ остаются вне доступа; действующие явные owner-gates сохраняются.
 - **Record MetricHit landing development as an integrated Yadro workstream and add…:** Цель: Record MetricHit landing development as an integrated Yadro workstream and add it to the owner task for 17.08
 
@@ -654,6 +821,7 @@ Acceptance:
 - **Статьи MetricHit: не писать об отсутствии гарантий:** Никогда не писать об отсутствии гарантий результата, позиций, трафика или лидов в каждой статье MetricHit на любой площадке.
 - **Правила подготовки статей MetricHit:** Статьи MetricHit оригинальны, сохраняют подтверждённые кейсы и цифры, естественно используют утверждённые ключи и содержат не менее 9 000 знаков содержательного текста. Тарифная сетка, пороги пополнения и таблицы тарифов запрещены; допустимо контекстное упоминание «от 0,15 ₽ за клик». Служебные SEO-метки не публикуются. В статье четыре естественные ссылки на https://go.mtrhit.ru/: в начале, две внутри и в финале/CTA. Нужны две оригинальные эффектные иллюстрации, соответствующие деловой или технической площадке. Заявка на авторство описывает регулярное экспертное направление MetricHit, а не одну статью.
 - **Чистый текст для копирования редакционных материалов:** Материалы MetricHit, которые готовятся для копирования на внешнюю площадку, оформляются чистым текстом: без Markdown-выделения звёздочками и без хештегов. Заголовки и подзаголовки пишутся обычными строками. Это правило не отменяет требования к естественным ссылкам, утверждённой семантике, одному интенту, CTA, оригинальности и требованиям конкретной площадки.
+- **Одна статья без согласования структуры:** По команде «Напиши [новую] статью для [площадки] [на тему …]» редакция сразу готовит одну качественную статью с изображениями. Если тема указана владельцем, она сохраняется; иначе Planner самостоятельно выбирает тему по утверждённому ядру 302 и реестру публикаций. H1 — короткий утверждённый ВЧ-маркер, а не тема статьи: его повтор разрешён и не занимает тему. Planner+Architect составляют одну внутреннюю структуру без вывода трёх вариантов и без согласования с владельцем. Writer раскрывает тему и органично подбирает релевантные ключи; структура может уточняться внутри редакции. Новизна оценивается по смыслу и финальному source-overlap, а не совпадению H1. Проверки текста и изображений, внутренний visual review по hashes и отдельный owner-gate внешней публикации обязательны. Индексация, запуск ПФ и оценка ПФ не входят в текущую работу. E_AMBIGUOUS_TOPIC допустим только при реальном конфликте исходных данных; использованные H1 не являются blocker.
 - **Фотореалистичный визуальный стандарт статей MetricHit:** Статья по умолчанию получает ровно три целевых фотореалистичных визуала: обложку и две разные смысловые бизнес-сцены. Большая статья Oborot.ru определяется верхним существующим диапазоном шкалы объёма от 7 001 знака; текст свыше 9 000 знаков сохраняет long-form классификацию с обязательным QA-обоснованием. Для неё обязательны ровно четыре визуала: превью 1:1 и три смысловых inline-визуала в разных разделах. Короткие и средние материалы сохраняют стандартный пакет из трёх визуалов. Любые screenshots/screen captures в редакционных статьях запрещены: лендинги, сайты, браузеры, поисковая выдача, dashboards, рабочие интерфейсы, UI приложения или сервиса и брендовые promo screens; исключений для реального интерфейса нет. Каждый inline-визуал обязан иметь точные section_anchor и semantic_role и показывать конкретный тезис, действие, причину или результат раздела. Prompt задаёт наблюдаемое действие и реальный бизнес-контекст раздела; общая тема и generic человек с ноутбуком или телефоном не считаются смыслом. Экран или устройство не может быть главным объектом; устройство допустимо только как второстепенная естественная деталь максимум в одном inline-визуале и без читаемого UI. Пакет из трёх inline-визуалов образует разнообразную visual story: разные разделы, сцены, действия, планы/композиции и бизнес-контексты. Повторяющиеся desk+laptop, phone-gazing, одни люди с коробками и три вариации одной сцены запрещены. Люди и среда правдоподобны для российского бизнеса; запрещены постановочные рукопожатия, фальшивые улыбки и AI-глянец. Без обоснования не добавляются текст, логотипы, стрелки, графики и подписи. Стиль: естественный свет, реалистичные цвета, умеренный контраст и тонкий cyan/blue-акцент только в деталях. Графит/стекло остаётся для social-карточек, схем и продуктовых анонсов, но не для статей. QA/validator fail-closed отклоняет screenshot/interface, screen-as-subject, отсутствующую section/semantic mapping, повторяющийся screen-gazing set, AI-артефакты и бессмысленные надписи. Ключевой объект находится в safe area для desktop/mobile crop. Каждый asset имеет описательное имя файла и естественный alt без keyword stuffing. Визуалы оригинальны или лицензированы и релевантны. Для Oborot: превью 1:1, фото в тексте по умолчанию 3:2 landscape; широкий смысловой фотосюжет может быть 16:9 без искажения, а 3:4 используется только по реальной необходимости.
 - **Автоматический geo demand gate для редакционных материалов:** Любой из 37 запросов группы geo_candidates_after_demand_validation разрешён в H2 новой статьи или лонгрида вне Telegram только при явном флаге geo_demand_owner_confirmed=true в текущей execution card. Без флага geo-запросы и geo-кластер отклоняются fail-closed и не передаются writer-ам или субагентам.
 - **Семантическое ядро для новых публичных материалов вне Telegram:** Каждый новый публичный пост или статья MetricHit вне Telegram использует основной и вторичные целевые запросы только дословно из утверждённого семантического ядра из 302 запросов. Запросы принадлежат одному кластеру либо документированно смежным кластерам при едином интенте; геокандидаты требуют предварительного подтверждения спроса. Telegram, опубликованный архив и существующие черновики исключены.
@@ -824,29 +992,32 @@ Acceptance:
 
 Источник решения: owner instruction 2026-09-03
 Проект: 00000000-0000-4000-a000-000000000102
-- **Внедрить пять утверждённых уточнений первого этапа model-routing policy.:** Цель: Внедрить пять утверждённых уточнений первого этапа model-routing policy.
+- **Одна статья без выбора структуры; заданная тема приоритетна, H1 повторяем:** Цель: Одна статья без выбора структуры; заданная тема приоритетна, H1 повторяем
 
 Scope:
 - AGENTS.md
-- documents/operating-context.md
+- scripts/structured-memory.mjs
+- scripts/init-editorial.mjs
+- tests/structured-memory.test.mjs
+- tests/editorial-database.test.mjs
+- data/project-migrations/editorial/009_editorial_single_plan.sql
 - documents/structured-memory.md
+- documents/operating-context.md
 - documents/roadmap.md
-- knowledge/decisions/model-routing-policy-2026-08-13.md
-- knowledge/decisions/decision-governance-policy-2026-08-15.md
-- scripts/apply-model-routing-policy.mjs
-- scripts/apply-decision-governance-policy.mjs
-- tests/decision-governance-policy.test.mjs
+- documents/editorial-daily-workflow.md
+- documents/editorial-automation-architecture.md
 - knowledge/approved/current-context.md
+- knowledge/decisions/editorial-single-plan-2026-09-05.md
+- scripts/apply-editorial-single-plan-policy.mjs
 
 Ограничения:
-- Только пять утверждённых уточнений
-- Без CLI/compiler изменений
-- Без новых файлов, runtime, dependencies, schema или UI
+- Без публикации, удаления и соседних контуров
 
 Acceptance:
-- Пять уточнений согласованы в policy и документах
-- Approved-memory apply идемпотентен
-- Один commit и последовательная integration
+- Одна внутренняя структура без согласования
+- Явная тема сохранена; H1 не ограничивает тему
+- Повтор H1 не блокирует новую статью
+- Целевые тесты и diff check пройдены; память идемпотентна
 
-Источник решения: owner next-stage approval 2026-09-05
-Проект: 00000000-0000-4000-a000-000000000101
+Источник решения: Прямое поручение владельца в текущем чате 2026-09-05
+Проект: 00000000-0000-4000-a000-000000000102
