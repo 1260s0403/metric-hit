@@ -1,0 +1,598 @@
+{
+  "schema_version": 1,
+  "context_pack_id": "cc3856f7-8f15-41e5-83bc-ce394d2d8be4",
+  "handoff_id": "1638e4d0-e591-4220-a06a-c7a7af27b113",
+  "writer": "oborot_article_writer",
+  "scope": "work/articles/oborot-pf-why-2026-09-07/",
+  "topic": "Что такое накрутка ПФ и почему без него не обойтись",
+  "platform": "Oborot.ru",
+  "artifact_acceptance": "passed",
+  "artifact_validation": {
+    "computed": true,
+    "passed": true,
+    "technical_checks": {
+      "performed": true,
+      "passed": true
+    },
+    "final_acceptance": {
+      "passed": true,
+      "blocked_by": []
+    },
+    "contract_id": "metrichit.editorial_contract.v1",
+    "article_path": "C:\\MetricHit\\worktrees\\5eaf8a1b-9c67-5885-aa67-0f76815a9f9f-53687f5662\\work\\articles\\oborot-pf-why-2026-09-07\\article.txt",
+    "content_sha256": "24687ff0fe8bd139b2f9288d3ba66009589bda2825e10ec0a01a4b261699f370",
+    "structured_source": {
+      "path": "C:/MetricHit/worktrees/5eaf8a1b-9c67-5885-aa67-0f76815a9f9f-53687f5662/work/articles/oborot-pf-why-2026-09-07/article.source.json",
+      "sha256": "1091c5d0c5e2ba1d5e3cb4df630b530ec62c7f85ab1a0876cac8b0d3b785b366",
+      "projection_sha256": "24687ff0fe8bd139b2f9288d3ba66009589bda2825e10ec0a01a4b261699f370"
+    },
+    "h1": {
+      "heading": "Накрутка ПФ",
+      "matched_query": "Накрутка ПФ"
+    },
+    "character_count": 12334,
+    "target_queries": [
+      {
+        "query": "накрутка пф",
+        "occurrences": 6
+      },
+      {
+        "query": "что такое накрутка пф",
+        "occurrences": 2
+      },
+      {
+        "query": "что такое поведенческие факторы",
+        "occurrences": 2
+      },
+      {
+        "query": "что такое поведенческие факторы сайта",
+        "occurrences": 1
+      },
+      {
+        "query": "что такое пф в сео",
+        "occurrences": 1
+      },
+      {
+        "query": "что такое накрутка поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка поведенческих факторов",
+        "occurrences": 4
+      },
+      {
+        "query": "накрутка поведенческих факторов сайта",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка поведенческих факторов в яндексе",
+        "occurrences": 1
+      },
+      {
+        "query": "поведенческие факторы",
+        "occurrences": 2
+      },
+      {
+        "query": "поведенческие факторы сайта",
+        "occurrences": 1
+      },
+      {
+        "query": "поведенческий фактор",
+        "occurrences": 1
+      },
+      {
+        "query": "поведенческое продвижение",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайта поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайтов поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "оптимизация поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "улучшение поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка пф сайта",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка пф онлайн",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "сервисы накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис для накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис накрутки поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение пф",
+        "occurrences": 1
+      },
+      {
+        "query": "пф в сео",
+        "occurrences": 2
+      }
+    ],
+    "lsi": [
+      {
+        "term": "поисковая выдача",
+        "category": "search_context",
+        "section_anchor": "Почему интернет-магазины обращаются к ПФ",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Почему интернет-магазины обращаются к ПФ"
+      },
+      {
+        "term": "поисковый интент",
+        "category": "search_context",
+        "section_anchor": "Почему интернет-магазины обращаются к ПФ",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Почему интернет-магазины обращаются к ПФ"
+      },
+      {
+        "term": "релевантность страницы",
+        "category": "page_quality",
+        "section_anchor": "Где заканчивается поисковый сигнал и начинается продажа",
+        "zone": "checklist",
+        "found": true,
+        "section_start": "Где заканчивается поисковый сигнал и начинается продажа"
+      },
+      {
+        "term": "коммерческие факторы",
+        "category": "page_quality",
+        "section_anchor": "Где заканчивается поисковый сигнал и начинается продажа",
+        "zone": "checklist",
+        "found": true,
+        "section_start": "Где заканчивается поисковый сигнал и начинается продажа"
+      },
+      {
+        "term": "дневной лимит",
+        "category": "campaign_control",
+        "section_anchor": "Как выбрать сервис и поставить ему понятную задачу",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Как выбрать сервис и поставить ему понятную задачу"
+      },
+      {
+        "term": "посадочная страница",
+        "category": "campaign_control",
+        "section_anchor": "Как выбрать сервис и поставить ему понятную задачу",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Как выбрать сервис и поставить ему понятную задачу"
+      },
+      {
+        "term": "динамика позиций",
+        "category": "measurement",
+        "section_anchor": "Как оценивать результат без самообмана",
+        "zone": "h3",
+        "found": true,
+        "section_start": "Как оценивать результат без самообмана"
+      },
+      {
+        "term": "органический трафик",
+        "category": "measurement",
+        "section_anchor": "Как оценивать результат без самообмана",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Как оценивать результат без самообмана"
+      }
+    ],
+    "links": {
+      "url": "https://go.mtrhit.ru/",
+      "exact_count": 4,
+      "positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ],
+      "actual_positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ]
+    },
+    "visuals": {
+      "count": 4,
+      "review": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "oborot_article_writer",
+        "result": "Все четыре сгенерированные фотографии просмотрены в натуральном разрешении built-in output. Обложка 1:1 показывает отбор предложения; inline1 сравнение образцов, inline2 проверку комплектации перед заказом, inline3 согласование категории. Сцены, действия и планы различны, физические руки/предметы правдоподобны, экранов и читаемых надписей нет, кадры пригодны к crop.",
+        "assets": [
+          {
+            "path": "assets/cover.png",
+            "sha256": "f19f0e3ddbca5adb3060f1f1e2ba35fb862c89fdfcc8104246031c7c43e03fb1",
+            "passed": true
+          },
+          {
+            "path": "assets/01-visibility.png",
+            "sha256": "b0457ba519e1f17df11712a2193a940d9ed31a691efb989ddaf34da18deec64f",
+            "passed": true
+          },
+          {
+            "path": "assets/02-readiness.png",
+            "sha256": "be15ae238d544e6742f9a4117835e5b2848a2edd8f319e16d38e6d876dfbd8ab",
+            "passed": true
+          },
+          {
+            "path": "assets/03-control.png",
+            "sha256": "91d5f5317d66d178061e1a35e22723204718e879ecd767d33bb74dbef85cedfa",
+            "passed": true
+          }
+        ]
+      },
+      "semantic_mapping": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "oborot_article_writer",
+        "result": "Все четыре сгенерированные фотографии просмотрены в натуральном разрешении built-in output. Обложка 1:1 показывает отбор предложения; inline1 сравнение образцов, inline2 проверку комплектации перед заказом, inline3 согласование категории. Сцены, действия и планы различны, физические руки/предметы правдоподобны, экранов и читаемых надписей нет, кадры пригодны к crop.",
+        "assets": [
+          {
+            "path": "assets/cover.png",
+            "sha256": "f19f0e3ddbca5adb3060f1f1e2ba35fb862c89fdfcc8104246031c7c43e03fb1",
+            "passed": true
+          },
+          {
+            "path": "assets/01-visibility.png",
+            "sha256": "b0457ba519e1f17df11712a2193a940d9ed31a691efb989ddaf34da18deec64f",
+            "passed": true
+          },
+          {
+            "path": "assets/02-readiness.png",
+            "sha256": "be15ae238d544e6742f9a4117835e5b2848a2edd8f319e16d38e6d876dfbd8ab",
+            "passed": true
+          },
+          {
+            "path": "assets/03-control.png",
+            "sha256": "91d5f5317d66d178061e1a35e22723204718e879ecd767d33bb74dbef85cedfa",
+            "passed": true
+          }
+        ]
+      },
+      "diversity": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "oborot_article_writer",
+        "result": "Все четыре сгенерированные фотографии просмотрены в натуральном разрешении built-in output. Обложка 1:1 показывает отбор предложения; inline1 сравнение образцов, inline2 проверку комплектации перед заказом, inline3 согласование категории. Сцены, действия и планы различны, физические руки/предметы правдоподобны, экранов и читаемых надписей нет, кадры пригодны к crop.",
+        "assets": [
+          {
+            "path": "assets/cover.png",
+            "sha256": "f19f0e3ddbca5adb3060f1f1e2ba35fb862c89fdfcc8104246031c7c43e03fb1",
+            "passed": true
+          },
+          {
+            "path": "assets/01-visibility.png",
+            "sha256": "b0457ba519e1f17df11712a2193a940d9ed31a691efb989ddaf34da18deec64f",
+            "passed": true
+          },
+          {
+            "path": "assets/02-readiness.png",
+            "sha256": "be15ae238d544e6742f9a4117835e5b2848a2edd8f319e16d38e6d876dfbd8ab",
+            "passed": true
+          },
+          {
+            "path": "assets/03-control.png",
+            "sha256": "91d5f5317d66d178061e1a35e22723204718e879ecd767d33bb74dbef85cedfa",
+            "passed": true
+          }
+        ]
+      },
+      "screenshots_prohibited": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "oborot_article_writer",
+        "result": "Все четыре сгенерированные фотографии просмотрены в натуральном разрешении built-in output. Обложка 1:1 показывает отбор предложения; inline1 сравнение образцов, inline2 проверку комплектации перед заказом, inline3 согласование категории. Сцены, действия и планы различны, физические руки/предметы правдоподобны, экранов и читаемых надписей нет, кадры пригодны к crop.",
+        "assets": [
+          {
+            "path": "assets/cover.png",
+            "sha256": "f19f0e3ddbca5adb3060f1f1e2ba35fb862c89fdfcc8104246031c7c43e03fb1",
+            "passed": true
+          },
+          {
+            "path": "assets/01-visibility.png",
+            "sha256": "b0457ba519e1f17df11712a2193a940d9ed31a691efb989ddaf34da18deec64f",
+            "passed": true
+          },
+          {
+            "path": "assets/02-readiness.png",
+            "sha256": "be15ae238d544e6742f9a4117835e5b2848a2edd8f319e16d38e6d876dfbd8ab",
+            "passed": true
+          },
+          {
+            "path": "assets/03-control.png",
+            "sha256": "91d5f5317d66d178061e1a35e22723204718e879ecd767d33bb74dbef85cedfa",
+            "passed": true
+          }
+        ]
+      },
+      "assets": [
+        {
+          "path": "assets/cover.png",
+          "sha256": "f19f0e3ddbca5adb3060f1f1e2ba35fb862c89fdfcc8104246031c7c43e03fb1",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1254,
+            "height": 1254
+          },
+          "aspect_ratio": "1:1",
+          "section_anchor": null,
+          "semantic_role": "preview"
+        },
+        {
+          "path": "assets/01-visibility.png",
+          "sha256": "b0457ba519e1f17df11712a2193a940d9ed31a691efb989ddaf34da18deec64f",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Почему интернет-магазины обращаются к ПФ",
+          "semantic_role": "explain_competition"
+        },
+        {
+          "path": "assets/02-readiness.png",
+          "sha256": "be15ae238d544e6742f9a4117835e5b2848a2edd8f319e16d38e6d876dfbd8ab",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Где заканчивается поисковый сигнал и начинается продажа",
+          "semantic_role": "show_commercial_readiness"
+        },
+        {
+          "path": "assets/03-control.png",
+          "sha256": "91d5f5317d66d178061e1a35e22723204718e879ecd767d33bb74dbef85cedfa",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Как выбрать сервис и поставить ему понятную задачу",
+          "semantic_role": "show_controlled_decision"
+        }
+      ]
+    },
+    "originality": {
+      "method": "local_deterministic_source_overlap",
+      "algorithm": "token_shingle_v1",
+      "comparison_status": "performed",
+      "content_sha256": "24687ff0fe8bd139b2f9288d3ba66009589bda2825e10ec0a01a4b261699f370",
+      "compared_sources": [
+        {
+          "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-chto-takoe-pf.md",
+          "sha256": "79a4c0b998d3732231e08e4c8921e4dc0bb9127ae06f0690917b2cf09c0d9d78",
+          "overlap_percent": 1.84,
+          "article_token_count": 1632,
+          "source_token_count": 1330,
+          "matched_article_token_count": 30,
+          "shingle_size": 5
+        },
+        {
+          "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-pf-metrichit-final.md",
+          "sha256": "bee0082ae5ec0272489c7c49946e65e2241b6c19e7e927af145a073e0e0fb22b",
+          "overlap_percent": 1.35,
+          "article_token_count": 1632,
+          "source_token_count": 1491,
+          "matched_article_token_count": 22,
+          "shingle_size": 5
+        }
+      ],
+      "max_overlap_percent": 1.84,
+      "template_match": false
+    }
+  },
+  "content_review": {
+    "reviewer": "Strategy /root",
+    "approved_version": "v2",
+    "content_sha256": "24687ff0fe8bd139b2f9288d3ba66009589bda2825e10ec0a01a4b261699f370",
+    "conclusion": "Объяснена суть искусственного усиления поисковых переходов и коммерческая причина спроса; условный ecommerce-пример явно обозначен; текст не приравнивает работу сервиса к действиям посетителя внутри сайта. Нет выдуманных кейсов, цифр, гарантий, внутренней цели продвижения самой статьи. Один интент и один финальный CTA. Текст уплотнён после одного предметного review.",
+    "reader_text_characters_excluding_urls_images_metadata": 11892,
+    "deterministic_projection_characters_excluding_urls": 12334,
+    "target_queries_selected": 26,
+    "target_queries_found": 26,
+    "query_counting": "Case-insensitive exact phrase matching; six shorter selected phrases are included within longer selected phrases. This is 26 distinct approved query strings, not 26 independent insertion locations.",
+    "nested_query_strings": [
+      "накрутка пф",
+      "что такое поведенческие факторы",
+      "накрутка поведенческих факторов",
+      "поведенческие факторы",
+      "поведенческие факторы сайта",
+      "пф в сео"
+    ],
+    "lsi_found": 8,
+    "landing_links": 4,
+    "official_source_links": 1,
+    "manuscript_has_fake_statistics": false,
+    "claims_of_top_or_indexation_timing": false,
+    "keyword_stuffing": false,
+    "client_identifiers": false,
+    "public_bot_action_sequence_disclosed": false,
+    "tariff_table": false
+  },
+  "independent_visual_review": {
+    "reviewer": "Strategy /root",
+    "performed": true,
+    "passed": true,
+    "result": "Все четыре exact PNG независимо просмотрены. Обложка — осмотр лампы; inline1 — сравнение светильников; inline2 — проверка комплектации; inline3 — выбор категории по каталогу. Разные сцены, действия и композиции. Критических артефактов рук/предметов не видно; UI, скриншотов, логотипов, надписей и стрелок нет.",
+    "assets": [
+      {
+        "path": "assets/cover.png",
+        "sha256": "f19f0e3ddbca5adb3060f1f1e2ba35fb862c89fdfcc8104246031c7c43e03fb1",
+        "passed": true
+      },
+      {
+        "path": "assets/01-visibility.png",
+        "sha256": "b0457ba519e1f17df11712a2193a940d9ed31a691efb989ddaf34da18deec64f",
+        "passed": true
+      },
+      {
+        "path": "assets/02-readiness.png",
+        "sha256": "be15ae238d544e6742f9a4117835e5b2848a2edd8f319e16d38e6d876dfbd8ab",
+        "passed": true
+      },
+      {
+        "path": "assets/03-control.png",
+        "sha256": "91d5f5317d66d178061e1a35e22723204718e879ecd767d33bb74dbef85cedfa",
+        "passed": true
+      }
+    ]
+  },
+  "facts_and_sources": [
+    {
+      "id": "yandex-search-quality",
+      "url": "https://yandex.ru/support/webmaster/ru/search-quality",
+      "checked_on": "2026-09-07",
+      "checked_by": "Strategy /root, read-only web check",
+      "claim_type": "official_fact",
+      "used_in_public_text": true,
+      "claim": "Яндекс описывает использование данных взаимодействия пользователей с результатами поиска при оценке качества поиска.",
+      "scope_limit": "Это не подтверждает эффект конкретной кампании или обработку синтетических сигналов."
+    },
+    {
+      "id": "yandex-imitation",
+      "url": "https://yandex.ru/support/webmaster/ru/threat/user-actions-imitation",
+      "checked_on": "2026-09-07",
+      "checked_by": "Strategy /root, read-only web check",
+      "claim_type": "official_fact",
+      "used_in_public_text": false,
+      "claim": "Яндекс относит имитацию визитов из поиска к поисковому спаму и может ограничивать ранжирование. Для внутренней проверки не делались ложные заявления о безопасности или рекомендации Яндекса.",
+      "public_framing_basis": "Действующие editorial public-framing rules; в статье прямо сказано, что активность искусственная."
+    },
+    {
+      "id": "yandex-seo-text",
+      "url": "https://yandex.ru/support/webmaster/ru/threat/seo-text",
+      "checked_on": "2026-09-07",
+      "checked_by": "Strategy /root, read-only web check",
+      "claim_type": "official_fact",
+      "used_in_public_text": false,
+      "claim": "Бессвязные списки ключей и переоптимизация без пользы нарушают правила. Exact keywords проверены вместе с читательской естественностью."
+    },
+    {
+      "id": "yandex-reindex",
+      "url": "https://yandex.ru/support/webmaster/ru/robot-workings/site-reindex",
+      "checked_on": "2026-09-07",
+      "checked_by": "Strategy /root, read-only web check",
+      "claim_type": "official_fact",
+      "used_in_public_text": false,
+      "claim": "Отправка на переобход не означает включения страницы в поиск. В статье нет обещания срока индексации."
+    },
+    {
+      "id": "oborot-rules",
+      "url": "https://oborot.ru/p/community-rules-i31029.html",
+      "checked_on": "2026-09-07",
+      "checked_by": "Strategy /root, read-only web check",
+      "claim_type": "official_fact",
+      "used_in_public_text": false,
+      "claim": "Площадка требует осмысленный структурированный оригинальный материал для аудитории интернет-торговли и права на изображения; внешнее размещение рассматривает владелец."
+    },
+    {
+      "id": "metrichit-landing",
+      "url": "https://go.mtrhit.ru/",
+      "checked_on": "2026-09-07",
+      "checked_by": "Strategy /root, approved read-only GET",
+      "http_status": 200,
+      "final_url": "https://go.mtrhit.ru/",
+      "claim_type": "product_reference",
+      "used_in_public_text": true
+    },
+    {
+      "id": "product-mechanics",
+      "source": "approved-memory://memory_candidates/03d62fc6-3d8d-48df-ab05-0fc15cd96a66",
+      "claim_type": "internal_approved_product_fact",
+      "used_in_public_text": false,
+      "claim": "Бот открывает в поисковой выдаче несколько других результатов, целевой сайт последним, затем в поиск не возвращается и внутри сайта действий не совершает. Публичное описание ограничено искусственными поисковыми переходами."
+    },
+    {
+      "id": "conditional-lamp-store",
+      "claim_type": "inference",
+      "used_in_public_text": true,
+      "claim": "Магазин светильников — явно условная иллюстрация бизнес-логики; не реальный кейс, статистика или доказательство эффективности кампании."
+    }
+  ],
+  "external_checks": {
+    "plagiarism": {
+      "status": "not_performed",
+      "result": "Внешний сервис не запускался; локальный source-overlap не является процентом уникальности во всём интернете."
+    },
+    "ai_detection": {
+      "status": "not_performed",
+      "result": "Внешний AI detector не запускался; утверждений об AI-score нет."
+    }
+  },
+  "image_generation": {
+    "mode": "built_in_image_gen",
+    "external_api_used": false,
+    "rights_and_provenance": "Четыре новые изображения созданы встроенным image_gen по авторским промптам для этой статьи. Фотореалистичные вымышленные иллюстрации, не документальные фото клиентов. Оригиналы сохранены; в комплекте точные PNG.",
+    "final_prompts": [
+      {
+        "path": "assets/cover.png",
+        "prompt": "Use case: photorealistic-natural. Asset type: square 1:1 editorial cover photograph for a serious Russian ecommerce business article explaining why a prepared online shop competes for customer attention in search. Scene: an actual modest contemporary lighting showroom in Russia, shelves of ordinary pendant lights and table lamps in the background. Subject: a thoughtful female small-business owner around 38, in simple cream shirt and muted blue cardigan, standing at a wooden display table, attentively positioning one attractive ceramic table lamp among a small coherent selection. Capture a credible working moment of curating an offer, not posing. Composition: square 1:1 photo, medium environmental composition, face and hands and selected lamp centered safely for mobile crop, natural perspective. Soft daylight, real skin, restrained authentic colours and slight tactile documentary grain, moderate contrast. No devices, no laptop, no phone, no screens, no visualized interfaces, no graphs, no text, no logos, no arrows, no brand marks, no watermarks, no staged smile or handshake, no glossy AI advertising look. This is an illustrative fictional scene, not a specific person or actual business."
+      },
+      {
+        "path": "assets/01-visibility.png",
+        "prompt": "Use case: photorealistic-natural. Asset type: landscape 3:2 editorial photograph, Russian ecommerce article section about competition between similar offers BEFORE the customer chooses a retailer. Scene: an ordinary small lighting wholesaler showroom workshop in Russia, daylight through large industrial windows. Main action: a male shop merchandiser in his forties carefully compares two distinct pendant lamp samples side by side on a long clean work table, one black dome and one pale ceramic bell; he measures their size with a plain measuring tape, preparing an assortment for an online kitchen-lighting category. Several other sensible product samples in the distance. Composition: 3:2 landscape, wide environmental frame from across table, show real room depth and products as protagonist, face secondary, safe centered crop. Authentic candid work, natural skin, realistic hands, subdued practical blue-grey clothes, tactile materials, restrained colours, moderate contrast. No laptop, phone, screens, readable paperwork, text, labels, logos, graphs, arrows, watermarks, smiling pose, handshakes, glossy AI look. Do not show same woman or same room as previous cover; distinct setting. Fictional illustrative scene, not a documented case."
+      },
+      {
+        "path": "assets/02-readiness.png",
+        "prompt": "Use case: photorealistic-natural. Asset type: landscape 3:2 editorial photograph supporting article section about an online shop being commercially ready to fulfil the orders that search visibility may bring. Scene: practical small ecommerce packing station in a Russian warehouse. Observable action: close documentary view of an employee carefully inspecting the cable connector and included mounting hardware of a compact unbranded wall lamp laid on protective kraft paper beside an open shipping carton, before packing it. Only torso and realistic hands of worker wearing grey cotton work shirt, no face required. Lamp and small complete hardware set are clear center of action. Background: softly blurred shelves, neat packing supplies. Composition: 3:2 horizontal, tight detail from a natural diagonal top-down angle, distinctive from a showroom or desk meeting. Natural sidelight, tactile metal and paper, honest colours, moderate contrast, real hands and physically coherent hardware. No laptop, phone, screen, charts, readable labels, text, logos, arrows, watermarks, glossy advertising, duplicate objects or extra fingers. Fictional illustrative business scene."
+      },
+      {
+        "path": "assets/03-control.png",
+        "prompt": "Use case: photorealistic-natural. Asset type: landscape 3:2 editorial photograph for Russian ecommerce article section about choosing a specific limited promotion scope and agreeing how to evaluate it. Scene: modest real Russian small-business meeting room with daylight, unremarkable wooden table. Observable action: a female ecommerce manager around 40 and male consultant around 30 seriously compare three printed product-category photo sheets, the woman marks one selected group with a pencil while the man points to the same sheet. Printed sheets contain small product photographs of lamps with simple blank fields and no readable text, no charts. Only two people, natural expressions and real hands. Composition: 3:2 horizontal, medium over-shoulder view from behind consultant towards manager and papers, papers and interaction centered, softly visible simple office plants and storage in background. Documentary photo, real skin texture and fabric, calm natural tones, small muted blue clothing detail, moderate contrast. Absolutely no screens, laptops, phones, fake interface, readable writing, graphs, logos, arrows, watermarks, handshakes, stock-photo smiles or AI gloss. Visually distinct from showroom and warehouse pictures. Fictional illustrative scene, not actual documented client."
+      }
+    ]
+  },
+  "timing_utc": {
+    "owner_task_start_approximately": "2026-09-07T11:33:53Z",
+    "isolated_checkpoint": "2026-09-07T11:36:32.692Z",
+    "writer_claim": "2026-09-07T11:39:31.814Z",
+    "first_image_saved": "2026-09-07T11:48:12Z",
+    "fourth_image_saved": "2026-09-07T11:51:17Z",
+    "corrected_source_saved": "2026-09-07T11:53:01Z",
+    "staged_artifact_qa_saved": "2026-09-07T11:54:59Z",
+    "note": "Фактические этапы; часть задержки — platform approvals для изолированного worktree, article patch и media promote. Прогноз времени не подменяет замер."
+  },
+  "gates": {
+    "publication": "not_performed; owner action",
+    "indexation_check": "not_performed; post-publication owner scope",
+    "pf_campaign": "not_performed; separate owner action"
+  },
+  "verification_scope": "Article source, deterministic copy-paste projection, four exact PNG and evidence only; no runtime, code, config, memory policy or other article changes.",
+  "git_delivery_evidence_location": "Canonical context pack and named handoff store the final validated close and integration commit after this artifact report."
+}

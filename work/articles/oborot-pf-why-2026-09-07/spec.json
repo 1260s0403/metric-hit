@@ -1,0 +1,340 @@
+{
+  "schema_version": 2,
+  "contract_id": "metrichit.editorial_contract.v1",
+  "contract_revision": 6,
+  "contract_snapshot": {
+    "id": "metrichit.editorial_contract.v1",
+    "revision": 6,
+    "lifecycle": {
+      "media_staging": "external_temporary_directory_until_artifact_qa",
+      "revision_card_identity": [
+        "article",
+        "action",
+        "parent_result"
+      ],
+      "contract_revision": "pinned_while_open",
+      "finish_order": [
+        "artifact_validation",
+        "commit",
+        "serialized_integration",
+        "domain_reconciliation",
+        "close_card",
+        "clean_checkpoint"
+      ]
+    },
+    "semantic_core": {
+      "semantic_key": "content.metrichit_semantic_core",
+      "keyword_count": 302,
+      "reference_key": "content.metrichit_semantic_core.reference",
+      "target_queries_verbatim": true,
+      "geo_cluster": "geo_candidates_after_demand_validation"
+    },
+    "h1": {
+      "approved_forms": [
+        "Накрутка ПФ",
+        "Накрутка ПФ Яндекс",
+        "Накрутка поведенческих факторов"
+      ],
+      "exact_match": true,
+      "owner_approved_core_derivative": false,
+      "derivative_policy": "requires_explicit_approved_short_form_in_contract"
+    },
+    "volume_bands": [
+      {
+        "minimum_characters": 1800,
+        "maximum_characters": 2800,
+        "minimum_queries": 8,
+        "maximum_queries": 12
+      },
+      {
+        "minimum_characters": 2801,
+        "maximum_characters": 5000,
+        "minimum_queries": 10,
+        "maximum_queries": 16
+      },
+      {
+        "minimum_characters": 5001,
+        "maximum_characters": 7000,
+        "minimum_queries": 14,
+        "maximum_queries": 20
+      },
+      {
+        "minimum_characters": 7001,
+        "maximum_characters": 9000,
+        "minimum_queries": 18,
+        "maximum_queries": 26
+      }
+    ],
+    "article": {
+      "minimum_characters": 9000,
+      "unbounded_length_requires_query_count_rationale": true,
+      "landing_url": "https://go.mtrhit.ru/",
+      "landing_link_positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ],
+      "publication_requires_owner_confirmation_or_https_url": true
+    },
+    "content_source": {
+      "format": "metrichit.editorial.structured-source.v1",
+      "projection": "deterministic_plain_copy_paste_v1"
+    },
+    "lsi": {
+      "allowed_zones": [
+        "h3",
+        "unordered_list",
+        "checklist"
+      ],
+      "prohibited_zones": [
+        "h1",
+        "h2"
+      ],
+      "categories": [
+        "search_context",
+        "page_quality",
+        "campaign_control",
+        "measurement"
+      ]
+    },
+    "visuals": {
+      "semantic_first": true,
+      "screenshots_prohibited": true,
+      "allowed_medium": "photorealistic_editorial_photo",
+      "default": {
+        "preview_count": 1,
+        "inline_count": 2
+      },
+      "oborot_long_form": {
+        "minimum_characters": 7001,
+        "preview_count": 1,
+        "inline_count": 3,
+        "preview_aspect_ratios": [
+          "1:1"
+        ],
+        "inline_aspect_ratios": [
+          "3:2",
+          "16:9"
+        ]
+      },
+      "required_inline_fields": [
+        "path",
+        "section_anchor",
+        "semantic_role",
+        "scene_intent",
+        "observable_action",
+        "business_context",
+        "composition"
+      ],
+      "diversity_fields": [
+        "section_anchor",
+        "scene_intent",
+        "observable_action",
+        "business_context",
+        "composition"
+      ],
+      "incidental_device_maximum": 1
+    },
+    "supersedes": [
+      {
+        "conflict": "145_query_core",
+        "active": "302_query_core",
+        "audit_history": "preserved"
+      },
+      {
+        "conflict": "singular_h1_form",
+        "active": "three_exact_approved_h1_forms",
+        "audit_history": "preserved"
+      },
+      {
+        "conflict": "graphite_glass_article_default",
+        "active": "photorealistic_semantic_first_article_visuals",
+        "audit_history": "preserved"
+      }
+    ]
+  },
+  "status": "valid",
+  "pre_generation_gate": "passed",
+  "content_source_format": "metrichit.editorial.structured-source.v1",
+  "publication_projection": "deterministic_plain_copy_paste_v1",
+  "platform": "Oborot.ru",
+  "format": "article",
+  "character_range": {
+    "minimum": 9000,
+    "maximum": null
+  },
+  "query_count_rationale": "Для подробной объясняющей статьи от 9000 знаков выбраны 26 релевантных точных запросов двух смежных кластеров. Часть фраз вложена в более длинные; это учитывается открыто, отдельные повторные вставки ради счётчика не нужны. Финальная предметная проверка оценивает естественность.",
+  "h1_allowlist": [
+    "Накрутка ПФ",
+    "Накрутка ПФ Яндекс",
+    "Накрутка поведенческих факторов"
+  ],
+  "selected_h1": "Накрутка ПФ",
+  "h1_selection": "exact_approved_form",
+  "primary_query": "накрутка пф",
+  "secondary_queries": [
+    "что такое накрутка пф",
+    "что такое поведенческие факторы",
+    "что такое поведенческие факторы сайта",
+    "что такое пф в сео",
+    "что такое накрутка поведенческих факторов",
+    "накрутка поведенческих факторов",
+    "накрутка поведенческих факторов сайта",
+    "накрутка поведенческих факторов в яндексе",
+    "поведенческие факторы",
+    "поведенческие факторы сайта",
+    "поведенческий фактор",
+    "поведенческое продвижение",
+    "продвижение поведенческими факторами",
+    "продвижение сайта поведенческими факторами",
+    "продвижение сайтов поведенческими факторами",
+    "оптимизация поведенческих факторов",
+    "улучшение поведенческих факторов",
+    "накрутка пф сайта",
+    "накрутка пф онлайн",
+    "сервис накрутки пф",
+    "сервисы накрутки пф",
+    "сервис для накрутки пф",
+    "сервис накрутки поведенческих факторов",
+    "продвижение пф",
+    "пф в сео"
+  ],
+  "selected_clusters": [
+    "behavioral_factors_general",
+    "education_and_howto"
+  ],
+  "adjacent_cluster_rationale": "Общий и образовательный кластеры связаны одним интентом: понять суть искусственного усиления ПФ и его практическую роль в поисковом продвижении интернет-магазина.",
+  "user_intent": "Раскрыть тему «Что такое накрутка ПФ и почему без него не обойтись»: объяснить владельцу интернет-магазина суть накрутки, причины спроса, границы инструмента и критерии осознанного выбора сервиса.",
+  "lsi": [
+    {
+      "term": "поисковая выдача",
+      "category": "search_context",
+      "section_anchor": "Почему интернет-магазины обращаются к ПФ",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "поисковый интент",
+      "category": "search_context",
+      "section_anchor": "Почему интернет-магазины обращаются к ПФ",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "релевантность страницы",
+      "category": "page_quality",
+      "section_anchor": "Где заканчивается поисковый сигнал и начинается продажа",
+      "zone": "checklist"
+    },
+    {
+      "term": "коммерческие факторы",
+      "category": "page_quality",
+      "section_anchor": "Где заканчивается поисковый сигнал и начинается продажа",
+      "zone": "checklist"
+    },
+    {
+      "term": "дневной лимит",
+      "category": "campaign_control",
+      "section_anchor": "Как выбрать сервис и поставить ему понятную задачу",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "посадочная страница",
+      "category": "campaign_control",
+      "section_anchor": "Как выбрать сервис и поставить ему понятную задачу",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "динамика позиций",
+      "category": "measurement",
+      "section_anchor": "Как оценивать результат без самообмана",
+      "zone": "h3"
+    },
+    {
+      "term": "органический трафик",
+      "category": "measurement",
+      "section_anchor": "Как оценивать результат без самообмана",
+      "zone": "unordered_list"
+    }
+  ],
+  "structure": [
+    "Что такое накрутка ПФ и какую задачу она решает",
+    "Почему интернет-магазины обращаются к ПФ",
+    "Где заканчивается поисковый сигнал и начинается продажа",
+    "Как выбрать сервис и поставить ему понятную задачу",
+    "Как оценивать результат без самообмана",
+    "Почему вопрос о ПФ уже нельзя откладывать"
+  ],
+  "links": [
+    {
+      "position": "beginning",
+      "url": "https://go.mtrhit.ru/"
+    },
+    {
+      "position": "body_1",
+      "url": "https://go.mtrhit.ru/"
+    },
+    {
+      "position": "body_2",
+      "url": "https://go.mtrhit.ru/"
+    },
+    {
+      "position": "final_cta",
+      "url": "https://go.mtrhit.ru/"
+    }
+  ],
+  "image_package": {
+    "preview": [
+      {
+        "path": "assets/cover.png",
+        "medium": "photorealistic_editorial_photo",
+        "aspect_ratio": "1:1",
+        "is_screenshot": false
+      }
+    ],
+    "inline": [
+      {
+        "path": "assets/01-visibility.png",
+        "section_anchor": "Почему интернет-магазины обращаются к ПФ",
+        "semantic_role": "explain_competition",
+        "scene_intent": "show_merchandising_choices",
+        "observable_action": "retailer groups competing product samples",
+        "business_context": "small ecommerce assortment workshop",
+        "composition": "wide environmental table view",
+        "medium": "photorealistic_editorial_photo",
+        "aspect_ratio": "3:2",
+        "device_role": "none",
+        "is_screenshot": false
+      },
+      {
+        "path": "assets/02-readiness.png",
+        "section_anchor": "Где заканчивается поисковый сигнал и начинается продажа",
+        "semantic_role": "show_commercial_readiness",
+        "scene_intent": "check_order_fulfilment",
+        "observable_action": "warehouse employee inspects a product before packing",
+        "business_context": "online shop fulfilment bench",
+        "composition": "close documentary hands and parcel",
+        "medium": "photorealistic_editorial_photo",
+        "aspect_ratio": "3:2",
+        "device_role": "none",
+        "is_screenshot": false
+      },
+      {
+        "path": "assets/03-control.png",
+        "section_anchor": "Как выбрать сервис и поставить ему понятную задачу",
+        "semantic_role": "show_controlled_decision",
+        "scene_intent": "agree_a_limited_business_test",
+        "observable_action": "owner and consultant compare printed plans and mark selected scope",
+        "business_context": "ecommerce management meeting",
+        "composition": "medium over shoulder collaborative view",
+        "medium": "photorealistic_editorial_photo",
+        "aspect_ratio": "3:2",
+        "device_role": "none",
+        "is_screenshot": false
+      }
+    ]
+  },
+  "publication_requirements": {
+    "external_publication": "owner_gated",
+    "owner_confirmation_or_https_url": true
+  }
+}
