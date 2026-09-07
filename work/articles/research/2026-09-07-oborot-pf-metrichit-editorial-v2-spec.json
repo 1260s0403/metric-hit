@@ -1,0 +1,359 @@
+{
+  "schema_version": 2,
+  "contract_id": "metrichit.editorial_contract.v1",
+  "contract_revision": 6,
+  "contract_snapshot": {
+    "id": "metrichit.editorial_contract.v1",
+    "revision": 6,
+    "lifecycle": {
+      "media_staging": "external_temporary_directory_until_artifact_qa",
+      "revision_card_identity": [
+        "article",
+        "action",
+        "parent_result"
+      ],
+      "contract_revision": "pinned_while_open",
+      "finish_order": [
+        "artifact_validation",
+        "commit",
+        "serialized_integration",
+        "domain_reconciliation",
+        "close_card",
+        "clean_checkpoint"
+      ]
+    },
+    "semantic_core": {
+      "semantic_key": "content.metrichit_semantic_core",
+      "keyword_count": 302,
+      "reference_key": "content.metrichit_semantic_core.reference",
+      "target_queries_verbatim": true,
+      "geo_cluster": "geo_candidates_after_demand_validation"
+    },
+    "h1": {
+      "approved_forms": [
+        "Накрутка ПФ",
+        "Накрутка ПФ Яндекс",
+        "Накрутка поведенческих факторов"
+      ],
+      "exact_match": true,
+      "owner_approved_core_derivative": false,
+      "derivative_policy": "requires_explicit_approved_short_form_in_contract"
+    },
+    "volume_bands": [
+      {
+        "minimum_characters": 1800,
+        "maximum_characters": 2800,
+        "minimum_queries": 8,
+        "maximum_queries": 12
+      },
+      {
+        "minimum_characters": 2801,
+        "maximum_characters": 5000,
+        "minimum_queries": 10,
+        "maximum_queries": 16
+      },
+      {
+        "minimum_characters": 5001,
+        "maximum_characters": 7000,
+        "minimum_queries": 14,
+        "maximum_queries": 20
+      },
+      {
+        "minimum_characters": 7001,
+        "maximum_characters": 9000,
+        "minimum_queries": 18,
+        "maximum_queries": 26
+      }
+    ],
+    "article": {
+      "minimum_characters": 9000,
+      "unbounded_length_requires_query_count_rationale": true,
+      "landing_url": "https://go.mtrhit.ru/",
+      "landing_link_positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ],
+      "publication_requires_owner_confirmation_or_https_url": true
+    },
+    "content_source": {
+      "format": "metrichit.editorial.structured-source.v1",
+      "projection": "deterministic_plain_copy_paste_v1"
+    },
+    "lsi": {
+      "allowed_zones": [
+        "h3",
+        "unordered_list",
+        "checklist"
+      ],
+      "prohibited_zones": [
+        "h1",
+        "h2"
+      ],
+      "categories": [
+        "search_context",
+        "page_quality",
+        "campaign_control",
+        "measurement"
+      ]
+    },
+    "visuals": {
+      "semantic_first": true,
+      "screenshots_prohibited": true,
+      "allowed_medium": "photorealistic_editorial_photo",
+      "default": {
+        "preview_count": 1,
+        "inline_count": 2
+      },
+      "oborot_long_form": {
+        "minimum_characters": 7001,
+        "preview_count": 1,
+        "inline_count": 3,
+        "preview_aspect_ratios": [
+          "1:1"
+        ],
+        "inline_aspect_ratios": [
+          "3:2",
+          "16:9"
+        ]
+      },
+      "required_inline_fields": [
+        "path",
+        "section_anchor",
+        "semantic_role",
+        "scene_intent",
+        "observable_action",
+        "business_context",
+        "composition"
+      ],
+      "diversity_fields": [
+        "section_anchor",
+        "scene_intent",
+        "observable_action",
+        "business_context",
+        "composition"
+      ],
+      "incidental_device_maximum": 1
+    },
+    "supersedes": [
+      {
+        "conflict": "145_query_core",
+        "active": "302_query_core",
+        "audit_history": "preserved"
+      },
+      {
+        "conflict": "singular_h1_form",
+        "active": "three_exact_approved_h1_forms",
+        "audit_history": "preserved"
+      },
+      {
+        "conflict": "graphite_glass_article_default",
+        "active": "photorealistic_semantic_first_article_visuals",
+        "audit_history": "preserved"
+      }
+    ]
+  },
+  "status": "valid",
+  "pre_generation_gate": "passed",
+  "content_source_format": "metrichit.editorial.structured-source.v1",
+  "publication_projection": "deterministic_plain_copy_paste_v1",
+  "platform": "Oborot.ru",
+  "format": "article",
+  "character_range": {
+    "minimum": 9000,
+    "maximum": null
+  },
+  "query_count_rationale": "20 содержательных точных форм раскрывают единый вводный интент: понять накрутку поисковых переходов, выбрать формат работы и начать через MetricHit. Программный кластер нужен только для сравнения ответственности; отдельного руководства по софту нет. Вложенность основных терминов учитывается открыто; короткие фрагменты вроде «пф сайта» и «накрутки пф» не включены ради счётчика. Объём выше9000 обусловлен раскрытием метода, выбора исполнителя, условий сервиса и расчёта стоимости.",
+  "h1_allowlist": [
+    "Накрутка ПФ",
+    "Накрутка ПФ Яндекс",
+    "Накрутка поведенческих факторов"
+  ],
+  "selected_h1": "Накрутка ПФ",
+  "h1_selection": "exact_approved_form",
+  "primary_query": "накрутка пф",
+  "secondary_queries": [
+    "программа для накрутки пф",
+    "сервис накрутки пф",
+    "накрутка пф сайта",
+    "сервис для накрутки пф",
+    "продвижение пф",
+    "сервис для накрутки поведенческих факторов",
+    "сервисы накрутки пф",
+    "недорогая накрутка поведенческих факторов",
+    "накрутка поведенческих факторов",
+    "поведенческие факторы",
+    "продвижение сайтов поведенческими факторами",
+    "продвижение сайта поведенческими факторами",
+    "поведенческое продвижение",
+    "накрутка поведенческих факторов в яндексе",
+    "заказать накрутку пф",
+    "услуги по накрутке поведенческих факторов",
+    "стоимость накрутки поведенческих",
+    "как накрутить пф",
+    "что такое накрутка поведенческих факторов"
+  ],
+  "selected_clusters": [
+    "software_and_automation",
+    "behavioral_factors_general",
+    "commercial_and_price",
+    "education_and_howto"
+  ],
+  "adjacent_cluster_rationale": "20 содержательных точных форм раскрывают единый вводный интент: понять накрутку поисковых переходов, выбрать формат работы и начать через MetricHit. Программный кластер нужен только для сравнения ответственности; отдельного руководства по софту нет. Вложенность основных терминов учитывается открыто; короткие фрагменты вроде «пф сайта» и «накрутки пф» не включены ради счётчика. Объём выше9000 обусловлен раскрытием метода, выбора исполнителя, условий сервиса и расчёта стоимости.",
+  "user_intent": "что такое накрутка ПФ в поисковой выдаче и как начать работу через MetricHit",
+  "lsi": [
+    {
+      "term": "поисковый интент",
+      "category": "search_context",
+      "section_anchor": "Как связать запросы с предложением",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "релевантность страницы",
+      "category": "page_quality",
+      "section_anchor": "Как связать запросы с предложением",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "коммерческое предложение",
+      "category": "page_quality",
+      "section_anchor": "Как связать запросы с предложением",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "регион продвижения",
+      "category": "search_context",
+      "section_anchor": "Как связать запросы с предложением",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "выполненные клики",
+      "category": "measurement",
+      "section_anchor": "Что смотреть в работающем проекте",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "расходы кампании",
+      "category": "measurement",
+      "section_anchor": "Что смотреть в работающем проекте",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "позиции сайта",
+      "category": "measurement",
+      "section_anchor": "Что смотреть в работающем проекте",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "дневные лимиты",
+      "category": "campaign_control",
+      "section_anchor": "Что смотреть в работающем проекте",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "расписание",
+      "category": "campaign_control",
+      "section_anchor": "Что смотреть в работающем проекте",
+      "zone": "unordered_list"
+    },
+    {
+      "term": "даты изменений",
+      "category": "campaign_control",
+      "section_anchor": "Что смотреть в работающем проекте",
+      "zone": "unordered_list"
+    }
+  ],
+  "structure": [
+    "Что меняет накрутка ПФ",
+    "Клики, позиции и клиенты: что именно вы покупаете",
+    "Для каких задач используют продвижение ПФ",
+    "Сервис, программа или подрядчик",
+    "Что важно при выборе MetricHit",
+    "Из чего складывается стоимость",
+    "Как накрутить ПФ через MetricHit",
+    "Как получить 1 000 тестовых кликов"
+  ],
+  "links": [
+    {
+      "position": "beginning",
+      "url": "https://go.mtrhit.ru/"
+    },
+    {
+      "position": "body_1",
+      "url": "https://go.mtrhit.ru/"
+    },
+    {
+      "position": "body_2",
+      "url": "https://go.mtrhit.ru/"
+    },
+    {
+      "position": "final_cta",
+      "url": "https://go.mtrhit.ru/"
+    }
+  ],
+  "image_package": {
+    "preview": [
+      {
+        "medium": "photorealistic_editorial_photo",
+        "is_screenshot": false,
+        "screen_is_subject": false,
+        "readable_ui": false,
+        "device_role": "none",
+        "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-cover.png",
+        "aspect_ratio": "1:1"
+      }
+    ],
+    "inline": [
+      {
+        "medium": "photorealistic_editorial_photo",
+        "is_screenshot": false,
+        "screen_is_subject": false,
+        "readable_ui": false,
+        "device_role": "none",
+        "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-meaning.png",
+        "aspect_ratio": "3:2",
+        "section_anchor": "Для каких задач используют продвижение ПФ",
+        "semantic_role": "show_query_business_match",
+        "scene_intent": "arrive_for_local_service",
+        "observable_action": "Customer carries a coffee machine to repair workshop entrance",
+        "business_context": "local coffee-machine repair service",
+        "composition": "wide street exterior arrival"
+      },
+      {
+        "medium": "photorealistic_editorial_photo",
+        "is_screenshot": false,
+        "screen_is_subject": false,
+        "readable_ui": false,
+        "device_role": "none",
+        "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-service.png",
+        "aspect_ratio": "3:2",
+        "section_anchor": "Из чего складывается стоимость",
+        "semantic_role": "show_cost_control",
+        "scene_intent": "record_expenses",
+        "observable_action": "Shop employee records expenses at service counter",
+        "business_context": "repair workshop counter",
+        "composition": "overhead diagonal accounting"
+      },
+      {
+        "medium": "photorealistic_editorial_photo",
+        "is_screenshot": false,
+        "screen_is_subject": false,
+        "readable_ui": false,
+        "device_role": "incidental",
+        "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-start.png",
+        "aspect_ratio": "3:2",
+        "section_anchor": "Как получить 1 000 тестовых кликов",
+        "semantic_role": "show_first_project_preparation",
+        "scene_intent": "contact_support_for_test",
+        "observable_action": "Store owner writes a support message on a phone with no visible screen",
+        "business_context": "small-store packing station support contact",
+        "composition": "medium candid side portrait"
+      }
+    ]
+  },
+  "publication_requirements": {
+    "external_publication": "owner_gated",
+    "owner_confirmation_or_https_url": true
+  }
+}

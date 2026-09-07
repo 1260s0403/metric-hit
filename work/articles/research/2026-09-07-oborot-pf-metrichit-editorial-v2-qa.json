@@ -1,0 +1,466 @@
+{
+  "status": "validated_draft_not_published",
+  "context_pack_id": "b0905d58-9769-470a-8bfc-16a13a068a95",
+  "handoff_id": "9febd2b1-bffc-4ba8-a6f6-41e41cf72f69",
+  "topic": "что такое накрутка ПФ в поисковой выдаче и как начать работу через MetricHit",
+  "first_check": {
+    "performed": true,
+    "passed": true,
+    "command": "git diff --check",
+    "result": "Clean registered worktree preflight passed; git diff --check succeeded before content promotion."
+  },
+  "article": {
+    "computed": true,
+    "passed": true,
+    "technical_checks": {
+      "performed": true,
+      "passed": true
+    },
+    "final_acceptance": {
+      "passed": true,
+      "blocked_by": []
+    },
+    "contract_id": "metrichit.editorial_contract.v1",
+    "article_path": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\metrichit-editorial-b94cb4c171-AOfQF4\\work\\articles\\drafts\\2026-09-07-oborot-pf-metrichit-editorial-v2.md",
+    "content_sha256": "30ad65679fe7beadf6b0cf3d6461ef2f061a7559f167a3524842fec84d0039e6",
+    "structured_source": {
+      "path": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\metrichit-editorial-b94cb4c171-AOfQF4/work/articles/research/2026-09-07-oborot-pf-metrichit-editorial-v2-source.json",
+      "sha256": "a752857d3f6a3a04620181733ebf4cc79fcda2da23d56557244278e123471de8",
+      "projection_sha256": "30ad65679fe7beadf6b0cf3d6461ef2f061a7559f167a3524842fec84d0039e6"
+    },
+    "h1": {
+      "heading": "Накрутка ПФ",
+      "matched_query": "Накрутка ПФ"
+    },
+    "character_count": 11740,
+    "target_queries": [
+      {
+        "query": "накрутка пф",
+        "occurrences": 4
+      },
+      {
+        "query": "программа для накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка пф сайта",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис для накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение пф",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис для накрутки поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "сервисы накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "недорогая накрутка поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка поведенческих факторов",
+        "occurrences": 3
+      },
+      {
+        "query": "поведенческие факторы",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайтов поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайта поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "поведенческое продвижение",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка поведенческих факторов в яндексе",
+        "occurrences": 1
+      },
+      {
+        "query": "заказать накрутку пф",
+        "occurrences": 1
+      },
+      {
+        "query": "услуги по накрутке поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "стоимость накрутки поведенческих",
+        "occurrences": 1
+      },
+      {
+        "query": "как накрутить пф",
+        "occurrences": 1
+      },
+      {
+        "query": "что такое накрутка поведенческих факторов",
+        "occurrences": 1
+      }
+    ],
+    "lsi": [
+      {
+        "term": "поисковый интент",
+        "category": "search_context",
+        "section_anchor": "Как связать запросы с предложением",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Как связать запросы с предложением"
+      },
+      {
+        "term": "релевантность страницы",
+        "category": "page_quality",
+        "section_anchor": "Как связать запросы с предложением",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Как связать запросы с предложением"
+      },
+      {
+        "term": "коммерческое предложение",
+        "category": "page_quality",
+        "section_anchor": "Как связать запросы с предложением",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Как связать запросы с предложением"
+      },
+      {
+        "term": "регион продвижения",
+        "category": "search_context",
+        "section_anchor": "Как связать запросы с предложением",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Как связать запросы с предложением"
+      },
+      {
+        "term": "выполненные клики",
+        "category": "measurement",
+        "section_anchor": "Что смотреть в работающем проекте",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что смотреть в работающем проекте"
+      },
+      {
+        "term": "расходы кампании",
+        "category": "measurement",
+        "section_anchor": "Что смотреть в работающем проекте",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что смотреть в работающем проекте"
+      },
+      {
+        "term": "позиции сайта",
+        "category": "measurement",
+        "section_anchor": "Что смотреть в работающем проекте",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что смотреть в работающем проекте"
+      },
+      {
+        "term": "дневные лимиты",
+        "category": "campaign_control",
+        "section_anchor": "Что смотреть в работающем проекте",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что смотреть в работающем проекте"
+      },
+      {
+        "term": "расписание",
+        "category": "campaign_control",
+        "section_anchor": "Что смотреть в работающем проекте",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что смотреть в работающем проекте"
+      },
+      {
+        "term": "даты изменений",
+        "category": "campaign_control",
+        "section_anchor": "Что смотреть в работающем проекте",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что смотреть в работающем проекте"
+      }
+    ],
+    "links": {
+      "url": "https://go.mtrhit.ru/",
+      "exact_count": 4,
+      "positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ],
+      "actual_positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ]
+    },
+    "visuals": {
+      "count": 4,
+      "review": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "Strategy / root",
+        "result": "Root personally viewed all four exact images. Three generated illustrations and one existing cost-accounting image reused with the same hash. Cover depicts physical search campaign planning; local-service exterior depicts matching demand; overhead accounting depicts costs; owner contacting support depicts the test-start step. Distinct actions, compositions and contexts; the phone is the only incidental device and its screen is not readable. Illustrations are conceptual, not real client cases.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-cover.png",
+            "sha256": "33b4c73c88e8e3e7833c384263336da806ac59edcecb67d628ab546e2a5ff0ca",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-meaning.png",
+            "sha256": "6a519230d98f5cae38d9a6b3c11b95cc2c8e030be46130a0947cf415d8a194d3",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-service.png",
+            "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-start.png",
+            "sha256": "34872133ee1c2de95eaaff52764e2d879e60a60d0ae6e19ee312bcfdb576dabf",
+            "passed": true
+          }
+        ]
+      },
+      "semantic_mapping": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "Strategy / root",
+        "result": "Root personally viewed all four exact images. Three generated illustrations and one existing cost-accounting image reused with the same hash. Cover depicts physical search campaign planning; local-service exterior depicts matching demand; overhead accounting depicts costs; owner contacting support depicts the test-start step. Distinct actions, compositions and contexts; the phone is the only incidental device and its screen is not readable. Illustrations are conceptual, not real client cases.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-cover.png",
+            "sha256": "33b4c73c88e8e3e7833c384263336da806ac59edcecb67d628ab546e2a5ff0ca",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-meaning.png",
+            "sha256": "6a519230d98f5cae38d9a6b3c11b95cc2c8e030be46130a0947cf415d8a194d3",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-service.png",
+            "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-start.png",
+            "sha256": "34872133ee1c2de95eaaff52764e2d879e60a60d0ae6e19ee312bcfdb576dabf",
+            "passed": true
+          }
+        ]
+      },
+      "diversity": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "Strategy / root",
+        "result": "Root personally viewed all four exact images. Three generated illustrations and one existing cost-accounting image reused with the same hash. Cover depicts physical search campaign planning; local-service exterior depicts matching demand; overhead accounting depicts costs; owner contacting support depicts the test-start step. Distinct actions, compositions and contexts; the phone is the only incidental device and its screen is not readable. Illustrations are conceptual, not real client cases.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-cover.png",
+            "sha256": "33b4c73c88e8e3e7833c384263336da806ac59edcecb67d628ab546e2a5ff0ca",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-meaning.png",
+            "sha256": "6a519230d98f5cae38d9a6b3c11b95cc2c8e030be46130a0947cf415d8a194d3",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-service.png",
+            "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-start.png",
+            "sha256": "34872133ee1c2de95eaaff52764e2d879e60a60d0ae6e19ee312bcfdb576dabf",
+            "passed": true
+          }
+        ]
+      },
+      "screenshots_prohibited": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "Strategy / root",
+        "result": "Root personally viewed all four exact images. Three generated illustrations and one existing cost-accounting image reused with the same hash. Cover depicts physical search campaign planning; local-service exterior depicts matching demand; overhead accounting depicts costs; owner contacting support depicts the test-start step. Distinct actions, compositions and contexts; the phone is the only incidental device and its screen is not readable. Illustrations are conceptual, not real client cases.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-cover.png",
+            "sha256": "33b4c73c88e8e3e7833c384263336da806ac59edcecb67d628ab546e2a5ff0ca",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-meaning.png",
+            "sha256": "6a519230d98f5cae38d9a6b3c11b95cc2c8e030be46130a0947cf415d8a194d3",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-service.png",
+            "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-start.png",
+            "sha256": "34872133ee1c2de95eaaff52764e2d879e60a60d0ae6e19ee312bcfdb576dabf",
+            "passed": true
+          }
+        ]
+      },
+      "assets": [
+        {
+          "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-cover.png",
+          "sha256": "33b4c73c88e8e3e7833c384263336da806ac59edcecb67d628ab546e2a5ff0ca",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1254,
+            "height": 1254
+          },
+          "aspect_ratio": "1:1",
+          "section_anchor": null,
+          "semantic_role": "preview"
+        },
+        {
+          "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-meaning.png",
+          "sha256": "6a519230d98f5cae38d9a6b3c11b95cc2c8e030be46130a0947cf415d8a194d3",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Для каких задач используют продвижение ПФ",
+          "semantic_role": "show_query_business_match"
+        },
+        {
+          "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-service.png",
+          "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Из чего складывается стоимость",
+          "semantic_role": "show_cost_control"
+        },
+        {
+          "path": "../assets/2026-09-07-oborot-pf-metrichit-editorial-v2-start.png",
+          "sha256": "34872133ee1c2de95eaaff52764e2d879e60a60d0ae6e19ee312bcfdb576dabf",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Как получить 1 000 тестовых кликов",
+          "semantic_role": "show_first_project_preparation"
+        }
+      ]
+    },
+    "originality": {
+      "method": "local_deterministic_source_overlap",
+      "algorithm": "token_shingle_v1",
+      "comparison_status": "performed",
+      "content_sha256": "30ad65679fe7beadf6b0cf3d6461ef2f061a7559f167a3524842fec84d0039e6",
+      "compared_sources": [
+        {
+          "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-nakrutka-pf-start-metrichit.md",
+          "sha256": "35662aa3f567b9ac5e4b937237e06230df05727bb5e569def616487517addff6",
+          "overlap_percent": 9.34,
+          "article_token_count": 1595,
+          "source_token_count": 1768,
+          "matched_article_token_count": 149,
+          "shingle_size": 5
+        },
+        {
+          "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-chto-takoe-pf.md",
+          "sha256": "79a4c0b998d3732231e08e4c8921e4dc0bb9127ae06f0690917b2cf09c0d9d78",
+          "overlap_percent": 3.26,
+          "article_token_count": 1595,
+          "source_token_count": 1330,
+          "matched_article_token_count": 52,
+          "shingle_size": 5
+        },
+        {
+          "path": "C:/MetricHit/workspace/work/articles/research/2026-09-05-oborot-team-responsibility-source.json",
+          "sha256": "2254fedb28bc9a65a70b49afac34e338ea27c2eb76461a7a1acdbf73e49818e9",
+          "overlap_percent": 0,
+          "article_token_count": 1595,
+          "source_token_count": 2085,
+          "matched_article_token_count": 0,
+          "shingle_size": 5
+        }
+      ],
+      "max_overlap_percent": 9.34,
+      "template_match": false
+    }
+  },
+  "semantic_review": {
+    "performed": true,
+    "passed": true,
+    "reviewer": "Strategy / root, technical writer independent read",
+    "result": "Root authored under editorial purpose and reviewed the complete final text before delivery. Method, purchasing responsibilities, MetricHit facts, costs and short start instructions answer the stated questions. Independent read identified traffic-metric ambiguity; root corrected it before final QA. Root also removed duplicate service definition and tightened tool/service selection prose. No internal bot sequence, onsite actions, invented outcomes or arbitrary click recommendations. Twenty meaningful target forms preserved; nested main terminology is disclosed rather than presented as independent search intents.",
+    "query_count_rationale": "20 содержательных точных форм раскрывают единый вводный интент: понять накрутку поисковых переходов, выбрать формат работы и начать через MetricHit. Программный кластер нужен только для сравнения ответственности; отдельного руководства по софту нет. Вложенность основных терминов учитывается открыто; короткие фрагменты вроде «пф сайта» и «накрутки пф» не включены ради счётчика. Объём выше9000 обусловлен раскрытием метода, выбора исполнителя, условий сервиса и расчёта стоимости."
+  },
+  "root_content_acceptance": {
+    "performed": true,
+    "passed": true,
+    "reviewer": "Strategy / root",
+    "exact_content_preserved": true,
+    "content_sha256": "30ad65679fe7beadf6b0cf3d6461ef2f061a7559f167a3524842fec84d0039e6",
+    "result": "Root read the complete staged article and accepted final author corrections; subsequent changes only moved two illustration blocks after their complete sections and updated alt descriptions."
+  },
+  "readable_artifact_review": {
+    "browser_review": {
+      "status": "not_performed",
+      "reason": "Built-in browser URL security policy prohibits file URLs; no alternate browser/server workaround attempted."
+    },
+    "static_validation": {
+      "performed": true,
+      "passed": true,
+      "result": "HTML contains one H1, eight H2, two H3, body paragraphs, two lists and four embedded PNG data URIs; UTF-8 and viewport metadata are present."
+    },
+    "path": "C:/Users/Administrator/AppData/Local/Temp/2026-09-07-oborot-pf-metrichit-editorial-v2.html"
+  },
+  "external_services": {
+    "plagiarism": {
+      "status": "not_performed"
+    },
+    "ai_detection": {
+      "status": "not_performed"
+    }
+  },
+  "visual_provenance": {
+    "new_images": 3,
+    "reused_images": 1,
+    "reused_source": "work/articles/assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-budget.png",
+    "reused_sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+    "interpretation": "Conceptual editorial illustrations, not customer case evidence."
+  },
+  "format_limitation": "Repository publication projection follows existing deterministic_plain_copy_paste_v1. Self-contained TEMP HTML supplies readable headings and paragraph spacing without changes to code or policy."
+}
