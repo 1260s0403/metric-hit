@@ -1,0 +1,451 @@
+{
+  "status": "validated_draft_not_published",
+  "context_pack_id": "53d9ca59-fb9b-477d-afe9-190eb54641d2",
+  "handoff_id": "226c3080-a23d-435b-aa80-08e53270690c",
+  "topic": "что такое накрутка ПФ в поисковой выдаче и как начать работу через MetricHit",
+  "first_check": {
+    "performed": true,
+    "passed": true,
+    "command": "git diff --check",
+    "result": "git diff --check exited0 in the clean registered worktree before promotion; preflight readyForWork=true."
+  },
+  "article": {
+    "computed": true,
+    "passed": true,
+    "technical_checks": {
+      "performed": true,
+      "passed": true
+    },
+    "final_acceptance": {
+      "passed": true,
+      "blocked_by": []
+    },
+    "contract_id": "metrichit.editorial_contract.v1",
+    "article_path": "C:\\Users\\Administrator\\AppData\\Local\\Temp\\metrichit-editorial-328f41704d-zjddAN\\work\\articles\\drafts\\2026-09-07-oborot-nakrutka-pf-start-metrichit.md",
+    "content_sha256": "35662aa3f567b9ac5e4b937237e06230df05727bb5e569def616487517addff6",
+    "structured_source": {
+      "path": "C:/Users/Administrator/AppData/Local/Temp/metrichit-editorial-328f41704d-zjddAN/work/articles/research/2026-09-07-oborot-nakrutka-pf-start-metrichit-source.json",
+      "sha256": "5eb232879f7d299b902f9947c8209d9483b9a5786bb50ea1c46391bf79727c24",
+      "projection_sha256": "35662aa3f567b9ac5e4b937237e06230df05727bb5e569def616487517addff6"
+    },
+    "h1": {
+      "heading": "Накрутка ПФ",
+      "matched_query": "Накрутка ПФ"
+    },
+    "character_count": 12963,
+    "target_queries": [
+      {
+        "query": "накрутка пф",
+        "occurrences": 3
+      },
+      {
+        "query": "накрутка пф сайта",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение пф",
+        "occurrences": 1
+      },
+      {
+        "query": "сервис для накрутки поведенческих факторов",
+        "occurrences": 1
+      },
+      {
+        "query": "сервисы накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутки поведенческих факторов",
+        "occurrences": 2
+      },
+      {
+        "query": "накрутка поведенческих факторов",
+        "occurrences": 2
+      },
+      {
+        "query": "поведенческие факторы",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайтов поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайта поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "поведенческое продвижение",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутка поведенческих факторов в яндексе",
+        "occurrences": 1
+      },
+      {
+        "query": "заказать накрутку пф",
+        "occurrences": 1
+      },
+      {
+        "query": "стоимость накрутки поведенческих",
+        "occurrences": 1
+      },
+      {
+        "query": "как накрутить пф",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутку пф в яндексе",
+        "occurrences": 1
+      },
+      {
+        "query": "пф сайта",
+        "occurrences": 1
+      },
+      {
+        "query": "накрутки пф",
+        "occurrences": 2
+      }
+    ],
+    "lsi": [
+      {
+        "term": "поисковый интент",
+        "category": "search_context",
+        "section_anchor": "Что проверить перед переносом списка",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что проверить перед переносом списка"
+      },
+      {
+        "term": "регион продвижения",
+        "category": "search_context",
+        "section_anchor": "Что проверить перед переносом списка",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что проверить перед переносом списка"
+      },
+      {
+        "term": "релевантность страницы",
+        "category": "page_quality",
+        "section_anchor": "Что проверить перед переносом списка",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что проверить перед переносом списка"
+      },
+      {
+        "term": "ассортимент и наличие",
+        "category": "page_quality",
+        "section_anchor": "Что проверить перед переносом списка",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что проверить перед переносом списка"
+      },
+      {
+        "term": "дневной лимит",
+        "category": "campaign_control",
+        "section_anchor": "Карточка первого запуска",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Карточка первого запуска"
+      },
+      {
+        "term": "расписание",
+        "category": "campaign_control",
+        "section_anchor": "Карточка первого запуска",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Карточка первого запуска"
+      },
+      {
+        "term": "бюджет кампании",
+        "category": "campaign_control",
+        "section_anchor": "Карточка первого запуска",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Карточка первого запуска"
+      },
+      {
+        "term": "стартовые позиции",
+        "category": "measurement",
+        "section_anchor": "Карточка первого запуска",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Карточка первого запуска"
+      },
+      {
+        "term": "план кликов",
+        "category": "campaign_control",
+        "section_anchor": "Три величины для контроля",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Три величины для контроля"
+      },
+      {
+        "term": "выполненные клики",
+        "category": "measurement",
+        "section_anchor": "Три величины для контроля",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Три величины для контроля"
+      },
+      {
+        "term": "фактический расход",
+        "category": "measurement",
+        "section_anchor": "Три величины для контроля",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Три величины для контроля"
+      }
+    ],
+    "links": {
+      "url": "https://go.mtrhit.ru/",
+      "exact_count": 4,
+      "positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ],
+      "actual_positions": [
+        "beginning",
+        "body_1",
+        "body_2",
+        "final_cta"
+      ]
+    },
+    "visuals": {
+      "count": 4,
+      "review": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "Strategy / root",
+        "result": "Root visually inspected every original image. Four photorealistic educational scenes: owner checks mower stock (square), seller demonstrates battery bundle in showroom (close side), hands reconcile receipts at workshop counter (overhead), worker tapes dispatch box near loading gate (wide low). Distinct actions, contexts and compositions; no screenshots, readable UI, devices, fabricated analytical charts or client-result claims; anatomy acceptable. Root reports sent in current thread 2026-09-07.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-cover.png",
+            "sha256": "349a2ac6a6ff90f54563045c487fcfa657da3a9d623937fc3d6c6291ac5d7140",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-queries.png",
+            "sha256": "d7619695bb0c591811c7890e7332622b67e8c6194b589e26edf5519576226223",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-budget.png",
+            "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-launch.png",
+            "sha256": "cb7c5910e021f2fd5293c9d903e4d0d0d0fa4bdbf54a0c4f01d849e6ff18305d",
+            "passed": true
+          }
+        ]
+      },
+      "semantic_mapping": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "Strategy / root",
+        "result": "Root visually inspected every original image. Four photorealistic educational scenes: owner checks mower stock (square), seller demonstrates battery bundle in showroom (close side), hands reconcile receipts at workshop counter (overhead), worker tapes dispatch box near loading gate (wide low). Distinct actions, contexts and compositions; no screenshots, readable UI, devices, fabricated analytical charts or client-result claims; anatomy acceptable. Root reports sent in current thread 2026-09-07.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-cover.png",
+            "sha256": "349a2ac6a6ff90f54563045c487fcfa657da3a9d623937fc3d6c6291ac5d7140",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-queries.png",
+            "sha256": "d7619695bb0c591811c7890e7332622b67e8c6194b589e26edf5519576226223",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-budget.png",
+            "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-launch.png",
+            "sha256": "cb7c5910e021f2fd5293c9d903e4d0d0d0fa4bdbf54a0c4f01d849e6ff18305d",
+            "passed": true
+          }
+        ]
+      },
+      "diversity": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "Strategy / root",
+        "result": "Root visually inspected every original image. Four photorealistic educational scenes: owner checks mower stock (square), seller demonstrates battery bundle in showroom (close side), hands reconcile receipts at workshop counter (overhead), worker tapes dispatch box near loading gate (wide low). Distinct actions, contexts and compositions; no screenshots, readable UI, devices, fabricated analytical charts or client-result claims; anatomy acceptable. Root reports sent in current thread 2026-09-07.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-cover.png",
+            "sha256": "349a2ac6a6ff90f54563045c487fcfa657da3a9d623937fc3d6c6291ac5d7140",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-queries.png",
+            "sha256": "d7619695bb0c591811c7890e7332622b67e8c6194b589e26edf5519576226223",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-budget.png",
+            "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-launch.png",
+            "sha256": "cb7c5910e021f2fd5293c9d903e4d0d0d0fa4bdbf54a0c4f01d849e6ff18305d",
+            "passed": true
+          }
+        ]
+      },
+      "screenshots_prohibited": {
+        "performed": true,
+        "passed": true,
+        "reviewer": "Strategy / root",
+        "result": "Root visually inspected every original image. Four photorealistic educational scenes: owner checks mower stock (square), seller demonstrates battery bundle in showroom (close side), hands reconcile receipts at workshop counter (overhead), worker tapes dispatch box near loading gate (wide low). Distinct actions, contexts and compositions; no screenshots, readable UI, devices, fabricated analytical charts or client-result claims; anatomy acceptable. Root reports sent in current thread 2026-09-07.",
+        "assets": [
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-cover.png",
+            "sha256": "349a2ac6a6ff90f54563045c487fcfa657da3a9d623937fc3d6c6291ac5d7140",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-queries.png",
+            "sha256": "d7619695bb0c591811c7890e7332622b67e8c6194b589e26edf5519576226223",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-budget.png",
+            "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+            "passed": true
+          },
+          {
+            "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-launch.png",
+            "sha256": "cb7c5910e021f2fd5293c9d903e4d0d0d0fa4bdbf54a0c4f01d849e6ff18305d",
+            "passed": true
+          }
+        ]
+      },
+      "assets": [
+        {
+          "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-cover.png",
+          "sha256": "349a2ac6a6ff90f54563045c487fcfa657da3a9d623937fc3d6c6291ac5d7140",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1254,
+            "height": 1254
+          },
+          "aspect_ratio": "1:1",
+          "section_anchor": null,
+          "semantic_role": "preview"
+        },
+        {
+          "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-queries.png",
+          "sha256": "d7619695bb0c591811c7890e7332622b67e8c6194b589e26edf5519576226223",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "С каких запросов начать",
+          "semantic_role": "show_selection"
+        },
+        {
+          "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-budget.png",
+          "sha256": "333d2b2c15b217e79481c6c2b9584d6c02181348f2eab773650da76428b0f168",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "Сколько кликов задавать и как считать расходы",
+          "semantic_role": "show_cost_control"
+        },
+        {
+          "path": "../assets/2026-09-07-oborot-nakrutka-pf-start-metrichit-launch.png",
+          "sha256": "cb7c5910e021f2fd5293c9d903e4d0d0d0fa4bdbf54a0c4f01d849e6ff18305d",
+          "exists": true,
+          "readable": true,
+          "dimensions": {
+            "width": 1536,
+            "height": 1024
+          },
+          "aspect_ratio": "3:2",
+          "section_anchor": "От списка запросов к запуску",
+          "semantic_role": "show_ready_order"
+        }
+      ]
+    },
+    "originality": {
+      "method": "local_deterministic_source_overlap",
+      "algorithm": "token_shingle_v1",
+      "comparison_status": "performed",
+      "content_sha256": "35662aa3f567b9ac5e4b937237e06230df05727bb5e569def616487517addff6",
+      "compared_sources": [
+        {
+          "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-chto-takoe-pf.md",
+          "sha256": "79a4c0b998d3732231e08e4c8921e4dc0bb9127ae06f0690917b2cf09c0d9d78",
+          "overlap_percent": 2.83,
+          "article_token_count": 1768,
+          "source_token_count": 1330,
+          "matched_article_token_count": 50,
+          "shingle_size": 5
+        },
+        {
+          "path": "C:/MetricHit/worktrees/5eaf8a1b-9c67-5885-aa67-0f76815a9f9f-a90e27940b/work/articles/drafts/2026-09-07-oborot-nakrutka-pf-metrichit-rewrite.md",
+          "sha256": "fd9501b3c8e5691481764be3580036934465995a7d7c4a516e836767f66fec23",
+          "overlap_percent": 3.85,
+          "article_token_count": 1768,
+          "source_token_count": 1247,
+          "matched_article_token_count": 68,
+          "shingle_size": 5
+        },
+        {
+          "path": "C:/MetricHit/workspace/work/articles/research/2026-09-05-oborot-team-responsibility-source.json",
+          "sha256": "2254fedb28bc9a65a70b49afac34e338ea27c2eb76461a7a1acdbf73e49818e9",
+          "overlap_percent": 0,
+          "article_token_count": 1768,
+          "source_token_count": 2085,
+          "matched_article_token_count": 0,
+          "shingle_size": 5
+        }
+      ],
+      "max_overlap_percent": 3.85,
+      "template_match": false
+    }
+  },
+  "semantic_review": {
+    "performed": true,
+    "passed": true,
+    "reviewer": "Strategy / root",
+    "result": "Author personally composed and read final staged article; introductory definition and self-service setup reflect artificial search transitions. No onsite actions or internal bot sequence. One explicitly educational example, no fabricated client outcomes. 18 exact forms verified against canonical project302; nested phrases explicitly counted as forms, not independent intents.",
+    "query_count_rationale": "Одна вводная статья раскрывает определение метода, самостоятельный старт и расходы. Выбраны18 точных форм из утверждённого ядра; часть вложена в длинные запросы и не является самостоятельным смысловым интентом. Естественность важнее искусственного добавления форм ради счётчика; объём выше9000 обусловлен учебным примером и последовательным ответом на вопросы запуска."
+  },
+  "external_services": {
+    "plagiarism": {
+      "status": "not_performed",
+      "result": "No external plagiarism detector was used."
+    },
+    "ai_detection": {
+      "status": "not_performed",
+      "result": "No external AI detector was used."
+    }
+  },
+  "format_limitation": "Existing deterministic_plain_copy_paste_v1 uses single newlines and plain section headings; Markdown preview may collapse blocks. No policy/code changes made.",
+  "root_content_acceptance": {
+    "performed": true,
+    "passed": true,
+    "reviewer": "Strategy / root",
+    "exact_content_preserved": true,
+    "normalized_text_characters": 12501,
+    "landing_links": 4,
+    "content_sha256": "35662aa3f567b9ac5e4b937237e06230df05727bb5e569def616487517addff6",
+    "result": "Root compared personally authored text with staged file, normalizing only heading prefixes/whitespace and excluding image references. Product facts verified against approved current-context. No article content edits followed acceptance."
+  }
+}
