@@ -1,8 +1,8 @@
 {
   "status": "validated_draft_not_published",
-  "context_pack_id": "c512ca2c-e907-4a12-8611-09e87fe97ca8",
-  "handoff_id": "167fc6c3-a5b6-4a92-aefb-402fe4c811cb",
-  "parent_commit": "0a9663eba025d16e2ed10f188594deb325e76c02",
+  "context_pack_id": "5a98932a-7935-48d0-bd0a-85e3b6df2aa5",
+  "handoff_id": "fa6e137e-3c85-4016-a4f3-014f53b675e1",
+  "parent_commit": "eee1ced733aa2e7e94833557688d1f89977a05ef",
   "first_check": {
     "performed": true,
     "passed": true,
@@ -21,22 +21,22 @@
       "blocked_by": []
     },
     "contract_id": "metrichit.editorial_contract.v1",
-    "article_path": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\metrichit-editorial-985d40bd6b-JRKQWw\\work\\articles\\drafts\\2026-09-07-oborot-pf-metrichit-final.md",
-    "content_sha256": "debcbad442454c8b02cc4e7ff871839fc85df1880439ebfa22edd0d539c8b42a",
+    "article_path": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\metrichit-editorial-03f06a49a0-uhLokv\\work\\articles\\drafts\\2026-09-07-oborot-pf-metrichit-final.md",
+    "content_sha256": "bee0082ae5ec0272489c7c49946e65e2241b6c19e7e927af145a073e0e0fb22b",
     "structured_source": {
-      "path": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\metrichit-editorial-985d40bd6b-JRKQWw/work/articles/research/2026-09-07-oborot-pf-metrichit-final-source.json",
-      "sha256": "5c8ba5a4a9c976e6a5e700b8fdae33ed8612e6e42742f99dabefb2783dc5e1c9",
-      "projection_sha256": "debcbad442454c8b02cc4e7ff871839fc85df1880439ebfa22edd0d539c8b42a"
+      "path": "C:\\Users\\ADMINI~1\\AppData\\Local\\Temp\\metrichit-editorial-03f06a49a0-uhLokv/work/articles/research/2026-09-07-oborot-pf-metrichit-final-source.json",
+      "sha256": "ea2056f393ab23a91de4125df91b0c3c324dfa4e0a0db4431271873fd3a2cff5",
+      "projection_sha256": "bee0082ae5ec0272489c7c49946e65e2241b6c19e7e927af145a073e0e0fb22b"
     },
     "h1": {
       "heading": "Накрутка ПФ",
       "matched_query": "Накрутка ПФ"
     },
-    "character_count": 9805,
+    "character_count": 10969,
     "target_queries": [
       {
         "query": "накрутка пф",
-        "occurrences": 1
+        "occurrences": 2
       },
       {
         "query": "накрутка поведенческих факторов в яндексе",
@@ -47,11 +47,31 @@
         "occurrences": 1
       },
       {
+        "query": "что такое накрутка пф",
+        "occurrences": 1
+      },
+      {
         "query": "поведенческие факторы",
         "occurrences": 1
       },
       {
-        "query": "заказать накрутку пф",
+        "query": "накрутка поискового трафика",
+        "occurrences": 1
+      },
+      {
+        "query": "поведенческое продвижение",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайтов поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение сайта поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "сервисы накрутки пф",
         "occurrences": 1
       },
       {
@@ -59,7 +79,31 @@
         "occurrences": 1
       },
       {
+        "query": "услуги по накрутке поведенческих факторов",
+        "occurrences": 1
+      },
+      {
         "query": "сервис для накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "стоимость накрутки поведенческих",
+        "occurrences": 1
+      },
+      {
+        "query": "софт для накрутки пф",
+        "occurrences": 1
+      },
+      {
+        "query": "как накрутить пф",
+        "occurrences": 1
+      },
+      {
+        "query": "продвижение поведенческими факторами",
+        "occurrences": 1
+      },
+      {
+        "query": "заказать накрутку пф",
         "occurrences": 1
       }
     ],
@@ -67,82 +111,98 @@
       {
         "term": "поисковый интент",
         "category": "search_context",
-        "section_anchor": "Короткая проверка списка",
+        "section_anchor": "Что проверить в семантике",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Короткая проверка списка"
+        "section_start": "Что проверить в семантике"
       },
       {
         "term": "релевантность страницы",
         "category": "page_quality",
-        "section_anchor": "Короткая проверка списка",
+        "section_anchor": "Что проверить в семантике",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Короткая проверка списка"
+        "section_start": "Что проверить в семантике"
       },
       {
         "term": "регион продвижения",
         "category": "search_context",
-        "section_anchor": "Короткая проверка списка",
+        "section_anchor": "Что проверить в семантике",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Короткая проверка списка"
+        "section_start": "Что проверить в семантике"
       },
       {
         "term": "частотность",
         "category": "search_context",
-        "section_anchor": "Короткая проверка списка",
+        "section_anchor": "Что проверить в семантике",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Короткая проверка списка"
+        "section_start": "Что проверить в семантике"
+      },
+      {
+        "term": "коммерческий приоритет",
+        "category": "page_quality",
+        "section_anchor": "Что проверить в семантике",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Что проверить в семантике"
       },
       {
         "term": "дневные лимиты",
         "category": "campaign_control",
-        "section_anchor": "Что подготовить для проекта",
+        "section_anchor": "Перед запуском",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Что подготовить для проекта"
+        "section_start": "Перед запуском"
       },
       {
         "term": "расписание",
         "category": "campaign_control",
-        "section_anchor": "Что подготовить для проекта",
+        "section_anchor": "Перед запуском",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Что подготовить для проекта"
+        "section_start": "Перед запуском"
       },
       {
         "term": "исходные позиции",
         "category": "measurement",
-        "section_anchor": "Что подготовить для проекта",
+        "section_anchor": "Перед запуском",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Что подготовить для проекта"
+        "section_start": "Перед запуском"
+      },
+      {
+        "term": "бюджет",
+        "category": "campaign_control",
+        "section_anchor": "Перед запуском",
+        "zone": "unordered_list",
+        "found": true,
+        "section_start": "Перед запуском"
       },
       {
         "term": "выполненные клики",
         "category": "measurement",
-        "section_anchor": "Три вопроса к результатам",
+        "section_anchor": "Три уровня проверки",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Три вопроса к результатам"
+        "section_start": "Три уровня проверки"
       },
       {
         "term": "позиции сайта",
         "category": "measurement",
-        "section_anchor": "Три вопроса к результатам",
+        "section_anchor": "Три уровня проверки",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Три вопроса к результатам"
+        "section_start": "Три уровня проверки"
       },
       {
         "term": "обращения клиентов",
         "category": "measurement",
-        "section_anchor": "Три вопроса к результатам",
+        "section_anchor": "Три уровня проверки",
         "zone": "unordered_list",
         "found": true,
-        "section_start": "Три вопроса к результатам"
+        "section_start": "Три уровня проверки"
       }
     ],
     "links": {
@@ -166,7 +226,7 @@
       "review": {
         "performed": true,
         "passed": true,
-        "reviewer": "Strategy / root prior exact-image visual review; article_readability_writer hash verification",
+        "reviewer": "Strategy / root prior exact-image visual review; article_balanced_delivery hash verification",
         "result": "All four previously viewed and approved images are reused unchanged on matching SHA-256 hashes. Their topic anchors were updated to the revised article headings. Images remain conceptual illustrations, not actual customer outcome evidence.",
         "assets": [
           {
@@ -194,7 +254,7 @@
       "semantic_mapping": {
         "performed": true,
         "passed": true,
-        "reviewer": "Strategy / root prior exact-image visual review; article_readability_writer hash verification",
+        "reviewer": "Strategy / root prior exact-image visual review; article_balanced_delivery hash verification",
         "result": "All four previously viewed and approved images are reused unchanged on matching SHA-256 hashes. Their topic anchors were updated to the revised article headings. Images remain conceptual illustrations, not actual customer outcome evidence.",
         "assets": [
           {
@@ -222,7 +282,7 @@
       "diversity": {
         "performed": true,
         "passed": true,
-        "reviewer": "Strategy / root prior exact-image visual review; article_readability_writer hash verification",
+        "reviewer": "Strategy / root prior exact-image visual review; article_balanced_delivery hash verification",
         "result": "All four previously viewed and approved images are reused unchanged on matching SHA-256 hashes. Their topic anchors were updated to the revised article headings. Images remain conceptual illustrations, not actual customer outcome evidence.",
         "assets": [
           {
@@ -250,7 +310,7 @@
       "screenshots_prohibited": {
         "performed": true,
         "passed": true,
-        "reviewer": "Strategy / root prior exact-image visual review; article_readability_writer hash verification",
+        "reviewer": "Strategy / root prior exact-image visual review; article_balanced_delivery hash verification",
         "result": "All four previously viewed and approved images are reused unchanged on matching SHA-256 hashes. Their topic anchors were updated to the revised article headings. Images remain conceptual illustrations, not actual customer outcome evidence.",
         "assets": [
           {
@@ -299,7 +359,7 @@
             "height": 1024
           },
           "aspect_ratio": "3:2",
-          "section_anchor": "Какие запросы включить в работу",
+          "section_anchor": "С каких запросов начать",
           "semantic_role": "show_query_business_match"
         },
         {
@@ -312,7 +372,7 @@
             "height": 1024
           },
           "aspect_ratio": "3:2",
-          "section_anchor": "Как спланировать расходы",
+          "section_anchor": "Из чего складывается стоимость",
           "semantic_role": "show_cost_control"
         },
         {
@@ -325,7 +385,7 @@
             "height": 1024
           },
           "aspect_ratio": "3:2",
-          "section_anchor": "Первый запуск на тестовых кликах",
+          "section_anchor": "Как попробовать на своём сайте",
           "semantic_role": "show_first_project_preparation"
         }
       ]
@@ -334,55 +394,55 @@
       "method": "local_deterministic_source_overlap",
       "algorithm": "token_shingle_v1",
       "comparison_status": "performed",
-      "content_sha256": "debcbad442454c8b02cc4e7ff871839fc85df1880439ebfa22edd0d539c8b42a",
+      "content_sha256": "bee0082ae5ec0272489c7c49946e65e2241b6c19e7e927af145a073e0e0fb22b",
       "compared_sources": [
         {
-          "path": "C:/Users/Administrator/AppData/Local/Temp/metrichit-readability-before.md",
-          "sha256": "38d363004cae47546778062359d791005f3cdcb07f0a26d0bf311ca9c1a89f44",
-          "overlap_percent": 6.42,
-          "article_token_count": 1371,
-          "source_token_count": 1611,
-          "matched_article_token_count": 88,
+          "path": "C:/Users/Administrator/AppData/Local/Temp/metrichit-balanced-before.md",
+          "sha256": "debcbad442454c8b02cc4e7ff871839fc85df1880439ebfa22edd0d539c8b42a",
+          "overlap_percent": 15.43,
+          "article_token_count": 1491,
+          "source_token_count": 1371,
+          "matched_article_token_count": 230,
           "shingle_size": 5
         },
         {
           "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-pf-metrichit-editorial-v2.md",
           "sha256": "30ad65679fe7beadf6b0cf3d6461ef2f061a7559f167a3524842fec84d0039e6",
-          "overlap_percent": 5.03,
-          "article_token_count": 1371,
+          "overlap_percent": 7.44,
+          "article_token_count": 1491,
           "source_token_count": 1595,
-          "matched_article_token_count": 69,
+          "matched_article_token_count": 111,
           "shingle_size": 5
         },
         {
           "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-nakrutka-pf-start-metrichit.md",
           "sha256": "35662aa3f567b9ac5e4b937237e06230df05727bb5e569def616487517addff6",
-          "overlap_percent": 4.3,
-          "article_token_count": 1371,
+          "overlap_percent": 6.1,
+          "article_token_count": 1491,
           "source_token_count": 1768,
-          "matched_article_token_count": 59,
+          "matched_article_token_count": 91,
           "shingle_size": 5
         },
         {
           "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-chto-takoe-pf.md",
           "sha256": "79a4c0b998d3732231e08e4c8921e4dc0bb9127ae06f0690917b2cf09c0d9d78",
-          "overlap_percent": 2.48,
-          "article_token_count": 1371,
+          "overlap_percent": 2.75,
+          "article_token_count": 1491,
           "source_token_count": 1330,
-          "matched_article_token_count": 34,
+          "matched_article_token_count": 41,
           "shingle_size": 5
         },
         {
           "path": "C:/MetricHit/workspace/work/articles/research/2026-09-05-oborot-team-responsibility-source.json",
           "sha256": "2254fedb28bc9a65a70b49afac34e338ea27c2eb76461a7a1acdbf73e49818e9",
-          "overlap_percent": 0,
-          "article_token_count": 1371,
+          "overlap_percent": 0.8,
+          "article_token_count": 1491,
           "source_token_count": 2085,
-          "matched_article_token_count": 0,
+          "matched_article_token_count": 12,
           "shingle_size": 5
         }
       ],
-      "max_overlap_percent": 6.42,
+      "max_overlap_percent": 15.43,
       "template_match": false
     }
   },
@@ -392,22 +452,35 @@
         "id": "semantic_cluster_selection",
         "performed": true,
         "passed": true,
-        "result": "Three related clusters cover definition, choice of service or software and starting a campaign within one introductory intent.",
+        "result": "Five related clusters cover method, page selection, query choice, format comparison, costs and launch/evaluation within one introductory intent; the traffic cluster only clarifies search clicks versus business results.",
         "evidence": {
           "selected_clusters": [
             "behavioral_factors_general",
+            "traffic_and_positions",
             "commercial_and_price",
-            "software_and_automation"
+            "software_and_automation",
+            "education_and_howto"
           ],
-          "adjacent_cluster_rationale": "7 естественных точных форм утверждённого ядра сохраняют единый интент: понять метод, выбрать способ работы и начать через MetricHit. Вложенные определения явно учтены как формы, а не отдельные интенты. Прямое замечание владельца требует устранить переспам: прежние искусственные варианты и повторные определения убраны; число20 не является целью. Фактический объём выше9000 раскрывает выбор запросов, формата работы, расходов и оценки результата; уменьшение повторов не заменено новыми keyword-вставками.",
+          "adjacent_cluster_rationale": "18 точных форм утверждённого ядра распределены по читательским задачам одного обзора: понять метод и его применение, выбрать страницы и запросы, сравнить формат работы, рассчитать расходы, запустить и оценить кампанию через MetricHit. Пять смежных кластеров поддерживают этот единый интент; traffic_and_positions представлен только разграничением поисковых кликов и коммерческого результата. Объём свыше9000 знаков нужен для этих конкретных вопросов и одного сквозного условного примера. Это18 форм, а не18 самостоятельных интентов: общие определения вложены в полные формы; утверждённый фрагмент «стоимость накрутки поведенческих» встречается в грамматически полной фразе с добавленным словом «факторов». Короткие вложенные фрагменты дополнительно не отбирались ради счётчика. Повторяемость корней и марки фиксируется описательно; основание приёмки — полезность каждого фрагмента, естественная формулировка и отсутствие цепочек синонимов, а не искусственное численное снижение.",
           "primary_target_query": "накрутка пф",
           "secondary_target_queries": [
             "накрутка поведенческих факторов в яндексе",
             "накрутка поведенческих факторов",
+            "что такое накрутка пф",
             "поведенческие факторы",
-            "заказать накрутку пф",
+            "накрутка поискового трафика",
+            "поведенческое продвижение",
+            "продвижение сайтов поведенческими факторами",
+            "продвижение сайта поведенческими факторами",
+            "сервисы накрутки пф",
             "программа для накрутки пф",
-            "сервис для накрутки пф"
+            "услуги по накрутке поведенческих факторов",
+            "сервис для накрутки пф",
+            "стоимость накрутки поведенческих",
+            "софт для накрутки пф",
+            "как накрутить пф",
+            "продвижение поведенческими факторами",
+            "заказать накрутку пф"
           ],
           "user_intent": "что такое накрутка ПФ в поисковой выдаче и как начать работу через MetricHit",
           "platform": "Oborot.ru",
@@ -420,22 +493,35 @@
         "id": "target_queries_approved_core",
         "performed": true,
         "passed": true,
-        "result": "The seven selected exact forms were checked against the approved302taxonomy and selected clusters; all occur naturally, including openly acknowledged nested definitions.",
+        "result": "Eighteen selected exact forms were checked against the approved302taxonomy and selected clusters; each has a defined semantic role in the full editorial review. Nested general definitions and the incomplete core form about cost are explicitly acknowledged, not presented as separate intents.",
         "evidence": {
           "selected_clusters": [
             "behavioral_factors_general",
+            "traffic_and_positions",
             "commercial_and_price",
-            "software_and_automation"
+            "software_and_automation",
+            "education_and_howto"
           ],
-          "adjacent_cluster_rationale": "7 естественных точных форм утверждённого ядра сохраняют единый интент: понять метод, выбрать способ работы и начать через MetricHit. Вложенные определения явно учтены как формы, а не отдельные интенты. Прямое замечание владельца требует устранить переспам: прежние искусственные варианты и повторные определения убраны; число20 не является целью. Фактический объём выше9000 раскрывает выбор запросов, формата работы, расходов и оценки результата; уменьшение повторов не заменено новыми keyword-вставками.",
+          "adjacent_cluster_rationale": "18 точных форм утверждённого ядра распределены по читательским задачам одного обзора: понять метод и его применение, выбрать страницы и запросы, сравнить формат работы, рассчитать расходы, запустить и оценить кампанию через MetricHit. Пять смежных кластеров поддерживают этот единый интент; traffic_and_positions представлен только разграничением поисковых кликов и коммерческого результата. Объём свыше9000 знаков нужен для этих конкретных вопросов и одного сквозного условного примера. Это18 форм, а не18 самостоятельных интентов: общие определения вложены в полные формы; утверждённый фрагмент «стоимость накрутки поведенческих» встречается в грамматически полной фразе с добавленным словом «факторов». Короткие вложенные фрагменты дополнительно не отбирались ради счётчика. Повторяемость корней и марки фиксируется описательно; основание приёмки — полезность каждого фрагмента, естественная формулировка и отсутствие цепочек синонимов, а не искусственное численное снижение.",
           "primary_target_query": "накрутка пф",
           "secondary_target_queries": [
             "накрутка поведенческих факторов в яндексе",
             "накрутка поведенческих факторов",
+            "что такое накрутка пф",
             "поведенческие факторы",
-            "заказать накрутку пф",
+            "накрутка поискового трафика",
+            "поведенческое продвижение",
+            "продвижение сайтов поведенческими факторами",
+            "продвижение сайта поведенческими факторами",
+            "сервисы накрутки пф",
             "программа для накрутки пф",
-            "сервис для накрутки пф"
+            "услуги по накрутке поведенческих факторов",
+            "сервис для накрутки пф",
+            "стоимость накрутки поведенческих",
+            "софт для накрутки пф",
+            "как накрутить пф",
+            "продвижение поведенческими факторами",
+            "заказать накрутку пф"
           ],
           "user_intent": "что такое накрутка ПФ в поисковой выдаче и как начать работу через MetricHit",
           "platform": "Oborot.ru",
@@ -469,18 +555,31 @@
         "evidence": {
           "selected_clusters": [
             "behavioral_factors_general",
+            "traffic_and_positions",
             "commercial_and_price",
-            "software_and_automation"
+            "software_and_automation",
+            "education_and_howto"
           ],
-          "adjacent_cluster_rationale": "7 естественных точных форм утверждённого ядра сохраняют единый интент: понять метод, выбрать способ работы и начать через MetricHit. Вложенные определения явно учтены как формы, а не отдельные интенты. Прямое замечание владельца требует устранить переспам: прежние искусственные варианты и повторные определения убраны; число20 не является целью. Фактический объём выше9000 раскрывает выбор запросов, формата работы, расходов и оценки результата; уменьшение повторов не заменено новыми keyword-вставками.",
+          "adjacent_cluster_rationale": "18 точных форм утверждённого ядра распределены по читательским задачам одного обзора: понять метод и его применение, выбрать страницы и запросы, сравнить формат работы, рассчитать расходы, запустить и оценить кампанию через MetricHit. Пять смежных кластеров поддерживают этот единый интент; traffic_and_positions представлен только разграничением поисковых кликов и коммерческого результата. Объём свыше9000 знаков нужен для этих конкретных вопросов и одного сквозного условного примера. Это18 форм, а не18 самостоятельных интентов: общие определения вложены в полные формы; утверждённый фрагмент «стоимость накрутки поведенческих» встречается в грамматически полной фразе с добавленным словом «факторов». Короткие вложенные фрагменты дополнительно не отбирались ради счётчика. Повторяемость корней и марки фиксируется описательно; основание приёмки — полезность каждого фрагмента, естественная формулировка и отсутствие цепочек синонимов, а не искусственное численное снижение.",
           "primary_target_query": "накрутка пф",
           "secondary_target_queries": [
             "накрутка поведенческих факторов в яндексе",
             "накрутка поведенческих факторов",
+            "что такое накрутка пф",
             "поведенческие факторы",
-            "заказать накрутку пф",
+            "накрутка поискового трафика",
+            "поведенческое продвижение",
+            "продвижение сайтов поведенческими факторами",
+            "продвижение сайта поведенческими факторами",
+            "сервисы накрутки пф",
             "программа для накрутки пф",
-            "сервис для накрутки пф"
+            "услуги по накрутке поведенческих факторов",
+            "сервис для накрутки пф",
+            "стоимость накрутки поведенческих",
+            "софт для накрутки пф",
+            "как накрутить пф",
+            "продвижение поведенческими факторами",
+            "заказать накрутку пф"
           ],
           "user_intent": "что такое накрутка ПФ в поисковой выдаче и как начать работу через MetricHit",
           "platform": "Oborot.ru",
@@ -507,23 +606,34 @@
         "id": "target_query_volume_ladder",
         "performed": true,
         "passed": true,
-        "result": "7 естественных точных форм утверждённого ядра сохраняют единый интент: понять метод, выбрать способ работы и начать через MetricHit. Вложенные определения явно учтены как формы, а не отдельные интенты. Прямое замечание владельца требует устранить переспам: прежние искусственные варианты и повторные определения убраны; число20 не является целью. Фактический объём выше9000 раскрывает выбор запросов, формата работы, расходов и оценки результата; уменьшение повторов не заменено новыми keyword-вставками.",
+        "result": "18 точных форм утверждённого ядра распределены по читательским задачам одного обзора: понять метод и его применение, выбрать страницы и запросы, сравнить формат работы, рассчитать расходы, запустить и оценить кампанию через MetricHit. Пять смежных кластеров поддерживают этот единый интент; traffic_and_positions представлен только разграничением поисковых кликов и коммерческого результата. Объём свыше9000 знаков нужен для этих конкретных вопросов и одного сквозного условного примера. Это18 форм, а не18 самостоятельных интентов: общие определения вложены в полные формы; утверждённый фрагмент «стоимость накрутки поведенческих» встречается в грамматически полной фразе с добавленным словом «факторов». Короткие вложенные фрагменты дополнительно не отбирались ради счётчика. Повторяемость корней и марки фиксируется описательно; основание приёмки — полезность каждого фрагмента, естественная формулировка и отсутствие цепочек синонимов, а не искусственное численное снижение.",
         "evidence": {
-          "character_count": 9397,
+          "character_count": 10553,
           "count_scope": "russian_body_excluding_internal_metadata_and_urls",
           "primary_target_query": "накрутка пф",
           "secondary_target_queries": [
             "накрутка поведенческих факторов в яндексе",
             "накрутка поведенческих факторов",
+            "что такое накрутка пф",
             "поведенческие факторы",
-            "заказать накрутку пф",
+            "накрутка поискового трафика",
+            "поведенческое продвижение",
+            "продвижение сайтов поведенческими факторами",
+            "продвижение сайта поведенческими факторами",
+            "сервисы накрутки пф",
             "программа для накрутки пф",
-            "сервис для накрутки пф"
+            "услуги по накрутке поведенческих факторов",
+            "сервис для накрутки пф",
+            "стоимость накрутки поведенческих",
+            "софт для накрутки пф",
+            "как накрутить пф",
+            "продвижение поведенческими факторами",
+            "заказать накрутку пф"
           ],
-          "unique_target_query_count": 7,
+          "unique_target_query_count": 18,
           "required_minimum": null,
           "required_maximum": null,
-          "count_rationale": "7 естественных точных форм утверждённого ядра сохраняют единый интент: понять метод, выбрать способ работы и начать через MetricHit. Вложенные определения явно учтены как формы, а не отдельные интенты. Прямое замечание владельца требует устранить переспам: прежние искусственные варианты и повторные определения убраны; число20 не является целью. Фактический объём выше9000 раскрывает выбор запросов, формата работы, расходов и оценки результата; уменьшение повторов не заменено новыми keyword-вставками.",
+          "count_rationale": "18 точных форм утверждённого ядра распределены по читательским задачам одного обзора: понять метод и его применение, выбрать страницы и запросы, сравнить формат работы, рассчитать расходы, запустить и оценить кампанию через MetricHit. Пять смежных кластеров поддерживают этот единый интент; traffic_and_positions представлен только разграничением поисковых кликов и коммерческого результата. Объём свыше9000 знаков нужен для этих конкретных вопросов и одного сквозного условного примера. Это18 форм, а не18 самостоятельных интентов: общие определения вложены в полные формы; утверждённый фрагмент «стоимость накрутки поведенческих» встречается в грамматически полной фразе с добавленным словом «факторов». Короткие вложенные фрагменты дополнительно не отбирались ради счётчика. Повторяемость корней и марки фиксируется описательно; основание приёмки — полезность каждого фрагмента, естественная формулировка и отсутствие цепочек синонимов, а не искусственное численное снижение.",
           "all_secondary_target_queries_natural_in_body": true,
           "keyword_stuffing": false
         }
@@ -556,60 +666,60 @@
         "id": "originality_source_overlap",
         "performed": true,
         "passed": true,
-        "result": "Local deterministic overlap comparison passed with maximum6.42%; previous article version is frozen inTEMP to preserve comparison across integration.",
+        "result": "This is a revision of the same unpublished article, not a new original publication. Local deterministic source overlap and source hashes are recorded; the preceding version is frozen in TEMP to preserve comparison across integration.",
         "evidence": {
           "method": "local_deterministic_source_overlap",
           "algorithm": "token_shingle_v1",
           "comparison_status": "performed",
-          "content_sha256": "debcbad442454c8b02cc4e7ff871839fc85df1880439ebfa22edd0d539c8b42a",
+          "content_sha256": "bee0082ae5ec0272489c7c49946e65e2241b6c19e7e927af145a073e0e0fb22b",
           "compared_sources": [
             {
-              "path": "C:/Users/Administrator/AppData/Local/Temp/metrichit-readability-before.md",
-              "sha256": "38d363004cae47546778062359d791005f3cdcb07f0a26d0bf311ca9c1a89f44",
-              "overlap_percent": 6.42,
-              "article_token_count": 1371,
-              "source_token_count": 1611,
-              "matched_article_token_count": 88,
+              "path": "C:/Users/Administrator/AppData/Local/Temp/metrichit-balanced-before.md",
+              "sha256": "debcbad442454c8b02cc4e7ff871839fc85df1880439ebfa22edd0d539c8b42a",
+              "overlap_percent": 15.43,
+              "article_token_count": 1491,
+              "source_token_count": 1371,
+              "matched_article_token_count": 230,
               "shingle_size": 5
             },
             {
               "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-pf-metrichit-editorial-v2.md",
               "sha256": "30ad65679fe7beadf6b0cf3d6461ef2f061a7559f167a3524842fec84d0039e6",
-              "overlap_percent": 5.03,
-              "article_token_count": 1371,
+              "overlap_percent": 7.44,
+              "article_token_count": 1491,
               "source_token_count": 1595,
-              "matched_article_token_count": 69,
+              "matched_article_token_count": 111,
               "shingle_size": 5
             },
             {
               "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-nakrutka-pf-start-metrichit.md",
               "sha256": "35662aa3f567b9ac5e4b937237e06230df05727bb5e569def616487517addff6",
-              "overlap_percent": 4.3,
-              "article_token_count": 1371,
+              "overlap_percent": 6.1,
+              "article_token_count": 1491,
               "source_token_count": 1768,
-              "matched_article_token_count": 59,
+              "matched_article_token_count": 91,
               "shingle_size": 5
             },
             {
               "path": "C:/MetricHit/workspace/work/articles/drafts/2026-09-07-oborot-chto-takoe-pf.md",
               "sha256": "79a4c0b998d3732231e08e4c8921e4dc0bb9127ae06f0690917b2cf09c0d9d78",
-              "overlap_percent": 2.48,
-              "article_token_count": 1371,
+              "overlap_percent": 2.75,
+              "article_token_count": 1491,
               "source_token_count": 1330,
-              "matched_article_token_count": 34,
+              "matched_article_token_count": 41,
               "shingle_size": 5
             },
             {
               "path": "C:/MetricHit/workspace/work/articles/research/2026-09-05-oborot-team-responsibility-source.json",
               "sha256": "2254fedb28bc9a65a70b49afac34e338ea27c2eb76461a7a1acdbf73e49818e9",
-              "overlap_percent": 0,
-              "article_token_count": 1371,
+              "overlap_percent": 0.8,
+              "article_token_count": 1491,
               "source_token_count": 2085,
-              "matched_article_token_count": 0,
+              "matched_article_token_count": 12,
               "shingle_size": 5
             }
           ],
-          "max_overlap_percent": 6.42,
+          "max_overlap_percent": 15.43,
           "template_match": false
         }
       },
@@ -638,31 +748,32 @@
   "semantic_review": {
     "performed": true,
     "passed": true,
-    "reviewer": "Strategy / root author and full-file acceptance; article_readability_writer full critical read",
-    "result": "Root rewrote the article around reader questions and retained the method, business purpose, concrete query example and verified product terms. Repeated definitions and keyword variants, redundant settings paragraphs and the unhelpful80%arithmetic were removed. Technical writer read the entire supplied text before QA and found no additional substantive correction. No invented outcome or customer case, no internal bot sequence or onsite activity, no fixed click dose. Exact core terms remain natural with substantially fewer repeated roots.",
-    "query_count_rationale": "7 естественных точных форм утверждённого ядра сохраняют единый интент: понять метод, выбрать способ работы и начать через MetricHit. Вложенные определения явно учтены как формы, а не отдельные интенты. Прямое замечание владельца требует устранить переспам: прежние искусственные варианты и повторные определения убраны; число20 не является целью. Фактический объём выше9000 раскрывает выбор запросов, формата работы, расходов и оценки результата; уменьшение повторов не заменено новыми keyword-вставками."
+    "reviewer": "Strategy / root author and full-file acceptance; article_balanced_delivery full critical read",
+    "result": "Root rebuilt the article around one reader journey with broad semantic coverage: method, suitable pages, queries, provider comparison, costs, launch, evaluation and MetricHit trial. Technical writer read the complete source before QA, found one contradiction in the hypothetical repair shop example, and root approved its narrow correction. Root additionally removed two redundant sentences and simplified one bureaucratic phrase. The final source has no keyword synonym chain, invented efficacy result, customer case, internal bot sequence, onsite activity or fixed click dose. Counts are descriptive; substantive acceptance rests on the semantic role and readability of each paragraph.",
+    "query_count_rationale": "18 точных форм утверждённого ядра распределены по читательским задачам одного обзора: понять метод и его применение, выбрать страницы и запросы, сравнить формат работы, рассчитать расходы, запустить и оценить кампанию через MetricHit. Пять смежных кластеров поддерживают этот единый интент; traffic_and_positions представлен только разграничением поисковых кликов и коммерческого результата. Объём свыше9000 знаков нужен для этих конкретных вопросов и одного сквозного условного примера. Это18 форм, а не18 самостоятельных интентов: общие определения вложены в полные формы; утверждённый фрагмент «стоимость накрутки поведенческих» встречается в грамматически полной фразе с добавленным словом «факторов». Короткие вложенные фрагменты дополнительно не отбирались ради счётчика. Повторяемость корней и марки фиксируется описательно; основание приёмки — полезность каждого фрагмента, естественная формулировка и отсутствие цепочек синонимов, а не искусственное численное снижение."
   },
   "repetition_review": {
-    "method": "Visible structured-source headings, paragraphs and list items; URLs and image alt excluded; Russian token ПФ, word stem накрутк*, literal brand MetricHit; identical normalization before and after.",
+    "method": "Visible structured-source headings, paragraphs and list items; URLs and image alt excluded; Russian token ПФ, word stem накрутк*, literal brand MetricHit; identical normalization before and after. Counts are descriptive and are not a pass/fail threshold.",
     "before": {
-      "pf": 13,
-      "nakrutka_stem": 15,
-      "metrichit": 11,
-      "chars": 11346
-    },
-    "after": {
       "pf": 5,
       "nakrutka_stem": 5,
       "metrichit": 4,
       "chars": 9397
-    }
+    },
+    "after": {
+      "pf": 9,
+      "nakrutka_stem": 11,
+      "metrichit": 5,
+      "chars": 10553
+    },
+    "interpretation": "The preceding revision had insufficient semantic coverage with7 selected forms. This revision restores18 useful forms, so occurrences increase relative to that narrow revision. No claim of reduced counts against this parent version is made."
   },
   "root_content_acceptance": {
     "performed": true,
     "passed": true,
     "reviewer": "Strategy / root",
     "exact_content_preserved": true,
-    "content_sha256": "debcbad442454c8b02cc4e7ff871839fc85df1880439ebfa22edd0d539c8b42a",
+    "content_sha256": "bee0082ae5ec0272489c7c49946e65e2241b6c19e7e927af145a073e0e0fb22b",
     "result": "Root read the actual staged article and specification and confirmed exactAuthorText=true against the complete authored buffer before delivery."
   },
   "factual_sources": [
@@ -684,16 +795,16 @@
       "passed": true,
       "evidence": {
         "h1": 1,
-        "h2": 7,
-        "h3": 3,
-        "paragraphs": 36,
-        "lists": 3,
+        "h2": 9,
+        "h3": 5,
+        "paragraphs": 39,
+        "lists": 4,
         "images": 4,
         "landing_links": 4,
         "factual_links": 1,
         "utf8_no_replacement": true
       },
-      "result": "Self-containedUTF8HTML includes real headings, paragraph spacing, three lists, four embedded PNGs, four landing links and one factual-source link."
+      "result": "Self-containedUTF8HTML includes real headings, paragraph spacing, four lists, four embedded PNGs, four landing links and one factual-source link."
     },
     "path": "C:/Users/Administrator/AppData/Local/Temp/2026-09-07-oborot-pf-metrichit-final.html"
   },
@@ -710,7 +821,7 @@
   "visual_provenance": {
     "new_images": 0,
     "reused_images": 4,
-    "reused_source": "work/articles/research/2026-09-07-oborot-pf-metrichit-final-qa.json at parent commit0a9663e",
+    "reused_source": "work/articles/research/2026-09-07-oborot-pf-metrichit-final-qa.json at parent commit eee1ced",
     "reused_assets": [
       {
         "path": "../assets/2026-09-07-oborot-pf-metrichit-final-cover.png",
