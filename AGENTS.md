@@ -5,15 +5,17 @@
 ## Роли, scope и рабочая копия
 
 - Strategy — единственный постоянный видимый read-only human-facing router. Он не меняет repository и передаёт утверждённую mutation-задачу одному named executor. Один change set имеет одного writer, один commit и чистый Git.
+- Задача формулируется от результата: один проверяемый Result, точный scope/resources, proof или acceptance и forbidden changes. Если evidence недостаточен, следующий шаг ограничивается получением именно недостающего evidence.
 - Работать только в объявленном векторе: один проверяемый Result, точные files/resources и parent-chain память. Sibling/unrelated scope не читается и не меняется без прямой зависимости. Не исправлять попутные проблемы: сообщить observation/blocker.
 - Canonical workspace — `C:\MetricHit\workspace`. Writer работает только в чистом, зарегистрированном noncanonical worktree того же репозитория внутри `C:\MetricHit\worktrees`, после проверки registration, branch, HEAD, clean state и отсутствия конфликтующего lease. Никаких самостоятельных клонов, fallback к canonical или глобальных настроек.
-- По умолчанию один writer. Controlled parallel execution допускается только при доказанной независимости: разные worktree/branch, непересекающиеся path, SQLite и shared resources, полный handoff; максимум четыре writer-а и только последовательная integration. Core/policy/config/migration/dependency/shared runtime, central DB, memory/context-pack и integration не параллелятся.
+- По умолчанию один writer/agent. Subagent или controlled parallel execution допускается только когда работа объективно выигрывает от независимости: разные worktree/branch, непересекающиеся path, SQLite и shared resources, полный handoff; максимум четыре writer-а и только последовательная integration. Core/policy/config/migration/dependency/shared runtime, central DB, memory/context-pack и integration не параллелятся.
 
 ## Запуск и продолжение
 
 - Только точные bare-команды `Ядро старт` и `Ядро старт.` запускают полный read-only Strategy audit. Они не создают executor, mutation, restart runtime, user/sidebar-задачи или фоновые процессы.
 - Обычное продолжение читает только применимый scope. Новый рабочий чат запускается scoped-командой из `copy_command`; до status executor выполняет `chat-workspace-prepare` или `chat-parallel-start` и проверяет изоляцию. После `Заверши задачу.` сначала поставляется текущий Result, затем `chat-finish` сохраняет clean checkpoint и выдаёт ровно одну scoped startup-команду в отдельном fenced `text` block. Новый чат создаёт владелец.
 - Не выводить целиком и не перечитывать крупные документы без причины. Повторное чтение нужно лишь при смене scope, изменении правила или конкретном пробеле. Context pack содержит только parent chain, применимые rules и необходимые файлы.
+- Обычный вопрос или узкая проверка использует минимально достаточные документы и tool calls; дополнительный поиск, чтение или действие допустимы только для недостающего evidence. Web/browser, deep research и image generation применяются, только когда они нужны объявленному Result, а не для рутины.
 - Usage review выполняется только по прямому обращению владельца, read-only и с понятным отчётом: общая история расхода, наиболее затратные чаты/модели и практические действия. Scheduler, daemon, monitoring, UI, API, dependencies и скрытые процессы этим не создаются.
 
 ## Разрешения и обязательные gates
@@ -30,7 +32,7 @@
 
 ## Выбор модели
 
-- Terra Medium — рекомендуемая модель для обычных Strategy и standard executor-задач. Luna — только полностью определённая mechanical low-risk задача с простой целевой проверкой; при её недоступности применяется Terra Medium без blocker. Sol обязательна для complex architecture, security/auth, schema/data integrity, shared runtime или существенной неоднозначности; при недоступности — технический blocker. Astra — только по отдельному решению владельца.
+- Terra Medium — рекомендуемая модель для обычных Strategy и standard executor-задач. Luna/low — только полностью определённая mechanical low-risk задача с простой целевой проверкой; при её недоступности применяется Terra Medium без blocker. High/xhigh допустимы только при доказанной сложности. Sol обязательна для architecture, security/auth, schema/data integrity, shared runtime или существенной неоднозначности; при её недоступности — технический blocker. Astra — только по отдельному решению владельца.
 - Модель не меняет owner-gates, один writer или необходимые проверки. Нет автоматической цепочки моделей и обязательного Luna review.
 
 ## Редакция и оркестрация
