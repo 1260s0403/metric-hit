@@ -886,7 +886,7 @@ test('model routing decision is repeatable and creates an approved policy', (t) 
   database.close();
   assert.equal(policy.status, 'approved');
   assert.equal(policy.reviewed_by, 'owner');
-  assert.equal(policy.reviewed_at, '2026-09-05T00:00:00.000Z');
+  assert.equal(policy.reviewed_at, '2026-09-12T00:00:00.000Z');
   const policyData = JSON.parse(policy.data_json);
   assert.equal(policyData.default_model, 'GPT-5.6 Terra / Medium');
   assert.equal(policyData.strategy_recommendation, 'GPT-5.6 Terra / Medium');
@@ -898,7 +898,7 @@ test('model routing decision is repeatable and creates an approved policy', (t) 
   assert.equal(policyData.astra.owner_decision_required, true);
   assert.equal(policyData.automatic_model_chain, false);
   assert.equal(policyData.mandatory_luna_review, false);
-  assert.equal(policyData.future_agents_md_plan.status, 'approved_plan_pending_separate_implementation');
+  assert.equal(policyData.future_agents_md_plan.status, 'usage_economy_implemented');
 });
 
 test('server primary workspace decision is repeatable and records approved context', (t) => {
