@@ -3,7 +3,8 @@ import pytest
 from metrichit_os.local_author import (
     AuthorProfile, DeterministicLocalAdapter, FactIntegrityError, LocalPostAuthor,
     MAX_POST_LENGTH, MIN_POST_LENGTH, PostKind, PostRequest, PublicDisclosureError, RevisionError, TelegramFormattingError,
-    THEMATIC_DIRECTIONS, sanitize_plain_text, validate_plain_text,
+    CANONICAL_FOOTER, CANONICAL_URLS, THEMATIC_DIRECTIONS, sanitize_plain_text,
+    validate_plain_text, validate_publication_text,
 )
 
 
@@ -98,10 +99,14 @@ def test_plain_text_validator_rejects_unsupported_markup(text: str) -> None:
         validate_plain_text(text)
 
 
-def test_plain_text_sanitizer_removes_urls_markdown_emoji_and_hidden_unicode() -> None:
+def test_plain_text_sanitizer_keeps_only_canonical_urls_and_removes_markup_emoji_hidden_unicode() -> None:
     unsafe = "**Проверка** • https://example.test/путь\u200b\n➡️ Готово [сейчас](https://t.me/test)"
 
     assert sanitize_plain_text(unsafe) == "Проверка\nГотово сейчас"
+    assert sanitize_plain_text(f"Текст {CANONICAL_URLS[0]} https://example.test/") == (
+        f"Текст {CANONICAL_URLS[0]}"
+    )
+    assert sanitize_plain_text(f"Текст {CANONICAL_URLS[0]}.evil") == "Текст"
 
 
 @pytest.mark.parametrize("kind", list(PostKind))
@@ -114,7 +119,8 @@ def test_deterministic_author_enforces_plain_text_length_for_all_formats(
     )
 
     assert MIN_POST_LENGTH <= len(draft.text) <= MAX_POST_LENGTH
-    assert "http" not in draft.text.casefold()
+    assert draft.text.endswith(CANONICAL_FOOTER)
+    assert all(draft.text.count(url) == 1 for url in CANONICAL_URLS)
     assert "**" not in draft.text
     assert draft.text == sanitize_plain_text(draft.text)
 
@@ -130,6 +136,16 @@ def test_actions_are_reserved_for_practical_instruction_format(profile: AuthorPr
         PostKind.INFORMATIONAL, "Контекст выдачи", "Выдача зависит от нескольких условий.",
         direction=THEMATIC_DIRECTIONS[1],
     ))
-    assert all(phrase in instruction.text for phrase in ("Сначала", "Затем", "После этого", "Отдельно"))
-    assert not any(phrase in informational.text for phrase in ("Сначала", "Затем", "После этого", "Отдельно"))
+    assert "Сначала" in instruction.text and "Затем" in instruction.text
+    assert "Сначала" not in informational.text
     assert adapter.prompts[-1].request.direction == THEMATIC_DIRECTIONS[1]
+
+
+@pytest.mark.parametrize("text", [
+    "Короткий текст\n\n" + CANONICAL_FOOTER,
+    ("Текст " * 200) + "\n\n" + CANONICAL_FOOTER + "\n\nлишнее",
+    ("Здесь важно " * 80) + "\n\n" + CANONICAL_FOOTER,
+])
+def test_publication_quality_validator_rejects_bad_length_footer_or_generic_filler(text: str) -> None:
+    with pytest.raises(TelegramFormattingError):
+        validate_publication_text(text)

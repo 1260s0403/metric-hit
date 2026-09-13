@@ -13,7 +13,7 @@ from metrichit_os.content_publisher import (
     TEST_POSTS,
     channel_message_payload,
 )
-from metrichit_os.local_author import sanitize_plain_text
+from metrichit_os.local_author import CANONICAL_FOOTER, CANONICAL_URLS, sanitize_plain_text
 
 
 class FakeTransport:
@@ -535,17 +535,22 @@ def test_schedule_slots_are_distinct_plain_text_posts_with_varied_formats_and_di
     for content in contents:
         assert 900 <= len(content) <= 1400
         assert content == sanitize_plain_text(content)
-        assert "http" not in content.casefold()
+        assert content.endswith(CANONICAL_FOOTER)
+        assert all(content.count(url) == 1 for url in CANONICAL_URLS)
         assert "**" not in content
+        assert not any(phrase in content.casefold() for phrase in (
+            "практический формат", "материал должен помогать", "в этой логике", "здесь важно",
+        ))
     directions = {direction for _, direction, _, _ in TEST_POSTS}
     assert len(directions) == 7
     assert any("Сначала" in content for content in contents)
     assert any("Сначала" not in content for content in contents)
 
 
-def test_channel_payload_is_plain_text_and_disables_link_previews_for_legacy_schedule_slots(tmp_path):
+def test_restart_rerenders_only_pending_legacy_slots_and_disables_link_previews(tmp_path):
     clock = Clock()
-    repository = ContentPublisherStore(tmp_path / "publisher.sqlite", now=clock)
+    database = tmp_path / "publisher.sqlite"
+    repository = ContentPublisherStore(database, now=clock)
     repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
     repository.start_test_schedule(101)
     with repository._connect() as connection:
@@ -554,13 +559,29 @@ def test_channel_payload_is_plain_text_and_disables_link_previews_for_legacy_sch
             ("**Заголовок** • https://example.test/\u200b ➡️ Готово",),
         )
 
+    with repository._connect() as connection:
+        connection.execute(
+            "UPDATE content_test_schedule_slots SET status='published', telegram_message_id=77 WHERE slot_index=1",
+        )
+    restarted = ContentPublisherStore(database, now=clock)
+    with restarted._connect() as connection:
+        refreshed = connection.execute(
+            "SELECT content FROM content_test_schedule_slots WHERE slot_index=0"
+        ).fetchone()["content"]
+        historical = connection.execute(
+            "SELECT content FROM content_test_schedule_slots WHERE slot_index=1"
+        ).fetchone()["content"]
+    assert refreshed.endswith(CANONICAL_FOOTER)
+    assert "https://example.test" not in refreshed
+    assert historical != refreshed
+
     transport = PublishingTransport()
-    assert ContentPublisherBot(repository, {101}, transport).publish_due_test_post()
+    assert ContentPublisherBot(restarted, {101}, transport).publish_due_test_post()
     payload = [payload for method, payload in transport.calls if method == "sendMessage" and payload["chat_id"] == -100123][0]
 
     assert payload == {
         "chat_id": -100123,
-        "text": "Заголовок Готово",
+        "text": refreshed,
         "link_preview_options": {"is_disabled": True},
     }
     assert "parse_mode" not in payload
