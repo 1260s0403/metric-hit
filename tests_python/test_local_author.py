@@ -2,7 +2,8 @@ import pytest
 
 from metrichit_os.local_author import (
     AuthorProfile, DeterministicLocalAdapter, FactIntegrityError, LocalPostAuthor,
-    PostKind, PostRequest, RevisionError, TelegramFormattingError, validate_telegram_markdown,
+    PostKind, PostRequest, PublicDisclosureError, RevisionError, TelegramFormattingError,
+    validate_telegram_markdown,
 )
 
 
@@ -12,8 +13,8 @@ def profile() -> AuthorProfile:
         tone="спокойный и деловой",
         audience="владельцы сайтов",
         product_facts=(
-            "Бот открывает несколько результатов поиска, затем целевой сайт последним.",
-            "После открытия целевого сайта бот не возвращается в поиск и не действует внутри сайта.",
+            "Новый пользователь может один раз получить 1 000 тестовых кликов после регистрации и обращения в Telegram-поддержку с логином.",
+            "Неиспользованный остаток не сгорает.",
         ),
         constraints=("Не обещать рост позиций.", "Не выдумывать характеристики продукта."),
         default_cta="Проверьте исходные позиции перед запуском.",
@@ -53,6 +54,24 @@ def test_author_rejects_adapter_that_omits_a_supplied_fact(profile: AuthorProfil
 
     with pytest.raises(FactIntegrityError, match="omits supplied facts"):
         LocalPostAuthor(IncompleteAdapter()).draft(profile, PostRequest(PostKind.PRODUCT, "Тема", "Вступление."))
+
+
+@pytest.mark.parametrize("topic,opening,facts", [
+    ("Поисковая выдача", "Нейтральное вступление.", None),
+    ("Тема", "Бот открывает результаты поиска.", None),
+    ("Тема", "Нейтральное вступление.", ("Целевой сайт открывается последним.",)),
+])
+def test_author_rejects_search_mechanics_in_public_drafts(
+    profile: AuthorProfile, topic: str, opening: str, facts: tuple[str, ...] | None,
+) -> None:
+    guarded_profile = profile if facts is None else AuthorProfile(
+        tone=profile.tone, audience=profile.audience, product_facts=facts,
+        constraints=profile.constraints, default_cta=profile.default_cta,
+    )
+    with pytest.raises(PublicDisclosureError, match="must not disclose"):
+        LocalPostAuthor(DeterministicLocalAdapter()).draft(
+            guarded_profile, PostRequest(PostKind.PRODUCT, topic, opening),
+        )
 
 
 def test_revision_changes_only_requested_cta(profile: AuthorProfile) -> None:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+import re
 from typing import Protocol
 
 
@@ -33,6 +34,10 @@ class TelegramFormattingError(AuthorError):
 
 class RevisionError(AuthorError):
     """Revision feedback is unsupported or would alter more than requested."""
+
+
+class PublicDisclosureError(AuthorError):
+    """Public drafts must not disclose the bot's search-result mechanics."""
 
 
 @dataclass(frozen=True)
@@ -97,6 +102,15 @@ _SECTIONS = {
     PostKind.CTA: "Следующий шаг",
 }
 
+_PROHIBITED_SEARCH_MECHANICS = re.compile(
+    r"(?:поисков\w*\s+(?:выдач\w*|результат\w*)|"
+    r"открыва\w*[^\n.]{0,80}(?:результат\w*|сайт)|"
+    r"целев\w*\s+сайт[^\n.]{0,60}последн\w*|"
+    r"не\s+возвращ\w*[^\n.]{0,60}поиск\w*|"
+    r"действ\w*\s+внутри\s+сайт\w*)",
+    re.IGNORECASE,
+)
+
 
 def validate_telegram_markdown(text: str) -> None:
     """Reject formatting that cannot be sent as the module's Markdown subset."""
@@ -136,6 +150,7 @@ class LocalPostAuthor:
         self._adapter = adapter
 
     def draft(self, profile: AuthorProfile, request: PostRequest) -> Draft:
+        self._reject_public_mechanics(profile, request)
         text = self._adapter.generate(AuthorPrompt(profile=profile, request=request))
         facts = tuple(fact.strip() for fact in profile.product_facts)
         cta = (request.cta or profile.default_cta).strip()
@@ -167,3 +182,9 @@ class LocalPostAuthor:
             raise FactIntegrityError(f"draft omits supplied facts: {', '.join(missing)}")
         if cta not in text:
             raise FactIntegrityError("draft omits the requested CTA")
+
+    @staticmethod
+    def _reject_public_mechanics(profile: AuthorProfile, request: PostRequest) -> None:
+        public_fields = (request.topic, request.opening, request.cta or "", *profile.product_facts)
+        if any(_PROHIBITED_SEARCH_MECHANICS.search(value) for value in public_fields):
+            raise PublicDisclosureError("public drafts must not disclose bot search-result mechanics")
