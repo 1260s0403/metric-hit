@@ -532,6 +532,11 @@ def test_schedule_slots_are_distinct_plain_text_posts_with_varied_formats_and_di
     contents = [str(row["content"]) for row in rows]
     assert len(contents) == TEST_TOTAL_POSTS
     assert len(set(contents)) == TEST_TOTAL_POSTS
+    forbidden_universal_lines = (
+        "Не обещайте результат до проверки. Точный вопрос к данным и странице полезнее уверенного, но неподтверждённого ответа.",
+        "MetricHit помогает усиливать подготовленный сайт и не заменяет техническое SEO.",
+        "Перед запуском зафиксируйте текущие позиции и период проверки.",
+    )
     for content in contents:
         assert 900 <= len(content) <= 1400
         assert content == sanitize_plain_text(content)
@@ -541,6 +546,13 @@ def test_schedule_slots_are_distinct_plain_text_posts_with_varied_formats_and_di
         assert not any(phrase in content.casefold() for phrase in (
             "практический формат", "материал должен помогать", "в этой логике", "здесь важно",
         ))
+        assert not any(line in content for line in forbidden_universal_lines)
+    body_paragraphs = [
+        paragraph for content in contents
+        for paragraph in content.removesuffix(CANONICAL_FOOTER).strip().split("\n\n")
+        if paragraph
+    ]
+    assert len(body_paragraphs) == len(set(body_paragraphs))
     directions = {direction for _, direction, _, _ in TEST_POSTS}
     assert len(directions) == 7
     assert any("Сначала" in content for content in contents)

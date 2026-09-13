@@ -52,15 +52,15 @@ class AuthorProfile:
     audience: str
     product_facts: tuple[str, ...]
     constraints: tuple[str, ...]
-    default_cta: str
+    default_cta: str = ""
     formatting: str = "plain text"
 
     def __post_init__(self) -> None:
-        for field in ("tone", "audience", "default_cta", "formatting"):
+        for field in ("tone", "audience", "formatting"):
             if not getattr(self, field).strip():
                 raise AuthorError(f"{field} must not be empty")
-        if not self.product_facts or any(not fact.strip() for fact in self.product_facts):
-            raise AuthorError("product_facts must contain non-empty facts")
+        if any(not fact.strip() for fact in self.product_facts):
+            raise AuthorError("product_facts must not contain empty facts")
         if any(not constraint.strip() for constraint in self.constraints):
             raise AuthorError("constraints must not contain empty values")
 
@@ -73,6 +73,7 @@ class PostRequest:
     cta: str | None = None
     direction: str | None = None
     source_notes: str | None = None
+    conclusion: str | None = None
 
     def __post_init__(self) -> None:
         if not self.topic.strip() or not self.opening.strip():
@@ -83,6 +84,8 @@ class PostRequest:
             raise AuthorError("direction must not be blank when supplied")
         if self.source_notes is not None and not self.source_notes.strip():
             raise AuthorError("source_notes must not be blank when supplied")
+        if self.conclusion is not None and not self.conclusion.strip():
+            raise AuthorError("conclusion must not be blank when supplied")
 
 
 @dataclass(frozen=True)
@@ -226,10 +229,7 @@ class DeterministicLocalAdapter:
         lead = f"{request.topic.strip()}\n\n{request.opening.strip()} "
         if request.source_notes is not None:
             body = (
-                f"{request.source_notes.strip()}\n\n"
-                f"В работе с темой {request.topic.strip()} полезно оставлять след решения: что проверили, "
-                "какой вопрос остался открытым и когда к нему вернутся. Это не заменяет анализ, но позволяет "
-                "команде обсуждать конкретную страницу или группу запросов, а не общее ощущение от изменений."
+                request.source_notes.strip()
             )
         elif request.kind in _INSTRUCTION_KINDS:
             body = (
@@ -274,9 +274,18 @@ class DeterministicLocalAdapter:
                 "нужны для следующего вывода."
                 " Это сохраняет фокус и не превращает работу в поток случайных правок."
             )
-        conclusion = "Не обещайте результат до проверки. Точный вопрос к данным и странице полезнее уверенного, но неподтверждённого ответа."
+        conclusion = request.conclusion or self._contextual_conclusion(request)
         sections = [lead, body, conclusion, facts, cta.strip()]
         return "\n\n".join(section for section in sections if section)
+
+    @staticmethod
+    def _contextual_conclusion(request: PostRequest) -> str:
+        """A fallback ending tied to the requested format, never a channel-wide slogan."""
+        if request.kind in _INSTRUCTION_KINDS:
+            return f"Итог проверки по теме «{request.topic.strip()}» лучше записать рядом с датой и страницей: так следующий шаг останется понятным команде."
+        if request.kind in _DIAGNOSTIC_KINDS:
+            return f"Для темы «{request.topic.strip()}» полезнее оставить одну проверяемую гипотезу, чем собирать в один вывод все возможные причины."
+        return f"Тема «{request.topic.strip()}» становится рабочей, когда её можно связать с конкретной страницей и задачей посетителя."
 
 
 class LocalPostAuthor:
@@ -317,7 +326,7 @@ class LocalPostAuthor:
         missing = [fact for fact in facts if fact not in text]
         if missing:
             raise FactIntegrityError(f"draft omits supplied facts: {', '.join(missing)}")
-        if cta not in text:
+        if cta and cta not in text:
             raise FactIntegrityError("draft omits the requested CTA")
         validate_publication_text(text)
 
