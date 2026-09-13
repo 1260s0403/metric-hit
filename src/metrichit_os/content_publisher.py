@@ -19,7 +19,14 @@ from pathlib import Path
 from typing import Callable, Protocol
 from urllib.request import Request, urlopen
 
-from .local_author import AuthorProfile, DeterministicLocalAdapter, LocalPostAuthor, PostKind, PostRequest
+from .local_author import (
+    AuthorProfile,
+    DeterministicLocalAdapter,
+    LocalPostAuthor,
+    PostKind,
+    PostRequest,
+    sanitize_plain_text,
+)
 
 
 ACCESS_DENIED = "Доступ к контент-паблишеру закрыт."
@@ -52,6 +59,18 @@ TEST_TOPICS = (
 
 class TelegramTransport(Protocol):
     def call(self, method: str, payload: dict[str, object]) -> dict[str, object]: ...
+
+
+def channel_message_payload(channel_id: int, content: str) -> dict[str, object]:
+    """Build an unformatted channel message, including for legacy stored slots."""
+    text = sanitize_plain_text(content)
+    if not text:
+        raise ValueError("Пост не содержит допустимого обычного текста.")
+    return {
+        "chat_id": channel_id,
+        "text": text,
+        "link_preview_options": {"is_disabled": True},
+    }
 
 
 class UrllibTelegramTransport:
@@ -247,7 +266,7 @@ class ContentPublisherStore:
             f"MetricHit, тема «{clean_topic}»: чистая деловая иллюстрация 16:9, "
             "график динамики и интерфейс аналитики без мелкого текста, логотипов третьих лиц и обещаний результата."
         )
-        return content, image_brief
+        return sanitize_plain_text(content), image_brief
 
     @staticmethod
     def _hash(content: str, image_brief: str) -> str:
@@ -686,7 +705,7 @@ class ContentPublisherBot:
             return False
         schedule, slot_index, content = claimed
         try:
-            response = self.transport.call("sendMessage", {"chat_id": schedule.channel_id, "text": content})
+            response = self.transport.call("sendMessage", channel_message_payload(schedule.channel_id, content))
             result = response.get("result")
             message_id = result.get("message_id") if isinstance(result, dict) else None
             if not isinstance(message_id, int):
@@ -851,7 +870,9 @@ class ContentPublisherBot:
                     raise ValueError("Сначала явно одобрите актуальную версию черновика.")
                 if self.store.is_published(draft.job_id, draft.version):
                     raise ValueError("Эта версия уже опубликована.")
-                response = self.transport.call("sendMessage", {"chat_id": binding.channel_id, "text": draft.content})
+                response = self.transport.call(
+                    "sendMessage", channel_message_payload(binding.channel_id, draft.content)
+                )
                 result = response.get("result")
                 message_id = result.get("message_id") if isinstance(result, dict) else None
                 if not isinstance(message_id, int):

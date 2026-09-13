@@ -3,7 +3,7 @@ import pytest
 from metrichit_os.local_author import (
     AuthorProfile, DeterministicLocalAdapter, FactIntegrityError, LocalPostAuthor,
     PostKind, PostRequest, PublicDisclosureError, RevisionError, TelegramFormattingError,
-    REQUIRED_PUBLIC_LINKS, validate_telegram_markdown,
+    sanitize_plain_text, validate_plain_text,
 )
 
 
@@ -27,9 +27,9 @@ def test_deterministic_mode_supports_every_post_kind_without_model(profile: Auth
     draft = LocalPostAuthor(adapter).draft(profile, PostRequest(kind, "Тема", "Короткое вступление."))
 
     assert draft.kind is kind
-    assert draft.text.startswith("**Тема**")
+    assert draft.text.startswith("Тема")
     assert all(fact in draft.text for fact in profile.product_facts)
-    assert all(link in draft.text for link in REQUIRED_PUBLIC_LINKS)
+    assert draft.text == sanitize_plain_text(draft.text)
     assert adapter.prompts == [adapter.prompts[0]]
     assert adapter.prompts[0].profile == profile
 
@@ -44,7 +44,7 @@ def test_author_passes_profile_rules_and_requested_cta_to_adapter(profile: Autho
     assert prompt.profile.tone == "спокойный и деловой"
     assert prompt.profile.audience == "владельцы сайтов"
     assert prompt.profile.constraints == profile.constraints
-    assert prompt.profile.formatting == "Telegram Markdown"
+    assert prompt.profile.formatting == "plain text"
     assert draft.cta == "Напишите нам в поддержку."
 
 
@@ -93,6 +93,12 @@ def test_revision_rejects_unscoped_feedback(profile: AuthorProfile) -> None:
 
 
 @pytest.mark.parametrize("text", ["**Незакрытый", "<b>HTML</b>", "x" * 4097])
-def test_telegram_format_validator_rejects_unsupported_markup(text: str) -> None:
+def test_plain_text_validator_rejects_unsupported_markup(text: str) -> None:
     with pytest.raises(TelegramFormattingError):
-        validate_telegram_markdown(text)
+        validate_plain_text(text)
+
+
+def test_plain_text_sanitizer_removes_urls_markdown_emoji_and_hidden_unicode() -> None:
+    unsafe = "**Проверка** • https://example.test/путь\u200b\n➡️ Готово [сейчас](https://t.me/test)"
+
+    assert sanitize_plain_text(unsafe) == "Проверка\nГотово сейчас"

@@ -29,7 +29,7 @@ class FactIntegrityError(AuthorError):
 
 
 class TelegramFormattingError(AuthorError):
-    """A draft cannot be represented as a safe Telegram Markdown message."""
+    """A draft cannot be represented as safe plain Telegram text."""
 
 
 class RevisionError(AuthorError):
@@ -47,7 +47,7 @@ class AuthorProfile:
     product_facts: tuple[str, ...]
     constraints: tuple[str, ...]
     default_cta: str
-    formatting: str = "Telegram Markdown"
+    formatting: str = "plain text"
 
     def __post_init__(self) -> None:
         for field in ("tone", "audience", "default_cta", "formatting"):
@@ -102,12 +102,6 @@ _SECTIONS = {
     PostKind.CTA: "Следующий шаг",
 }
 
-REQUIRED_PUBLIC_LINKS = (
-    "https://t.me/mtr_hit",
-    "https://go.mtrhit.ru/",
-    "https://t.me/Metric_Hit",
-)
-
 _PROHIBITED_SEARCH_MECHANICS = re.compile(
     r"(?:поисков\w*\s+(?:выдач\w*|результат\w*)|"
     r"открыва\w*[^\n.]{0,80}(?:результат\w*|сайт)|"
@@ -117,17 +111,43 @@ _PROHIBITED_SEARCH_MECHANICS = re.compile(
     re.IGNORECASE,
 )
 
+_URL = re.compile(r"(?i)\b(?:https?://|www\.|t\.me/)[^\s<>()]+")
+_HTML_TAG = re.compile(r"<[^>\n]*>")
+_HTML_ENTITY = re.compile(r"&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]+);")
+_DISALLOWED = re.compile(r"[^A-Za-zА-Яа-яЁё0-9 \n.,;:!?()\-\"']")
 
-def validate_telegram_markdown(text: str) -> None:
-    """Reject formatting that cannot be sent as the module's Markdown subset."""
+
+def sanitize_plain_text(text: str) -> str:
+    """Return the narrow plain-text subset allowed in channel publications.
+
+    URLs, markup, emoji, non-printing Unicode and non-standard symbols are
+    removed rather than passed through to Telegram. Newlines remain only as
+    visible paragraph breaks.
+    """
+    value = _URL.sub("", text.replace("\r\n", "\n").replace("\r", "\n"))
+    value = re.sub(r"\(\s*\)", "", value)
+    value = _HTML_TAG.sub("", value)
+    value = _HTML_ENTITY.sub(" ", value)
+    value = _DISALLOWED.sub("", value)
+    value = re.sub(r"[ \t]+", " ", value)
+    value = re.sub(r" *\n *", "\n", value)
+    value = re.sub(r"\n{3,}", "\n\n", value)
+    return value.strip()
+
+
+def validate_plain_text(text: str) -> None:
+    """Reject text outside the intentionally small plain-text channel subset."""
     if not text.strip():
         raise TelegramFormattingError("draft must not be empty")
     if len(text) > 4096:
         raise TelegramFormattingError("Telegram message exceeds 4096 characters")
-    if "\r" in text or "<" in text or ">" in text:
-        raise TelegramFormattingError("HTML and carriage returns are not allowed")
-    if text.count("**") % 2:
-        raise TelegramFormattingError("bold Markdown markers must be balanced")
+    if text != sanitize_plain_text(text):
+        raise TelegramFormattingError("draft must use plain text without markup, links, or hidden characters")
+
+
+def validate_telegram_markdown(text: str) -> None:
+    """Compatibility alias for callers that used the previous validator name."""
+    validate_plain_text(text)
 
 
 class DeterministicLocalAdapter:
@@ -139,17 +159,14 @@ class DeterministicLocalAdapter:
     def generate(self, prompt: AuthorPrompt) -> str:
         self.prompts.append(prompt)
         request, profile = prompt.request, prompt.profile
-        facts = "\n".join(f"• {fact}" for fact in profile.product_facts)
+        facts = "\n".join(profile.product_facts)
         cta = request.cta or profile.default_cta
         return (
-            f"**{request.topic.strip()}**\n\n"
+            f"{request.topic.strip()}\n\n"
             f"{request.opening.strip()}\n\n"
-            f"**{_SECTIONS[request.kind]}**\n{facts}\n\n"
+            f"{_SECTIONS[request.kind]}\n{facts}\n\n"
             f"{cta.strip()}\n\n"
-            "В основном канале MetricHit — разборы и следующие шаги.\n"
-            f"➡️ {REQUIRED_PUBLIC_LINKS[0]}\n\n"
-            f"Сайт: {REQUIRED_PUBLIC_LINKS[1]}\n"
-            f"Поддержка: {REQUIRED_PUBLIC_LINKS[2]}"
+            "В канале MetricHit выходят разборы и следующие шаги."
         )
 
 
@@ -161,18 +178,18 @@ class LocalPostAuthor:
 
     def draft(self, profile: AuthorProfile, request: PostRequest) -> Draft:
         self._reject_public_mechanics(profile, request)
-        text = self._adapter.generate(AuthorPrompt(profile=profile, request=request))
-        facts = tuple(fact.strip() for fact in profile.product_facts)
-        cta = (request.cta or profile.default_cta).strip()
+        text = sanitize_plain_text(self._adapter.generate(AuthorPrompt(profile=profile, request=request)))
+        facts = tuple(sanitize_plain_text(fact) for fact in profile.product_facts)
+        cta = sanitize_plain_text(request.cta or profile.default_cta)
         self._validate(text, facts, cta)
-        return Draft(kind=request.kind, topic=request.topic.strip(), text=text, facts=facts, cta=cta)
+        return Draft(kind=request.kind, topic=sanitize_plain_text(request.topic), text=text, facts=facts, cta=cta)
 
     def revise(self, draft: Draft, feedback: str) -> Draft:
         """Apply only ``Замени CTA на: ...``; all non-CTA text stays byte-identical."""
         prefix = "Замени CTA на:"
         if not feedback.startswith(prefix):
             raise RevisionError("supported feedback: 'Замени CTA на: <новый CTA>'")
-        replacement = feedback.removeprefix(prefix).strip()
+        replacement = sanitize_plain_text(feedback.removeprefix(prefix))
         if not replacement:
             raise RevisionError("replacement CTA must not be empty")
         if draft.text.count(draft.cta) != 1:
@@ -186,15 +203,12 @@ class LocalPostAuthor:
 
     @staticmethod
     def _validate(text: str, facts: tuple[str, ...], cta: str) -> None:
-        validate_telegram_markdown(text)
+        validate_plain_text(text)
         missing = [fact for fact in facts if fact not in text]
         if missing:
             raise FactIntegrityError(f"draft omits supplied facts: {', '.join(missing)}")
         if cta not in text:
             raise FactIntegrityError("draft omits the requested CTA")
-        missing_links = [link for link in REQUIRED_PUBLIC_LINKS if link not in text]
-        if missing_links:
-            raise FactIntegrityError(f"draft omits required public links: {', '.join(missing_links)}")
 
     @staticmethod
     def _reject_public_mechanics(profile: AuthorProfile, request: PostRequest) -> None:

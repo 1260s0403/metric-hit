@@ -9,6 +9,7 @@ from metrichit_os.content_publisher import (
     ContentPublisherStore,
     TEST_INTERVAL_SECONDS,
     TEST_TOTAL_POSTS,
+    channel_message_payload,
 )
 
 
@@ -244,7 +245,7 @@ def test_forwarded_channel_requires_explicit_bind_then_publish_after_approval(tm
     transport.updates = [message(4, 101, f"/publish {draft.job_id}")]
     assert bot.poll_once() == 1
     channel_messages = [payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]
-    assert channel_messages == [{"chat_id": -100123, "text": draft.content}]
+    assert channel_messages == [channel_message_payload(-100123, draft.content)]
     with bot.store._connect() as connection:
         publication = connection.execute("SELECT channel_id, telegram_message_id FROM content_publications").fetchone()
     assert tuple(publication) == (-100123, 77)
@@ -431,6 +432,30 @@ def test_schedule_publishes_exactly_twenty_slots_and_survives_restart_without_du
     assert [row["slot_index"] for row in rows] == list(range(TEST_TOTAL_POSTS))
     assert {row["status"] for row in rows} == {"published"}
     assert len({row["telegram_message_id"] for row in rows}) == TEST_TOTAL_POSTS
+
+
+def test_channel_payload_is_plain_text_and_disables_link_previews_for_legacy_schedule_slots(tmp_path):
+    clock = Clock()
+    repository = ContentPublisherStore(tmp_path / "publisher.sqlite", now=clock)
+    repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
+    repository.start_test_schedule(101)
+    with repository._connect() as connection:
+        connection.execute(
+            "UPDATE content_test_schedule_slots SET content=? WHERE slot_index=0",
+            ("**Заголовок** • https://example.test/\u200b ➡️ Готово",),
+        )
+
+    transport = PublishingTransport()
+    assert ContentPublisherBot(repository, {101}, transport).publish_due_test_post()
+    payload = [payload for method, payload in transport.calls if method == "sendMessage" and payload["chat_id"] == -100123][0]
+
+    assert payload == {
+        "chat_id": -100123,
+        "text": "Заголовок Готово",
+        "link_preview_options": {"is_disabled": True},
+    }
+    assert "parse_mode" not in payload
+    assert "entities" not in payload
 
 
 def test_hour_cutoff_completes_without_backlog_burst(tmp_path):
