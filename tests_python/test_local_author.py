@@ -3,7 +3,7 @@ import pytest
 from metrichit_os.local_author import (
     AuthorProfile, DeterministicLocalAdapter, FactIntegrityError, LocalPostAuthor,
     MAX_POST_LENGTH, MIN_POST_LENGTH, PostKind, PostRequest, PublicDisclosureError, RevisionError, TelegramFormattingError,
-    sanitize_plain_text, validate_plain_text,
+    THEMATIC_DIRECTIONS, sanitize_plain_text, validate_plain_text,
 )
 
 
@@ -105,7 +105,7 @@ def test_plain_text_sanitizer_removes_urls_markdown_emoji_and_hidden_unicode() -
 
 
 @pytest.mark.parametrize("kind", list(PostKind))
-def test_deterministic_author_enforces_substantive_plain_text_post_contract(
+def test_deterministic_author_enforces_plain_text_length_for_all_formats(
     profile: AuthorProfile, kind: PostKind,
 ) -> None:
     draft = LocalPostAuthor(DeterministicLocalAdapter()).draft(
@@ -114,7 +114,22 @@ def test_deterministic_author_enforces_substantive_plain_text_post_contract(
     )
 
     assert MIN_POST_LENGTH <= len(draft.text) <= MAX_POST_LENGTH
-    assert all(phrase in draft.text for phrase in ("Сначала", "Затем", "После этого", "Отдельно"))
     assert "http" not in draft.text.casefold()
     assert "**" not in draft.text
     assert draft.text == sanitize_plain_text(draft.text)
+
+
+def test_actions_are_reserved_for_practical_instruction_format(profile: AuthorProfile) -> None:
+    adapter = DeterministicLocalAdapter()
+    author = LocalPostAuthor(adapter)
+    instruction = author.draft(profile, PostRequest(
+        PostKind.INSTRUCTION, "Проверка страницы", "Нужно подготовить страницу к запуску.",
+        direction=THEMATIC_DIRECTIONS[2],
+    ))
+    informational = author.draft(profile, PostRequest(
+        PostKind.INFORMATIONAL, "Контекст выдачи", "Выдача зависит от нескольких условий.",
+        direction=THEMATIC_DIRECTIONS[1],
+    ))
+    assert all(phrase in instruction.text for phrase in ("Сначала", "Затем", "После этого", "Отдельно"))
+    assert not any(phrase in informational.text for phrase in ("Сначала", "Затем", "После этого", "Отдельно"))
+    assert adapter.prompts[-1].request.direction == THEMATIC_DIRECTIONS[1]

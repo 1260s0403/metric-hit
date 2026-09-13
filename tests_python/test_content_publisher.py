@@ -9,6 +9,7 @@ from metrichit_os.content_publisher import (
     ContentPublisherStore,
     TEST_INTERVAL_SECONDS,
     TEST_TOTAL_POSTS,
+    TEST_POSTS,
     channel_message_payload,
 )
 from metrichit_os.local_author import sanitize_plain_text
@@ -119,12 +120,12 @@ def callback(update_id, callback_id, user_id, data, *, chat_type="private", chat
     }
 
 
-def test_store_persists_draft_image_placeholder_and_decision(tmp_path):
+def test_store_persists_text_only_draft_and_decision(tmp_path):
     database = tmp_path / "publisher.sqlite"
     first = ContentPublisherStore(database)
     draft = first.create_job(101, "Как проверить позиции перед тестом")
     assert draft.status == "in_review"
-    assert draft.image_artifact == f"placeholder://metrichit/{draft.job_id}/v1"
+    assert "Картинка" not in ContentPublisherBot.preview(draft)
     assert len(draft.content_hash) == 64
 
     decision = first.approve(draft.job_id, 1, 101)
@@ -141,9 +142,7 @@ def test_generator_is_deterministic_and_local(tmp_path):
     first = repository.create_job(101, "  Проверка   сайта ")
     second = repository.create_job(101, "Проверка сайта")
     assert first.content == second.content
-    assert first.image_brief == second.image_brief
     assert first.content_hash == second.content_hash
-    assert first.image_artifact.startswith("placeholder://")
 
 
 def test_owner_creates_preview_and_approve_only_marks_ready(tmp_path):
@@ -435,7 +434,7 @@ def test_schedule_publishes_exactly_twenty_slots_and_survives_restart_without_du
     assert len({row["telegram_message_id"] for row in rows}) == TEST_TOTAL_POSTS
 
 
-def test_schedule_slots_are_distinct_substantive_plain_text_posts(tmp_path):
+def test_schedule_slots_are_distinct_plain_text_posts_with_varied_formats_and_directions(tmp_path):
     repository = store(tmp_path)
     repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
     repository.start_test_schedule(101)
@@ -449,10 +448,13 @@ def test_schedule_slots_are_distinct_substantive_plain_text_posts(tmp_path):
     assert len(set(contents)) == TEST_TOTAL_POSTS
     for content in contents:
         assert 900 <= len(content) <= 1400
-        assert all(phrase in content for phrase in ("Сначала", "Затем", "После этого", "Отдельно"))
         assert content == sanitize_plain_text(content)
         assert "http" not in content.casefold()
         assert "**" not in content
+    directions = {direction for _, direction, _, _ in TEST_POSTS}
+    assert len(directions) == 7
+    assert any("Сначала" in content for content in contents)
+    assert any("Сначала" not in content for content in contents)
 
 
 def test_channel_payload_is_plain_text_and_disables_link_previews_for_legacy_schedule_slots(tmp_path):

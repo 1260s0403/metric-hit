@@ -25,6 +25,7 @@ from .local_author import (
     LocalPostAuthor,
     PostKind,
     PostRequest,
+    THEMATIC_DIRECTIONS,
     sanitize_plain_text,
 )
 
@@ -34,26 +35,26 @@ TEST_INTERVAL_SECONDS = 180
 TEST_TOTAL_POSTS = 20
 TEST_DURATION_SECONDS = 3600
 TEST_POSTS = (
-    ("Что проверить на сайте до запуска SEO-теста", "До старта часто смотрят только на список запросов и пропускают состояние самих страниц."),
-    ("Почему важно зафиксировать позиции до начала работ", "Без исходной точки даже полезная динамика превращается в спор о том, что было раньше."),
-    ("Как выбрать страницы для первого теста", "Первый запуск разумнее начинать не со всего сайта, а со страниц с понятной задачей."),
-    ("Чем тестовый запуск отличается от постоянной работы", "Тест нужен, чтобы проверить гипотезу в ограниченном контуре, а не заменить регулярную работу с сайтом."),
-    ("Какие изменения сайта мешают оценить результат", "Одновременная смена текстов, структуры и настроек не даёт понять, что именно изменило картину."),
-    ("Почему техническое SEO остаётся обязательным", "Если страница плохо доступна поиску или работает нестабильно, сначала нужно устранить эту причину."),
-    ("Как определить период проверки результата", "Слишком короткий период даёт случайный срез, а слишком длинный скрывает момент, когда появились изменения."),
-    ("Какие данные сохранить перед стартом", "Скриншот одной позиции не заменяет набор данных, по которому можно вернуться к исходной ситуации."),
-    ("Почему не стоит менять несколько факторов одновременно", "Когда в один день меняют несколько условий, вывод о следующем шаге становится предположением."),
-    ("Как оценивать динамику позиций без поспешных выводов", "Одна просадка или один рост не описывают состояние группы запросов и страницы целиком."),
-    ("Что делать, если у страницы несколько целевых запросов", "Разные запросы могут вести к одной странице с разным намерением пользователя, и это нужно увидеть заранее."),
-    ("Как проверить готовность посадочной страницы", "До любого теста стоит убедиться, что страница отвечает на запрос, а не только содержит нужные слова."),
-    ("Почему качество контента влияет на интерпретацию теста", "Слабый или неясный контент мешает отделить проблему страницы от остальных факторов."),
-    ("Какие страницы не стоит брать в первый запуск", "Для первого шага не подходят страницы с незавершённой структурой, частыми правками или неясной ролью."),
-    ("Как вести журнал изменений во время теста", "Память команды быстро смешивает даты и причины, поэтому изменения лучше фиксировать в моменте."),
-    ("Почему стабильность сайта важна для чистого эксперимента", "Нестабильная доступность и постоянные релизы создают фон, на котором нельзя уверенно читать результат."),
-    ("Как сравнивать результаты до и после запуска", "Сравнение имеет смысл только при одинаковых группах, страницах и понятном периоде наблюдения."),
-    ("Какие метрики смотреть вместе с позициями", "Позиции полезны в контексте страниц, групп запросов и изменений на сайте, а не как одиночное число."),
-    ("Когда тест стоит остановить досрочно", "Остановить тест стоит не из-за эмоции от одного дня, а когда исходные условия перестали быть сопоставимыми."),
-    ("Как подвести итоги тестового периода", "Итог начинается не с громкого вывода, а с сопоставления исходных данных, действий и наблюдений."),
+    (PostKind.INSTRUCTION, THEMATIC_DIRECTIONS[0], "Что проверить перед запуском ПФ", "До запуска важно понять границы теста и состояние сайта."),
+    (PostKind.DIAGNOSTIC, THEMATIC_DIRECTIONS[1], "Почему одна позиция не описывает выдачу", "Один запрос не заменяет контекст связанных страниц и конкурентов."),
+    (PostKind.INFORMATIONAL, THEMATIC_DIRECTIONS[2], "Техническая готовность страницы", "Техническое SEO остаётся частью готовности к любому дальнейшему действию."),
+    (PostKind.EXPLANATORY, THEMATIC_DIRECTIONS[3], "Как интент меняет роль страницы", "Запросы с похожими словами могут отвечать на разные задачи пользователя."),
+    (PostKind.DIAGNOSTIC, THEMATIC_DIRECTIONS[4], "Регион как часть поискового контекста", "Оценка без региона может смешивать разные условия выдачи."),
+    (PostKind.INFORMATIONAL, THEMATIC_DIRECTIONS[5], "Что дают данные до запуска", "Исходная точка нужна не для отчёта, а для понятной интерпретации наблюдений."),
+    (PostKind.INSTRUCTION, THEMATIC_DIRECTIONS[2], "Проверка коммерческой релевантности", "Страница должна отвечать ожиданию пользователя, а не только содержать нужные слова."),
+    (PostKind.EXPLANATORY, THEMATIC_DIRECTIONS[0], "Тест и постоянная работа это разные режимы", "Ограниченный запуск проверяет гипотезу и не заменяет системную работу с сайтом."),
+    (PostKind.DIAGNOSTIC, THEMATIC_DIRECTIONS[5], "Когда изменения мешают оценке", "Несколько одновременных правок усложняют объяснение результата."),
+    (PostKind.INFORMATIONAL, THEMATIC_DIRECTIONS[1], "Ранжирование нельзя свести к одному сигналу", "Выдача меняется в контексте запроса, страницы и периода наблюдения."),
+    (PostKind.EXPLANATORY, THEMATIC_DIRECTIONS[3], "Семантика это не просто список фраз", "Группа запросов помогает увидеть намерение и роль страницы."),
+    (PostKind.INSTRUCTION, THEMATIC_DIRECTIONS[5], "Как фиксировать изменения", "Журнал помогает не приписывать эффект тому, что не проверяли."),
+    (PostKind.DIAGNOSTIC, THEMATIC_DIRECTIONS[2], "Почему контент влияет на выводы", "Неясное содержание страницы может быть отдельной причиной слабого соответствия запросу."),
+    (PostKind.INFORMATIONAL, THEMATIC_DIRECTIONS[4], "Локальный спрос и страница", "Региональная задача требует смотреть на контекст, а не переносить выводы автоматически."),
+    (PostKind.EXPLANATORY, THEMATIC_DIRECTIONS[1], "Период проверки меняет картину", "Короткий срез и длинный период отвечают на разные вопросы."),
+    (PostKind.INSTRUCTION, THEMATIC_DIRECTIONS[3], "Как разобрать группу целевых запросов", "Полезно отделить запросы с разными намерениями до изменений на странице."),
+    (PostKind.DIAGNOSTIC, THEMATIC_DIRECTIONS[0], "Когда тест лучше остановить", "Условия перестают быть сопоставимыми не из-за эмоции, а из-за изменения исходных данных."),
+    (PostKind.INFORMATIONAL, THEMATIC_DIRECTIONS[5], "Позиции и другие наблюдения", "Позиция полезна как часть картины, а не как единственное основание для решения."),
+    (PostKind.EXPLANATORY, THEMATIC_DIRECTIONS[6], "Как говорить об обновлениях поиска", "Изменения поисковых систем требуют фактического источника, а не догадок."),
+    (PostKind.DIAGNOSTIC, THEMATIC_DIRECTIONS[2], "Почему стабильность сайта важна", "Нестабильная доступность создаёт фон, который мешает читать остальные сигналы."),
 )
 
 
@@ -100,8 +101,6 @@ class Draft:
     version: int
     topic: str
     content: str
-    image_brief: str
-    image_artifact: str
     content_hash: str
     status: str
 
@@ -247,40 +246,39 @@ class ContentPublisherStore:
                 """
             )
 
-    def _render(self, topic: str, revision_note: str = "", opening: str | None = None) -> tuple[str, str]:
+    def _render(self, topic: str, revision_note: str = "", opening: str | None = None,
+                kind: PostKind = PostKind.INFORMATIONAL, direction: str | None = None) -> str:
         clean_topic = " ".join(topic.split())
         if not clean_topic:
             raise ValueError("Тема не может быть пустой.")
         profile = AuthorProfile(
             tone="прямой, спокойный, профессиональный", audience="владельцы сайтов и SEO-специалисты",
             product_facts=("MetricHit помогает усиливать подготовленный сайт и не заменяет техническое SEO.",),
-            constraints=("Не раскрывать поисковую механику бота.",),
+            constraints=(
+                "Не раскрывать поисковую механику бота.",
+                "Писать только plain text без Markdown, URL, emoji и скрытых символов.",
+                "Не выдумывать кейсы, метрики, факты или обновления поисковых систем.",
+                "Инструкции и последовательные действия использовать только для практического формата.",
+                "Работать по тематическим направлениям: " + "; ".join(THEMATIC_DIRECTIONS) + ".",
+            ),
             default_cta="Перед запуском зафиксируйте текущие позиции и период проверки.",
         )
         content = self.author.draft(profile, PostRequest(
-            PostKind.PRODUCT, clean_topic, opening or "Разбираем тему спокойно, на конкретной ситуации и без общих обещаний.",
+            kind, clean_topic, opening or "Разбираем тему спокойно, без общих обещаний и выдуманных примеров.",
+            direction=direction,
         )).text
         if revision_note:
             content += f"\n\nУчтено при доработке: {revision_note.strip()}"
-        image_brief = (
-            f"MetricHit, тема {clean_topic}: квадратная JPEG карточка с крупным заголовком из 3 6 слов, "
-            "читаемым на мобильном экране. Премиальная многослойная 3D композиция на полностью непрозрачном "
-            "графитовом почти чёрном фоне, со стеклянными панелями, глубиной и спокойным дорогим светом. "
-            "Палитра: графит, сдержанный cyan и заметный, но не кричащий тёплый оранжевый акцент. Никакого "
-            "размытия, тумана, белых или мутных краёв, логотипов, URL, мелкого текста, стрелок, графиков, "
-            "скриншотов, интерфейсов, людей и водяных знаков."
-        )
-        return sanitize_plain_text(content), image_brief
+        return sanitize_plain_text(content)
 
     @staticmethod
-    def _hash(content: str, image_brief: str) -> str:
-        return hashlib.sha256(f"{content}\0{image_brief}".encode("utf-8")).hexdigest()
+    def _hash(content: str) -> str:
+        return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
     def create_job(self, owner_user_id: int, topic: str) -> Draft:
-        content, image_brief = self._render(topic)
+        content = self._render(topic)
         job_id = uuid.uuid4().hex[:16]
         version = 1
-        artifact = f"placeholder://metrichit/{job_id}/v{version}"
         timestamp = self._timestamp()
         with self._connect() as connection:
             connection.execute(
@@ -289,15 +287,14 @@ class ContentPublisherStore:
             )
             connection.execute(
                 "INSERT INTO content_drafts VALUES (?, ?, ?, ?, ?, ?, '', ?)",
-                (job_id, version, content, image_brief, artifact, self._hash(content, image_brief), timestamp),
+                (job_id, version, content, "", "", self._hash(content), timestamp),
             )
         return self.get(job_id)
 
     def get(self, job_id: str) -> Draft:
         with self._connect() as connection:
             row = connection.execute(
-                """SELECT j.id, j.current_version, j.topic, j.status, d.content,
-                          d.image_brief, d.image_artifact, d.content_hash
+                """SELECT j.id, j.current_version, j.topic, j.status, d.content, d.content_hash
                    FROM content_jobs j JOIN content_drafts d
                      ON d.job_id = j.id AND d.version = j.current_version
                    WHERE j.id = ?""",
@@ -307,8 +304,7 @@ class ContentPublisherStore:
             raise KeyError(job_id)
         return Draft(
             job_id=str(row["id"]), version=int(row["current_version"]), topic=str(row["topic"]),
-            content=str(row["content"]), image_brief=str(row["image_brief"]),
-            image_artifact=str(row["image_artifact"]), content_hash=str(row["content_hash"]),
+            content=str(row["content"]), content_hash=str(row["content_hash"]),
             status=str(row["status"]),
         )
 
@@ -377,11 +373,10 @@ class ContentPublisherStore:
             if str(row["status"]) != "revision_requested":
                 raise ValueError("Сначала нажмите «Доработать» у актуальной версии.")
             version = int(row["current_version"]) + 1
-            content, image_brief = self._render(str(row["topic"]), clean_note)
-            artifact = f"placeholder://metrichit/{job_id}/v{version}"
+            content = self._render(str(row["topic"]), clean_note)
             connection.execute(
                 "INSERT INTO content_drafts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (job_id, version, content, image_brief, artifact, self._hash(content, image_brief), clean_note, timestamp),
+                (job_id, version, content, "", "", self._hash(content), clean_note, timestamp),
             )
             connection.execute(
                 "UPDATE content_jobs SET status = 'in_review', current_version = ?, updated_at = ? WHERE id = ?",
@@ -514,15 +509,15 @@ class ContentPublisherStore:
                 "INSERT INTO content_test_schedule VALUES (1, ?, ?, ?, 'active', ?, ?, NULL, ?)",
                 (schedule_id, owner_user_id, binding.channel_id, timestamp, ends_at.isoformat(), timestamp),
             )
-            for slot_index, (topic, opening) in enumerate(TEST_POSTS):
-                content, image_brief = self._render(topic, opening=opening)
+            for slot_index, (kind, direction, topic, opening) in enumerate(TEST_POSTS):
+                content = self._render(topic, opening=opening, kind=kind, direction=direction)
                 due_at = started_at + timedelta(seconds=slot_index * TEST_INTERVAL_SECONDS)
                 connection.execute(
                     """INSERT INTO content_test_schedule_slots
                        (schedule_id, slot_index, due_at, content, content_hash, status, telegram_message_id, updated_at)
                        VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?)""",
                     (schedule_id, slot_index, due_at.isoformat(), content,
-                     self._hash(content, image_brief), timestamp),
+                     self._hash(content), timestamp),
                 )
         return self.test_schedule()
 
@@ -675,9 +670,7 @@ class ContentPublisherBot:
     @staticmethod
     def preview(draft: Draft) -> str:
         return (
-            f"Черновик {draft.job_id} · версия {draft.version}\nСтатус: {draft.status}\n\n"
-            f"{draft.content}\n\nКартинка — бриф:\n{draft.image_brief}\n"
-            f"Артефакт: {draft.image_artifact}"
+            f"Черновик {draft.job_id} · версия {draft.version}\nСтатус: {draft.status}\n\n{draft.content}"
         )
 
     def poll_once(self, timeout: int = 0) -> int:
