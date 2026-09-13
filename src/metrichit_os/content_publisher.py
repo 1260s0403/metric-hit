@@ -15,6 +15,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Protocol
 
+from .local_author import AuthorProfile, DeterministicLocalAdapter, LocalPostAuthor, PostKind, PostRequest
+
 
 ACCESS_DENIED = "Доступ к контент-паблишеру закрыт."
 
@@ -45,9 +47,11 @@ class Decision:
 class ContentPublisherStore:
     """Private SQLite registry for jobs, immutable draft versions and decisions."""
 
-    def __init__(self, database_path: str | Path, now: Callable[[], datetime] | None = None):
+    def __init__(self, database_path: str | Path, now: Callable[[], datetime] | None = None,
+                 author: LocalPostAuthor | None = None):
         self.database_path = str(database_path)
         self._now = now or (lambda: datetime.now(UTC))
+        self.author = author or LocalPostAuthor(DeterministicLocalAdapter())
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -98,18 +102,19 @@ class ContentPublisherStore:
                 """
             )
 
-    @staticmethod
-    def _render(topic: str, revision_note: str = "") -> tuple[str, str]:
+    def _render(self, topic: str, revision_note: str = "") -> tuple[str, str]:
         clean_topic = " ".join(topic.split())
         if not clean_topic:
             raise ValueError("Тема не может быть пустой.")
-        content = (
-            f"{clean_topic}\n\n"
-            "Разбираем тему коротко и по делу для владельцев сайтов. "
-            "MetricHit помогает работать с поведенческими факторами в поисковой выдаче: "
-            "сначала проверяем исходные данные, затем запускаем управляемый тест и оцениваем результат.\n\n"
-            "Перед запуском зафиксируйте текущие позиции и период проверки — так изменения можно сравнить корректно."
+        profile = AuthorProfile(
+            tone="прямой, спокойный, профессиональный", audience="владельцы сайтов и SEO-специалисты",
+            product_facts=("MetricHit помогает усиливать подготовленный сайт и не заменяет техническое SEO.",),
+            constraints=("Не раскрывать поисковую механику бота.",),
+            default_cta="Перед запуском зафиксируйте текущие позиции и период проверки.",
         )
+        content = self.author.draft(profile, PostRequest(
+            PostKind.PRODUCT, clean_topic, "Разбираем тему коротко и по делу.",
+        )).text
         if revision_note:
             content += f"\n\nУчтено при доработке: {revision_note.strip()}"
         image_brief = (
