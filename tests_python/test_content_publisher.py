@@ -41,6 +41,30 @@ class PublishingTransport(FakeTransport):
         return {"ok": True, "result": True}
 
 
+class MemberTransport(PublishingTransport):
+    def __init__(self, updates=(), *, status="administrator"):
+        super().__init__(updates)
+        self.status = status
+
+    def call(self, method, payload):
+        if method == "getChatMember":
+            self.calls.append((method, payload))
+            return {"ok": True, "result": {"status": self.status}}
+        return super().call(method, payload)
+
+
+class VerificationResponseTransport(PublishingTransport):
+    def __init__(self, updates, response):
+        super().__init__(updates)
+        self.response = response
+
+    def call(self, method, payload):
+        if method == "getChatMember":
+            self.calls.append((method, payload))
+            return self.response
+        return super().call(method, payload)
+
+
 class AmbiguousFailureTransport(PublishingTransport):
     def call(self, method, payload):
         if method == "sendMessage" and payload.get("chat_id") == -100123:
@@ -237,6 +261,111 @@ def test_live_transport_uses_only_process_environment_and_never_contacts_on_setu
     monkeypatch.setenv("METRICHIT_PUBLISHER_BOT_TOKEN", "secret-only-in-process")
     bot = ContentPublisherBot.from_environment(store(tmp_path), {101})
     assert bot.offset is None
+
+
+def test_missing_environment_owner_id_allows_safe_pending_forward_bootstrap(tmp_path, monkeypatch):
+    monkeypatch.setenv("METRICHIT_PUBLISHER_BOT_TOKEN", "secret-only-in-process")
+    monkeypatch.delenv("METRICHIT_PUBLISHER_OWNER_IDS", raising=False)
+    bot = ContentPublisherBot.from_environment(store(tmp_path))
+    assert bot.owner_user_ids == frozenset()
+    assert bot.offset is None
+
+
+def test_pending_forward_discovers_and_persists_verified_channel_admin(tmp_path):
+    database = tmp_path / "publisher.sqlite"
+    repository = ContentPublisherStore(database)
+    forwarded = {
+        "update_id": 1,
+        "message": {
+            "chat": {"id": 101, "type": "private"}, "from": {"id": 101},
+            "forward_origin": {"type": "channel", "chat": {"id": -100123, "title": "Тестовый канал"}},
+        },
+    }
+    transport = MemberTransport([forwarded])
+    bot = ContentPublisherBot(repository, set(), transport)
+
+    assert bot.poll_once() == 1
+    assert ("getChatMember", {"chat_id": -100123, "user_id": 101}) in transport.calls
+    assert repository.channel_binding().channel_id == -100123
+    assert repository.verified_owner_user_ids() == frozenset({101})
+
+    restarted = ContentPublisherBot(ContentPublisherStore(database), set(), transport)
+    transport.updates = [message(2, 101, "/status")]
+    assert restarted.poll_once() == 1
+    assert transport.calls[-1][0] == "sendMessage"
+    assert transport.calls[-1][1]["chat_id"] == 101
+
+
+@pytest.mark.parametrize("status", ["member", "restricted", "left", "kicked"])
+def test_non_admin_forward_sender_cannot_claim_first_owner(tmp_path, status):
+    repository = store(tmp_path)
+    forwarded = {
+        "update_id": 1,
+        "message": {
+            "chat": {"id": 202, "type": "private"}, "from": {"id": 202},
+            "forward_origin": {"type": "channel", "chat": {"id": -100123, "title": "Тестовый канал"}},
+        },
+    }
+    transport = MemberTransport([forwarded], status=status)
+    bot = ContentPublisherBot(repository, set(), transport)
+
+    assert bot.poll_once() == 1
+    assert repository.verified_owner_user_ids() == frozenset()
+    with pytest.raises(ValueError, match="ещё не привязан"):
+        repository.channel_binding()
+    assert transport.calls[-1] == ("sendMessage", {"chat_id": 202, "text": ACCESS_DENIED})
+
+
+def test_plain_or_ambiguous_first_update_never_claims_ownership(tmp_path):
+    malformed_forward = {
+        "update_id": 2,
+        "message": {
+            "chat": {"id": 202, "type": "private"}, "from": {"id": 202},
+            "forward_origin": {"type": "channel", "chat": {"title": "Без ID"}},
+        },
+    }
+    transport = MemberTransport([message(1, 202, "/start_test"), malformed_forward])
+    repository = store(tmp_path)
+    bot = ContentPublisherBot(repository, set(), transport)
+
+    assert bot.poll_once() == 2
+    assert repository.verified_owner_user_ids() == frozenset()
+    assert not any(method == "getChatMember" for method, _ in transport.calls)
+
+
+@pytest.mark.parametrize("response", [{}, {"ok": False}, {"ok": True, "result": True}])
+def test_ambiguous_membership_response_fails_closed(tmp_path, response):
+    forwarded = {
+        "update_id": 1,
+        "message": {
+            "chat": {"id": 202, "type": "private"}, "from": {"id": 202},
+            "forward_origin": {"type": "channel", "chat": {"id": -100123, "title": "Тестовый канал"}},
+        },
+    }
+    repository = store(tmp_path)
+    transport = VerificationResponseTransport([forwarded], response)
+    bot = ContentPublisherBot(repository, set(), transport)
+
+    assert bot.poll_once() == 1
+    assert repository.verified_owner_user_ids() == frozenset()
+    assert transport.calls[-1] == ("sendMessage", {"chat_id": 202, "text": ACCESS_DENIED})
+
+
+def test_explicit_owner_ids_override_discovery_and_keep_previous_behavior(tmp_path):
+    forwarded = {
+        "update_id": 1,
+        "message": {
+            "chat": {"id": 101, "type": "private"}, "from": {"id": 101},
+            "forward_origin": {"type": "channel", "chat": {"id": -100123, "title": "Тестовый канал"}},
+        },
+    }
+    transport = MemberTransport([forwarded], status="member")
+    repository = store(tmp_path)
+    bot = ContentPublisherBot(repository, {101}, transport)
+
+    assert bot.poll_once() == 1
+    assert repository.channel_binding().channel_id == -100123
+    assert not any(method == "getChatMember" for method, _ in transport.calls)
 
 
 def test_forwarded_channel_auto_binds_and_owner_starts_then_stops_schedule(tmp_path):

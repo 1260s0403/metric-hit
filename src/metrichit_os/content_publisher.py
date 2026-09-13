@@ -189,6 +189,12 @@ class ContentPublisherStore:
                     bound_by_user_id INTEGER NOT NULL,
                     bound_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS content_owner_binding (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                    owner_user_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    verified_at TEXT NOT NULL
+                );
                 CREATE TABLE IF NOT EXISTS content_publications (
                     job_id TEXT NOT NULL REFERENCES content_jobs(id),
                     version INTEGER NOT NULL,
@@ -385,6 +391,48 @@ class ContentPublisherStore:
             )
         return self.channel_binding()
 
+    def bind_verified_owner_channel(
+        self, owner_user_id: int, candidate: ChannelCandidate
+    ) -> ChannelBinding:
+        """Atomically persist the first Telegram-verified owner and exact channel."""
+        timestamp = self._timestamp()
+        with self._connect() as connection:
+            owner = connection.execute(
+                "SELECT owner_user_id, channel_id FROM content_owner_binding WHERE singleton = 1"
+            ).fetchone()
+            if owner is not None and (
+                int(owner["owner_user_id"]) != owner_user_id
+                or int(owner["channel_id"]) != candidate.channel_id
+            ):
+                raise ValueError("Владелец и тестовый канал уже привязаны.")
+            channel = connection.execute(
+                "SELECT channel_id FROM content_channel_binding WHERE singleton = 1"
+            ).fetchone()
+            if channel is not None and int(channel["channel_id"]) != candidate.channel_id:
+                raise ValueError("Тестовый канал уже подключён; смена канала заблокирована.")
+            connection.execute(
+                """INSERT INTO content_channel_binding
+                   (singleton, channel_id, title, username, bound_by_user_id, bound_at)
+                   VALUES (1, ?, ?, ?, ?, ?)
+                   ON CONFLICT(singleton) DO NOTHING""",
+                (candidate.channel_id, candidate.title, candidate.username, owner_user_id, timestamp),
+            )
+            connection.execute(
+                """INSERT INTO content_owner_binding
+                   (singleton, owner_user_id, channel_id, verified_at)
+                   VALUES (1, ?, ?, ?)
+                   ON CONFLICT(singleton) DO NOTHING""",
+                (owner_user_id, candidate.channel_id, timestamp),
+            )
+        return self.channel_binding()
+
+    def verified_owner_user_ids(self) -> frozenset[int]:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT owner_user_id FROM content_owner_binding WHERE singleton = 1"
+            ).fetchone()
+        return frozenset() if row is None else frozenset({int(row["owner_user_id"])})
+
     def bind_latest_channel_candidate(self, owner_user_id: int) -> ChannelBinding:
         with self._connect() as connection:
             row = connection.execute(
@@ -572,12 +620,10 @@ class ContentPublisherBot:
     """Owner-only control UI for manual drafts and one bounded automatic test."""
 
     def __init__(
-        self, store: ContentPublisherStore, owner_user_ids: set[int], transport: TelegramTransport
+        self, store: ContentPublisherStore, owner_user_ids: set[int] | None, transport: TelegramTransport
     ):
-        if not owner_user_ids:
-            raise ValueError("At least one owner user id is required")
         self.store = store
-        self.owner_user_ids = frozenset(owner_user_ids)
+        self.owner_user_ids = frozenset(owner_user_ids or ())
         self.transport = transport
         self.offset: int | None = None
 
@@ -657,10 +703,44 @@ class ContentPublisherBot:
         return True
 
     def _authorized(self, user_id: object, chat: object) -> bool:
+        active_owner_ids = self.owner_user_ids or self.store.verified_owner_user_ids()
         return (
-            isinstance(user_id, int) and user_id in self.owner_user_ids
+            isinstance(user_id, int) and user_id in active_owner_ids
             and isinstance(chat, dict) and chat.get("type") == "private" and chat.get("id") == user_id
         )
+
+    @staticmethod
+    def _private_sender(user_id: object, chat: object) -> bool:
+        return (
+            isinstance(user_id, int) and isinstance(chat, dict)
+            and chat.get("type") == "private" and chat.get("id") == user_id
+        )
+
+    def _try_bind_verified_owner(
+        self, user_id: object, chat: object, message: dict[str, object]
+    ) -> bool:
+        """Bootstrap only from a private channel forward whose sender is its admin."""
+        if self.owner_user_ids or self.store.verified_owner_user_ids():
+            return False
+        candidate = self._forwarded_channel(message)
+        if not self._private_sender(user_id, chat) or candidate is None:
+            return False
+        try:
+            response = self.transport.call("getChatMember", {
+                "chat_id": candidate.channel_id, "user_id": int(user_id),
+            })
+            member = response.get("result") if response.get("ok") is True else None
+            status = member.get("status") if isinstance(member, dict) else None
+            if status not in {"administrator", "creator", "owner"}:
+                return False
+            binding = self.store.bind_verified_owner_channel(int(user_id), candidate)
+        except Exception:
+            return False
+        self.transport.call("sendMessage", {
+            "chat_id": int(user_id),
+            "text": f"Владелец и тестовый канал подтверждены: {binding.title}. Для запуска отправьте /start_test.",
+        })
+        return True
 
     def _handle_update(self, update: dict[str, object]) -> bool:
         message = update.get("message")
@@ -670,6 +750,8 @@ class ContentPublisherBot:
                 return False
             chat_id, user_id = chat.get("id"), sender.get("id")
             if not self._authorized(user_id, chat):
+                if self._try_bind_verified_owner(user_id, chat, message):
+                    return True
                 if isinstance(chat_id, int):
                     self.transport.call("sendMessage", {"chat_id": chat_id, "text": ACCESS_DENIED})
                 return True
