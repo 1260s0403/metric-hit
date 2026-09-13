@@ -1,9 +1,9 @@
-"""Local drafting and explicitly-approved Telegram publishing for MetricHit.
+"""Local authoring and bounded Telegram publishing for MetricHit.
 
 Credentials are deliberately supplied only at process start through
 ``METRICHIT_PUBLISHER_BOT_TOKEN``.  They are never persisted, logged, or
-accepted through a Telegram message.  A draft approval only makes a version
-ready; a separate owner-only ``/publish`` command is required to send it.
+accepted through a Telegram message.  The automatic mode is deliberately
+limited to one owner-started, one-hour test run.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import os
 import sqlite3
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable, Protocol
 from urllib.request import Request, urlopen
@@ -23,6 +23,31 @@ from .local_author import AuthorProfile, DeterministicLocalAdapter, LocalPostAut
 
 
 ACCESS_DENIED = "Доступ к контент-паблишеру закрыт."
+TEST_INTERVAL_SECONDS = 180
+TEST_TOTAL_POSTS = 20
+TEST_DURATION_SECONDS = 3600
+TEST_TOPICS = (
+    "Что проверить на сайте до запуска SEO-теста",
+    "Почему важно зафиксировать позиции до начала работ",
+    "Как выбрать страницы для первого теста",
+    "Чем тестовый запуск отличается от постоянной работы",
+    "Какие изменения сайта мешают оценить результат",
+    "Почему техническое SEO остаётся обязательным",
+    "Как определить период проверки результата",
+    "Какие данные сохранить перед стартом",
+    "Почему не стоит менять несколько факторов одновременно",
+    "Как оценивать динамику позиций без поспешных выводов",
+    "Что делать, если у страницы несколько целевых запросов",
+    "Как проверить готовность посадочной страницы",
+    "Почему качество контента влияет на интерпретацию теста",
+    "Какие страницы не стоит брать в первый запуск",
+    "Как вести журнал изменений во время теста",
+    "Почему стабильность сайта важна для чистого эксперимента",
+    "Как сравнивать результаты до и после запуска",
+    "Какие метрики смотреть вместе с позициями",
+    "Когда тест стоит остановить досрочно",
+    "Как подвести итоги тестового периода",
+)
 
 
 class TelegramTransport(Protocol):
@@ -81,6 +106,17 @@ class ChannelBinding:
     channel_id: int
     title: str
     username: str | None
+
+
+@dataclass(frozen=True)
+class TestSchedule:
+    schedule_id: str
+    owner_user_id: int
+    channel_id: int
+    status: str
+    started_at: datetime
+    ends_at: datetime
+    published_slots: int
 
 
 class ContentPublisherStore:
@@ -160,6 +196,28 @@ class ContentPublisherStore:
                     telegram_message_id INTEGER NOT NULL,
                     published_at TEXT NOT NULL,
                     PRIMARY KEY(job_id, version)
+                );
+                CREATE TABLE IF NOT EXISTS content_test_schedule (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                    schedule_id TEXT NOT NULL UNIQUE,
+                    owner_user_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('active', 'stopped', 'completed', 'failed')),
+                    started_at TEXT NOT NULL,
+                    ends_at TEXT NOT NULL,
+                    stopped_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS content_test_schedule_slots (
+                    schedule_id TEXT NOT NULL,
+                    slot_index INTEGER NOT NULL CHECK(slot_index >= 0 AND slot_index < 20),
+                    due_at TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    content_hash TEXT NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('pending', 'sending', 'published', 'skipped')),
+                    telegram_message_id INTEGER,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY(schedule_id, slot_index)
                 );
                 """
             )
@@ -312,6 +370,21 @@ class ContentPublisherStore:
                 (owner_user_id, candidate.channel_id, candidate.title, candidate.username, self._timestamp()),
             )
 
+    def bind_channel(self, owner_user_id: int, candidate: ChannelCandidate) -> ChannelBinding:
+        with self._connect() as connection:
+            existing = connection.execute(
+                "SELECT channel_id FROM content_channel_binding WHERE singleton = 1"
+            ).fetchone()
+            if existing is not None and int(existing["channel_id"]) != candidate.channel_id:
+                raise ValueError("Тестовый канал уже подключён; смена канала заблокирована.")
+            connection.execute(
+                """INSERT INTO content_channel_binding(singleton, channel_id, title, username, bound_by_user_id, bound_at)
+                   VALUES (1, ?, ?, ?, ?, ?)
+                   ON CONFLICT(singleton) DO NOTHING""",
+                (candidate.channel_id, candidate.title, candidate.username, owner_user_id, self._timestamp()),
+            )
+        return self.channel_binding()
+
     def bind_latest_channel_candidate(self, owner_user_id: int) -> ChannelBinding:
         with self._connect() as connection:
             row = connection.execute(
@@ -320,14 +393,9 @@ class ContentPublisherStore:
             ).fetchone()
             if row is None:
                 raise ValueError("Сначала перешлите боту сообщение из нужного канала.")
-            connection.execute(
-                """INSERT INTO content_channel_binding(singleton, channel_id, title, username, bound_by_user_id, bound_at)
-                   VALUES (1, ?, ?, ?, ?, ?)
-                   ON CONFLICT(singleton) DO UPDATE SET channel_id=excluded.channel_id, title=excluded.title,
-                     username=excluded.username, bound_by_user_id=excluded.bound_by_user_id, bound_at=excluded.bound_at""",
-                (int(row["channel_id"]), str(row["title"]), row["username"], owner_user_id, self._timestamp()),
-            )
-        return self.channel_binding()
+        return self.bind_channel(owner_user_id, ChannelCandidate(
+            int(row["channel_id"]), str(row["title"]), row["username"],
+        ))
 
     def channel_binding(self) -> ChannelBinding:
         with self._connect() as connection:
@@ -361,9 +429,147 @@ class ContentPublisherStore:
                 "SELECT 1 FROM content_publications WHERE job_id = ? AND version = ?", (job_id, version)
             ).fetchone() is not None
 
+    def start_test_schedule(self, owner_user_id: int) -> TestSchedule:
+        binding = self.channel_binding()
+        started_at = self._now().astimezone(UTC)
+        ends_at = started_at + timedelta(seconds=TEST_DURATION_SECONDS)
+        schedule_id = uuid.uuid4().hex
+        timestamp = started_at.isoformat()
+        with self._connect() as connection:
+            existing = connection.execute("SELECT status FROM content_test_schedule WHERE singleton = 1").fetchone()
+            if existing is not None:
+                raise ValueError("Тестовое расписание уже создавалось; повторный запуск заблокирован.")
+            connection.execute(
+                "INSERT INTO content_test_schedule VALUES (1, ?, ?, ?, 'active', ?, ?, NULL, ?)",
+                (schedule_id, owner_user_id, binding.channel_id, timestamp, ends_at.isoformat(), timestamp),
+            )
+            for slot_index, topic in enumerate(TEST_TOPICS):
+                content, image_brief = self._render(topic)
+                due_at = started_at + timedelta(seconds=slot_index * TEST_INTERVAL_SECONDS)
+                connection.execute(
+                    """INSERT INTO content_test_schedule_slots
+                       (schedule_id, slot_index, due_at, content, content_hash, status, telegram_message_id, updated_at)
+                       VALUES (?, ?, ?, ?, ?, 'pending', NULL, ?)""",
+                    (schedule_id, slot_index, due_at.isoformat(), content,
+                     self._hash(content, image_brief), timestamp),
+                )
+        return self.test_schedule()
+
+    def test_schedule(self) -> TestSchedule:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT s.schedule_id, s.owner_user_id, s.channel_id, s.status, s.started_at, s.ends_at,
+                          COUNT(sl.slot_index) FILTER (WHERE sl.status = 'published') AS published_slots
+                   FROM content_test_schedule s
+                   LEFT JOIN content_test_schedule_slots sl ON sl.schedule_id = s.schedule_id
+                   WHERE s.singleton = 1 GROUP BY s.schedule_id"""
+            ).fetchone()
+        if row is None:
+            raise ValueError("Тестовое расписание ещё не запущено.")
+        return TestSchedule(
+            schedule_id=str(row["schedule_id"]), owner_user_id=int(row["owner_user_id"]),
+            channel_id=int(row["channel_id"]), status=str(row["status"]),
+            started_at=datetime.fromisoformat(str(row["started_at"])),
+            ends_at=datetime.fromisoformat(str(row["ends_at"])),
+            published_slots=int(row["published_slots"]),
+        )
+
+    def stop_test_schedule(self, owner_user_id: int) -> TestSchedule:
+        timestamp = self._timestamp()
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT owner_user_id, status FROM content_test_schedule WHERE singleton = 1"
+            ).fetchone()
+            if row is None:
+                raise ValueError("Активного тестового расписания нет.")
+            if int(row["owner_user_id"]) != owner_user_id:
+                raise PermissionError(ACCESS_DENIED)
+            if str(row["status"]) != "active":
+                raise ValueError("Тестовое расписание уже остановлено.")
+            connection.execute(
+                """UPDATE content_test_schedule SET status='stopped', stopped_at=?, updated_at=?
+                   WHERE singleton=1 AND status='active'""", (timestamp, timestamp),
+            )
+            connection.execute(
+                """UPDATE content_test_schedule_slots SET status='skipped', updated_at=?
+                   WHERE schedule_id=(SELECT schedule_id FROM content_test_schedule WHERE singleton=1)
+                     AND status='pending'""", (timestamp,),
+            )
+        return self.test_schedule()
+
+    def claim_due_test_slot(self) -> tuple[TestSchedule, int, str] | None:
+        """Durably claim at most one due slot before any external send."""
+        current = self._now().astimezone(UTC)
+        timestamp = current.isoformat()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            schedule = connection.execute(
+                "SELECT * FROM content_test_schedule WHERE singleton=1"
+            ).fetchone()
+            if schedule is None or str(schedule["status"]) != "active":
+                return None
+            schedule_id = str(schedule["schedule_id"])
+            if current >= datetime.fromisoformat(str(schedule["ends_at"])):
+                connection.execute(
+                    "UPDATE content_test_schedule SET status='completed', updated_at=? WHERE singleton=1",
+                    (timestamp,),
+                )
+                connection.execute(
+                    "UPDATE content_test_schedule_slots SET status='skipped', updated_at=? WHERE schedule_id=? AND status='pending'",
+                    (timestamp, schedule_id),
+                )
+                return None
+            due = connection.execute(
+                """SELECT slot_index, content FROM content_test_schedule_slots
+                   WHERE schedule_id=? AND status='pending' AND due_at<=?
+                   ORDER BY slot_index""", (schedule_id, timestamp),
+            ).fetchall()
+            if not due:
+                return None
+            chosen = due[-1]
+            if len(due) > 1:
+                connection.executemany(
+                    "UPDATE content_test_schedule_slots SET status='skipped', updated_at=? WHERE schedule_id=? AND slot_index=?",
+                    [(timestamp, schedule_id, int(row["slot_index"])) for row in due[:-1]],
+                )
+            connection.execute(
+                """UPDATE content_test_schedule_slots SET status='sending', updated_at=?
+                   WHERE schedule_id=? AND slot_index=? AND status='pending'""",
+                (timestamp, schedule_id, int(chosen["slot_index"])),
+            )
+        return self.test_schedule(), int(chosen["slot_index"]), str(chosen["content"])
+
+    def finish_test_slot(self, schedule_id: str, slot_index: int, telegram_message_id: int) -> TestSchedule:
+        timestamp = self._timestamp()
+        with self._connect() as connection:
+            changed = connection.execute(
+                """UPDATE content_test_schedule_slots SET status='published', telegram_message_id=?, updated_at=?
+                   WHERE schedule_id=? AND slot_index=? AND status='sending'""",
+                (telegram_message_id, timestamp, schedule_id, slot_index),
+            ).rowcount
+            if changed != 1:
+                raise ValueError("Слот публикации уже обработан.")
+            remaining = connection.execute(
+                "SELECT COUNT(*) FROM content_test_schedule_slots WHERE schedule_id=? AND status='pending'",
+                (schedule_id,),
+            ).fetchone()[0]
+            if remaining == 0:
+                connection.execute(
+                    "UPDATE content_test_schedule SET status='completed', updated_at=? WHERE schedule_id=? AND status='active'",
+                    (timestamp, schedule_id),
+                )
+        return self.test_schedule()
+
+    def fail_test_slot(self, schedule_id: str) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE content_test_schedule SET status='failed', updated_at=? WHERE schedule_id=? AND status='active'",
+                (self._timestamp(), schedule_id),
+            )
+
 
 class ContentPublisherBot:
-    """Owner-only review UI with an explicit, separately gated publish action."""
+    """Owner-only control UI for manual drafts and one bounded automatic test."""
 
     def __init__(
         self, store: ContentPublisherStore, owner_user_ids: set[int], transport: TelegramTransport
@@ -376,8 +582,16 @@ class ContentPublisherBot:
         self.offset: int | None = None
 
     @classmethod
-    def from_environment(cls, store: ContentPublisherStore, owner_user_ids: set[int]) -> "ContentPublisherBot":
+    def from_environment(
+        cls, store: ContentPublisherStore, owner_user_ids: set[int] | None = None
+    ) -> "ContentPublisherBot":
         """Build the live adapter without storing its secret or contacting Telegram."""
+        if owner_user_ids is None:
+            raw_owner_ids = os.environ.get("METRICHIT_PUBLISHER_OWNER_IDS", "")
+            try:
+                owner_user_ids = {int(value.strip()) for value in raw_owner_ids.split(",") if value.strip()}
+            except ValueError as error:
+                raise ValueError("METRICHIT_PUBLISHER_OWNER_IDS must contain numeric Telegram user ids") from error
         return cls(store, owner_user_ids, UrllibTelegramTransport(os.environ.get("METRICHIT_PUBLISHER_BOT_TOKEN", "")))
 
     @staticmethod
@@ -412,7 +626,35 @@ class ContentPublisherBot:
                 self.offset = update_id + 1
             if self._handle_update(update):
                 handled += 1
+        self.publish_due_test_post()
         return handled
+
+    def run_forever(self, timeout: int = 5) -> None:
+        """Keep polling while the local process is running."""
+        while True:
+            self.poll_once(timeout=timeout)
+
+    def publish_due_test_post(self) -> bool:
+        claimed = self.store.claim_due_test_slot()
+        if claimed is None:
+            return False
+        schedule, slot_index, content = claimed
+        try:
+            response = self.transport.call("sendMessage", {"chat_id": schedule.channel_id, "text": content})
+            result = response.get("result")
+            message_id = result.get("message_id") if isinstance(result, dict) else None
+            if not isinstance(message_id, int):
+                raise RuntimeError("Telegram не вернул идентификатор опубликованного сообщения.")
+            finished = self.store.finish_test_slot(schedule.schedule_id, slot_index, message_id)
+        except Exception:
+            self.store.fail_test_slot(schedule.schedule_id)
+            raise
+        if finished.status == "completed":
+            self.transport.call("sendMessage", {
+                "chat_id": schedule.owner_user_id,
+                "text": f"Тест завершён автоматически. Опубликовано: {finished.published_slots}.",
+            })
+        return True
 
     def _authorized(self, user_id: object, chat: object) -> bool:
         return (
@@ -434,9 +676,10 @@ class ContentPublisherBot:
             candidate = self._forwarded_channel(message)
             if candidate is not None:
                 self.store.remember_channel_candidate(int(user_id), candidate)
+                binding = self.store.bind_channel(int(user_id), candidate)
                 self.transport.call("sendMessage", {
                     "chat_id": int(chat_id),
-                    "text": f"Канал найден: {candidate.title}. Отправьте /bind, чтобы привязать его.",
+                    "text": f"Тестовый канал подключён: {binding.title}. Для запуска отправьте /start_test.",
                 })
                 return True
             if not isinstance(text, str):
@@ -495,6 +738,30 @@ class ContentPublisherBot:
                     "chat_id": chat_id, "text": f"Привязан канал: {binding.title}.",
                 })
                 return
+            if command == "/start_test":
+                self.store.start_test_schedule(user_id)
+                self.transport.call("sendMessage", {
+                    "chat_id": chat_id,
+                    "text": (
+                        "Тест запущен: 20 постов, по одному каждые 3 минуты. "
+                        "Через час расписание остановится автоматически. Команда остановки: /stop"
+                    ),
+                })
+                return
+            if command == "/stop":
+                schedule = self.store.stop_test_schedule(user_id)
+                self.transport.call("sendMessage", {
+                    "chat_id": chat_id,
+                    "text": f"Расписание остановлено. Опубликовано: {schedule.published_slots}.",
+                })
+                return
+            if command == "/status":
+                schedule = self.store.test_schedule()
+                self.transport.call("sendMessage", {
+                    "chat_id": chat_id,
+                    "text": f"Тест: {schedule.status}. Опубликовано: {schedule.published_slots} из {TEST_TOTAL_POSTS}.",
+                })
+                return
             if command == "/publish":
                 draft = self.store.get(argument.strip())
                 binding = self.store.channel_binding()
@@ -510,7 +777,7 @@ class ContentPublisherBot:
                 self.store.record_publication(draft.job_id, draft.version, user_id, binding.channel_id, message_id)
                 self.transport.call("sendMessage", {"chat_id": chat_id, "text": "Опубликовано в привязанном канале."})
                 return
-            help_text = "Команды: /draft тема, /list, /show ID, /revise ID что изменить, /bind, /publish ID"
+            help_text = "Команды теста: /start_test, /status, /stop"
             self.transport.call("sendMessage", {"chat_id": chat_id, "text": help_text})
         except (KeyError, ValueError, PermissionError) as error:
             self.transport.call("sendMessage", {"chat_id": chat_id, "text": f"Ошибка: {error}"})
@@ -555,3 +822,14 @@ class ContentPublisherBot:
         if not isinstance(channel_id, int) or not isinstance(title, str) or not title.strip():
             return None
         return ChannelCandidate(channel_id, title.strip(), username if isinstance(username, str) else None)
+
+
+def main() -> None:
+    """Run the dedicated publisher bot from environment-only configuration."""
+    database_path = Path(os.environ.get("METRICHIT_PUBLISHER_DB", "data/content-publisher.sqlite"))
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    ContentPublisherBot.from_environment(ContentPublisherStore(database_path)).run_forever()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,11 +1,14 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from metrichit_os.content_publisher import (
     ACCESS_DENIED,
+    ChannelCandidate,
     ContentPublisherBot,
     ContentPublisherStore,
+    TEST_INTERVAL_SECONDS,
+    TEST_TOTAL_POSTS,
 )
 
 
@@ -23,14 +26,38 @@ class FakeTransport:
 
 
 class PublishingTransport(FakeTransport):
+    def __init__(self, updates=()):
+        super().__init__(updates)
+        self.message_id = 76
+
     def call(self, method, payload):
         self.calls.append((method, payload))
         if method == "getUpdates":
             updates, self.updates = self.updates, []
             return {"ok": True, "result": updates}
         if method == "sendMessage" and payload.get("chat_id") == -100123:
-            return {"ok": True, "result": {"message_id": 77}}
+            self.message_id += 1
+            return {"ok": True, "result": {"message_id": self.message_id}}
         return {"ok": True, "result": True}
+
+
+class AmbiguousFailureTransport(PublishingTransport):
+    def call(self, method, payload):
+        if method == "sendMessage" and payload.get("chat_id") == -100123:
+            self.calls.append((method, payload))
+            raise TimeoutError("delivery outcome unknown")
+        return super().call(method, payload)
+
+
+class Clock:
+    def __init__(self):
+        self.value = datetime(2026, 9, 13, 10, tzinfo=UTC)
+
+    def __call__(self):
+        return self.value
+
+    def advance(self, seconds):
+        self.value += timedelta(seconds=seconds)
 
 
 def store(tmp_path):
@@ -210,3 +237,106 @@ def test_live_transport_uses_only_process_environment_and_never_contacts_on_setu
     monkeypatch.setenv("METRICHIT_PUBLISHER_BOT_TOKEN", "secret-only-in-process")
     bot = ContentPublisherBot.from_environment(store(tmp_path), {101})
     assert bot.offset is None
+
+
+def test_forwarded_channel_auto_binds_and_owner_starts_then_stops_schedule(tmp_path):
+    clock = Clock()
+    repository = ContentPublisherStore(tmp_path / "publisher.sqlite", now=clock)
+    forwarded = {
+        "update_id": 1,
+        "message": {
+            "chat": {"id": 101, "type": "private"}, "from": {"id": 101},
+            "forward_origin": {"type": "channel", "chat": {"id": -100123, "title": "Тестовый канал"}},
+        },
+    }
+    transport = PublishingTransport([forwarded, message(2, 101, "/start_test")])
+    bot = ContentPublisherBot(repository, {101}, transport)
+
+    assert bot.poll_once() == 2
+    assert repository.channel_binding().channel_id == -100123
+    assert repository.test_schedule().published_slots == 1
+    assert [payload["chat_id"] for method, payload in transport.calls if method == "sendMessage"].count(-100123) == 1
+
+    transport.updates = [message(3, 101, "/stop")]
+    assert bot.poll_once() == 1
+    clock.advance(TEST_INTERVAL_SECONDS * 3)
+    assert not bot.publish_due_test_post()
+    assert repository.test_schedule().status == "stopped"
+    assert [payload["chat_id"] for method, payload in transport.calls if method == "sendMessage"].count(-100123) == 1
+
+
+def test_channel_binding_is_one_time_and_cannot_be_silently_replaced(tmp_path):
+    repository = store(tmp_path)
+    repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
+    assert repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None)).channel_id == -100123
+    with pytest.raises(ValueError, match="смена канала заблокирована"):
+        repository.bind_channel(101, ChannelCandidate(-100999, "Другой канал", None))
+    assert repository.channel_binding().channel_id == -100123
+
+
+def test_schedule_publishes_exactly_twenty_slots_and_survives_restart_without_duplicates(tmp_path):
+    clock = Clock()
+    database = tmp_path / "publisher.sqlite"
+    repository = ContentPublisherStore(database, now=clock)
+    repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
+    repository.start_test_schedule(101)
+    transport = PublishingTransport()
+    bot = ContentPublisherBot(repository, {101}, transport)
+
+    assert bot.publish_due_test_post()
+    restarted = ContentPublisherBot(ContentPublisherStore(database, now=clock), {101}, transport)
+    assert not restarted.publish_due_test_post()
+    for _ in range(1, TEST_TOTAL_POSTS):
+        clock.advance(TEST_INTERVAL_SECONDS)
+        assert restarted.publish_due_test_post()
+
+    schedule = restarted.store.test_schedule()
+    assert schedule.status == "completed"
+    assert schedule.published_slots == TEST_TOTAL_POSTS
+    channel_calls = [payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]
+    assert len(channel_calls) == TEST_TOTAL_POSTS
+    with restarted.store._connect() as connection:
+        rows = connection.execute(
+            "SELECT slot_index, status, telegram_message_id FROM content_test_schedule_slots ORDER BY slot_index"
+        ).fetchall()
+    assert [row["slot_index"] for row in rows] == list(range(TEST_TOTAL_POSTS))
+    assert {row["status"] for row in rows} == {"published"}
+    assert len({row["telegram_message_id"] for row in rows}) == TEST_TOTAL_POSTS
+
+
+def test_hour_cutoff_completes_without_backlog_burst(tmp_path):
+    clock = Clock()
+    repository = ContentPublisherStore(tmp_path / "publisher.sqlite", now=clock)
+    repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
+    repository.start_test_schedule(101)
+    transport = PublishingTransport()
+    bot = ContentPublisherBot(repository, {101}, transport)
+
+    clock.advance(3600)
+    assert not bot.publish_due_test_post()
+    assert repository.test_schedule().status == "completed"
+    assert not [payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]
+
+
+def test_ambiguous_send_failure_is_not_retried_after_restart(tmp_path):
+    clock = Clock()
+    database = tmp_path / "publisher.sqlite"
+    repository = ContentPublisherStore(database, now=clock)
+    repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
+    repository.start_test_schedule(101)
+    transport = AmbiguousFailureTransport()
+    with pytest.raises(TimeoutError, match="outcome unknown"):
+        ContentPublisherBot(repository, {101}, transport).publish_due_test_post()
+
+    restarted = ContentPublisherBot(ContentPublisherStore(database, now=clock), {101}, transport)
+    assert restarted.store.test_schedule().status == "failed"
+    assert not restarted.publish_due_test_post()
+    assert len([payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]) == 1
+
+
+def test_environment_parses_owner_ids_without_persisting_them(tmp_path, monkeypatch):
+    monkeypatch.setenv("METRICHIT_PUBLISHER_BOT_TOKEN", "secret-only-in-process")
+    monkeypatch.setenv("METRICHIT_PUBLISHER_OWNER_IDS", "101, 202")
+    bot = ContentPublisherBot.from_environment(store(tmp_path))
+    assert bot.owner_user_ids == frozenset({101, 202})
+    assert "secret-only-in-process" not in (tmp_path / "publisher.sqlite").read_bytes().decode("utf-8", errors="ignore")
