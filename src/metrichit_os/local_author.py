@@ -192,16 +192,22 @@ class DeterministicLocalAdapter:
 
 
 class DeterministicLocalImageAdapter:
-    """Offline baseline that yields a valid PNG and a topic-specific generator prompt.
+    """Offline baseline that yields a valid JPEG and a Codex-ready image prompt.
 
     It is deliberately a test-safe fallback, not a substitute for a selected
     local image model.  A local model only needs to implement ``LocalImageAdapter``.
     """
 
-    _PIXEL_PNG = b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/" \
-        "zX2k7wAAAABJRU5ErkJggg=="
-    )
+    _PIXEL_JPEG = b64decode(
+        "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////"
+        "////////////////////////////2wBDAf////////////////////////////////////////////////////////////"
+        "//////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAA"
+        "AAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEA"
+        "AAAAAAAAAAAAAAAAAAA/9oACAEDAQE/Aaf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/Aaf/xAAUEAEAAAAA"
+        "AAAAAAAAAAAAAAAAAA/9oACAEBAAY/Ap//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IR//2gAMAwEAAgAD"
+        "AAAAEP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Q"
+        "H//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QH//Z" + "==="
+    ) + b"\xff\xd9"
 
     def __init__(self) -> None:
         self.prompts: list[ImagePrompt] = []
@@ -209,11 +215,14 @@ class DeterministicLocalImageAdapter:
     def generate_image(self, prompt: ImagePrompt) -> GeneratedImage:
         self.prompts.append(prompt)
         return GeneratedImage(
-            content=self._PIXEL_PNG,
-            media_type="image/png",
+            content=self._PIXEL_JPEG,
+            media_type="image/jpeg",
             prompt=(
-                f"Telegram post cover about {prompt.topic.strip()} for {prompt.audience.strip()}. "
-                "Clean editorial illustration, no text, no logos, no watermark."
+                "Use case: ads-marketing. Asset type: Telegram post cover. "
+                f"Primary request: editorial visual about {prompt.topic.strip()} for {prompt.audience.strip()}. "
+                "Style/medium: clean editorial illustration. Composition/framing: horizontal 3:2 landscape; "
+                "one large central subject kept inside the middle 60% of the frame so a portrait mobile crop remains strong. "
+                "Constraints: JPEG output; no text, no logos, no watermark; no arrows, chevrons, or trend lines."
             ),
         )
 
@@ -274,5 +283,7 @@ class LocalPostAuthor:
 
     @staticmethod
     def _validate_image(image: GeneratedImage, topic: str) -> None:
+        if image.media_type != "image/jpeg" or not image.content.startswith(b"\xff\xd8") or not image.content.endswith(b"\xff\xd9"):
+            raise ImageGenerationError("generated image must be a JPEG asset")
         if topic.strip().casefold() not in image.prompt.casefold():
             raise ImageGenerationError("generated image prompt must include the post topic")

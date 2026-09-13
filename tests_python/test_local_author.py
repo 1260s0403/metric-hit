@@ -33,8 +33,10 @@ def test_deterministic_mode_supports_every_post_kind_without_model(profile: Auth
     assert all(link in draft.text for link in REQUIRED_PUBLIC_LINKS)
     assert adapter.prompts == [adapter.prompts[0]]
     assert adapter.prompts[0].profile == profile
-    assert draft.image.media_type == "image/png"
+    assert draft.image.media_type == "image/jpeg"
     assert draft.topic in draft.image.prompt
+    assert "horizontal 3:2" in draft.image.prompt
+    assert "mobile crop" in draft.image.prompt
 
 
 def test_author_generates_a_topic_specific_image_for_each_draft(profile: AuthorProfile) -> None:
@@ -52,10 +54,21 @@ def test_author_generates_a_topic_specific_image_for_each_draft(profile: AuthorP
 def test_author_rejects_image_without_a_matching_topic(profile: AuthorProfile) -> None:
     class WrongImageAdapter:
         def generate_image(self, _prompt):
-            return GeneratedImage(b"image", "image/png", "Generic visual without the requested theme")
+            return GeneratedImage(b"\xff\xd8image\xff\xd9", "image/jpeg", "Generic visual without the requested theme")
 
     with pytest.raises(ImageGenerationError, match="include the post topic"):
         LocalPostAuthor(DeterministicLocalAdapter(), WrongImageAdapter()).draft(
+            profile, PostRequest(PostKind.PRODUCT, "Тема", "Вступление."),
+        )
+
+
+def test_author_rejects_non_jpeg_images(profile: AuthorProfile) -> None:
+    class PngImageAdapter:
+        def generate_image(self, _prompt):
+            return GeneratedImage(b"png", "image/png", "Image about Тема")
+
+    with pytest.raises(ImageGenerationError, match="JPEG"):
+        LocalPostAuthor(DeterministicLocalAdapter(), PngImageAdapter()).draft(
             profile, PostRequest(PostKind.PRODUCT, "Тема", "Вступление."),
         )
 
