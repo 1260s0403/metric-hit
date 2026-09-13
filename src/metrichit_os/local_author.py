@@ -115,6 +115,8 @@ _URL = re.compile(r"(?i)\b(?:https?://|www\.|t\.me/)[^\s<>()]+")
 _HTML_TAG = re.compile(r"<[^>\n]*>")
 _HTML_ENTITY = re.compile(r"&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]+);")
 _DISALLOWED = re.compile(r"[^A-Za-zА-Яа-яЁё0-9 \n.,;:!?()\-\"']")
+MIN_POST_LENGTH = 900
+MAX_POST_LENGTH = 1400
 
 
 def sanitize_plain_text(text: str) -> str:
@@ -163,10 +165,20 @@ class DeterministicLocalAdapter:
         cta = request.cta or profile.default_cta
         return (
             f"{request.topic.strip()}\n\n"
-            f"{request.opening.strip()}\n\n"
-            f"{_SECTIONS[request.kind]}\n{facts}\n\n"
-            f"{cta.strip()}\n\n"
-            "В канале MetricHit выходят разборы и следующие шаги."
+            f"{request.opening.strip()} Это не повод делать вывод по одному сигналу или менять план на ходу. "
+            "Сначала важно отделить наблюдение от причины: похожая картина может возникнуть из-за страницы, "
+            "состава запросов, недавних правок или выбранного периода проверки.\n\n"
+            f"{_SECTIONS[request.kind]}\n\n"
+            "Сначала зафиксируйте исходную точку: нужные страницы, группы запросов и дату проверки. Затем "
+            "сверьте, какая страница отвечает на задачу пользователя и не менялся ли на ней контент, структура "
+            "или технические настройки. После этого смотрите на связанную группу, а не на одиночную фразу: так "
+            "видно, единичное это отклонение или общий сигнал. Отдельно запишите каждое изменение в журнал, "
+            "чтобы не приписать его эффекту того, что не проверяли.\n\n"
+            f"{facts}\n\n"
+            "Так разбор остаётся предметным: сначала данные и последовательность действий, затем решение. "
+            "Не нужно добавлять несколько новых переменных одновременно, иначе следующий шаг будет сложно "
+            "объяснить и повторить.\n\n"
+            f"{cta.strip()}"
         )
 
 
@@ -209,6 +221,10 @@ class LocalPostAuthor:
             raise FactIntegrityError(f"draft omits supplied facts: {', '.join(missing)}")
         if cta not in text:
             raise FactIntegrityError("draft omits the requested CTA")
+        if not MIN_POST_LENGTH <= len(text) <= MAX_POST_LENGTH:
+            raise TelegramFormattingError(
+                f"draft must contain {MIN_POST_LENGTH}-{MAX_POST_LENGTH} characters"
+            )
 
     @staticmethod
     def _reject_public_mechanics(profile: AuthorProfile, request: PostRequest) -> None:

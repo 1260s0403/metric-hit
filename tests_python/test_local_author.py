@@ -2,7 +2,7 @@ import pytest
 
 from metrichit_os.local_author import (
     AuthorProfile, DeterministicLocalAdapter, FactIntegrityError, LocalPostAuthor,
-    PostKind, PostRequest, PublicDisclosureError, RevisionError, TelegramFormattingError,
+    MAX_POST_LENGTH, MIN_POST_LENGTH, PostKind, PostRequest, PublicDisclosureError, RevisionError, TelegramFormattingError,
     sanitize_plain_text, validate_plain_text,
 )
 
@@ -102,3 +102,19 @@ def test_plain_text_sanitizer_removes_urls_markdown_emoji_and_hidden_unicode() -
     unsafe = "**Проверка** • https://example.test/путь\u200b\n➡️ Готово [сейчас](https://t.me/test)"
 
     assert sanitize_plain_text(unsafe) == "Проверка\nГотово сейчас"
+
+
+@pytest.mark.parametrize("kind", list(PostKind))
+def test_deterministic_author_enforces_substantive_plain_text_post_contract(
+    profile: AuthorProfile, kind: PostKind,
+) -> None:
+    draft = LocalPostAuthor(DeterministicLocalAdapter()).draft(
+        profile,
+        PostRequest(kind, "Как проверять страницу перед тестом", "У страницы может быть понятный запрос, но неясная роль в запуске."),
+    )
+
+    assert MIN_POST_LENGTH <= len(draft.text) <= MAX_POST_LENGTH
+    assert all(phrase in draft.text for phrase in ("Сначала", "Затем", "После этого", "Отдельно"))
+    assert "http" not in draft.text.casefold()
+    assert "**" not in draft.text
+    assert draft.text == sanitize_plain_text(draft.text)

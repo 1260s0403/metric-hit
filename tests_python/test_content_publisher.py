@@ -11,6 +11,7 @@ from metrichit_os.content_publisher import (
     TEST_TOTAL_POSTS,
     channel_message_payload,
 )
+from metrichit_os.local_author import sanitize_plain_text
 
 
 class FakeTransport:
@@ -432,6 +433,26 @@ def test_schedule_publishes_exactly_twenty_slots_and_survives_restart_without_du
     assert [row["slot_index"] for row in rows] == list(range(TEST_TOTAL_POSTS))
     assert {row["status"] for row in rows} == {"published"}
     assert len({row["telegram_message_id"] for row in rows}) == TEST_TOTAL_POSTS
+
+
+def test_schedule_slots_are_distinct_substantive_plain_text_posts(tmp_path):
+    repository = store(tmp_path)
+    repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
+    repository.start_test_schedule(101)
+    with repository._connect() as connection:
+        rows = connection.execute(
+            "SELECT content FROM content_test_schedule_slots ORDER BY slot_index"
+        ).fetchall()
+
+    contents = [str(row["content"]) for row in rows]
+    assert len(contents) == TEST_TOTAL_POSTS
+    assert len(set(contents)) == TEST_TOTAL_POSTS
+    for content in contents:
+        assert 900 <= len(content) <= 1400
+        assert all(phrase in content for phrase in ("Сначала", "Затем", "После этого", "Отдельно"))
+        assert content == sanitize_plain_text(content)
+        assert "http" not in content.casefold()
+        assert "**" not in content
 
 
 def test_channel_payload_is_plain_text_and_disables_link_previews_for_legacy_schedule_slots(tmp_path):
