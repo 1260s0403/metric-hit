@@ -148,7 +148,7 @@ class DeterministicLocalAdapter:
             f"{cta.strip()}\n\n"
             "В основном канале MetricHit — разборы и следующие шаги.\n"
             f"➡️ {REQUIRED_PUBLIC_LINKS[0]}\n\n"
-            f"Лендинг: {REQUIRED_PUBLIC_LINKS[1]}\n"
+            f"Сайт: {REQUIRED_PUBLIC_LINKS[1]}\n"
             f"Поддержка: {REQUIRED_PUBLIC_LINKS[2]}"
         )
 
