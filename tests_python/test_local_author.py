@@ -1,8 +1,9 @@
 import pytest
 
 from metrichit_os.local_author import (
-    AuthorProfile, DeterministicLocalAdapter, FactIntegrityError, LocalPostAuthor,
-    PostKind, PostRequest, PublicDisclosureError, RevisionError, TelegramFormattingError,
+    AuthorProfile, DeterministicLocalAdapter, DeterministicLocalImageAdapter, FactIntegrityError,
+    GeneratedImage, ImageGenerationError, LocalPostAuthor, PostKind, PostRequest,
+    PublicDisclosureError, RevisionError, TelegramFormattingError,
     REQUIRED_PUBLIC_LINKS, validate_telegram_markdown,
 )
 
@@ -32,6 +33,31 @@ def test_deterministic_mode_supports_every_post_kind_without_model(profile: Auth
     assert all(link in draft.text for link in REQUIRED_PUBLIC_LINKS)
     assert adapter.prompts == [adapter.prompts[0]]
     assert adapter.prompts[0].profile == profile
+    assert draft.image.media_type == "image/png"
+    assert draft.topic in draft.image.prompt
+
+
+def test_author_generates_a_topic_specific_image_for_each_draft(profile: AuthorProfile) -> None:
+    images = DeterministicLocalImageAdapter()
+    draft = LocalPostAuthor(DeterministicLocalAdapter(), images).draft(
+        profile, PostRequest(PostKind.CHECKLIST, "Подготовка сайта", "Проверьте основу."),
+    )
+
+    assert images.prompts[0].topic == "Подготовка сайта"
+    assert images.prompts[0].kind is PostKind.CHECKLIST
+    assert draft.image.content
+    assert "Подготовка сайта" in draft.image.prompt
+
+
+def test_author_rejects_image_without_a_matching_topic(profile: AuthorProfile) -> None:
+    class WrongImageAdapter:
+        def generate_image(self, _prompt):
+            return GeneratedImage(b"image", "image/png", "Generic visual without the requested theme")
+
+    with pytest.raises(ImageGenerationError, match="include the post topic"):
+        LocalPostAuthor(DeterministicLocalAdapter(), WrongImageAdapter()).draft(
+            profile, PostRequest(PostKind.PRODUCT, "Тема", "Вступление."),
+        )
 
 
 def test_author_passes_profile_rules_and_requested_cta_to_adapter(profile: AuthorProfile) -> None:
@@ -84,6 +110,7 @@ def test_revision_changes_only_requested_cta(profile: AuthorProfile) -> None:
     assert revised.cta == "Получите консультацию в Telegram."
     assert original.cta not in revised.text
     assert revised.text.replace(revised.cta, original.cta) == original.text
+    assert revised.image is original.image
 
 
 def test_revision_rejects_unscoped_feedback(profile: AuthorProfile) -> None:
