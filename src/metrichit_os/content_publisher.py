@@ -3,7 +3,7 @@
 Credentials are deliberately supplied only at process start through
 ``METRICHIT_PUBLISHER_BOT_TOKEN``.  They are never persisted, logged, or
 accepted through a Telegram message.  The automatic mode is deliberately
-limited to one owner-started, one-hour test run.
+limited to one active owner-started, one-hour test run at a time.
 """
 
 from __future__ import annotations
@@ -222,8 +222,7 @@ class ContentPublisherStore:
                     PRIMARY KEY(job_id, version)
                 );
                 CREATE TABLE IF NOT EXISTS content_test_schedule (
-                    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
-                    schedule_id TEXT NOT NULL UNIQUE,
+                    schedule_id TEXT PRIMARY KEY,
                     owner_user_id INTEGER NOT NULL,
                     channel_id INTEGER NOT NULL,
                     status TEXT NOT NULL CHECK(status IN ('active', 'stopped', 'completed', 'failed')),
@@ -245,6 +244,40 @@ class ContentPublisherStore:
                 );
                 """
             )
+            self._migrate_test_schedule_history(connection)
+
+    @staticmethod
+    def _migrate_test_schedule_history(connection: sqlite3.Connection) -> None:
+        """Upgrade the original singleton schedule table without losing its run."""
+        columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(content_test_schedule)").fetchall()
+        }
+        if "singleton" in columns:
+            connection.executescript(
+                """
+                ALTER TABLE content_test_schedule RENAME TO content_test_schedule_legacy;
+                CREATE TABLE content_test_schedule (
+                    schedule_id TEXT PRIMARY KEY,
+                    owner_user_id INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('active', 'stopped', 'completed', 'failed')),
+                    started_at TEXT NOT NULL,
+                    ends_at TEXT NOT NULL,
+                    stopped_at TEXT,
+                    updated_at TEXT NOT NULL
+                );
+                INSERT INTO content_test_schedule
+                    (schedule_id, owner_user_id, channel_id, status, started_at, ends_at, stopped_at, updated_at)
+                SELECT schedule_id, owner_user_id, channel_id, status, started_at, ends_at, stopped_at, updated_at
+                FROM content_test_schedule_legacy;
+                DROP TABLE content_test_schedule_legacy;
+                """
+            )
+        connection.execute(
+            """CREATE UNIQUE INDEX IF NOT EXISTS content_test_schedule_one_active
+               ON content_test_schedule(status) WHERE status='active'"""
+        )
 
     def _render(self, topic: str, revision_note: str = "", opening: str | None = None,
                 kind: PostKind = PostKind.INFORMATIONAL, direction: str | None = None) -> str:
@@ -502,11 +535,21 @@ class ContentPublisherStore:
         schedule_id = uuid.uuid4().hex
         timestamp = started_at.isoformat()
         with self._connect() as connection:
-            existing = connection.execute("SELECT status FROM content_test_schedule WHERE singleton = 1").fetchone()
-            if existing is not None:
-                raise ValueError("Тестовое расписание уже создавалось; повторный запуск заблокирован.")
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT status FROM content_test_schedule ORDER BY rowid DESC LIMIT 1"
+            ).fetchone()
+            if existing is not None and str(existing["status"]) != "stopped":
+                status = str(existing["status"])
+                if status == "active":
+                    raise ValueError("Тестовое расписание уже активно.")
+                if status == "failed":
+                    raise ValueError("Предыдущая отправка завершилась неопределённо; повторный запуск заблокирован.")
+                raise ValueError("Тестовое расписание уже завершено; повторный запуск заблокирован.")
             connection.execute(
-                "INSERT INTO content_test_schedule VALUES (1, ?, ?, ?, 'active', ?, ?, NULL, ?)",
+                """INSERT INTO content_test_schedule
+                   (schedule_id, owner_user_id, channel_id, status, started_at, ends_at, stopped_at, updated_at)
+                   VALUES (?, ?, ?, 'active', ?, ?, NULL, ?)""",
                 (schedule_id, owner_user_id, binding.channel_id, timestamp, ends_at.isoformat(), timestamp),
             )
             for slot_index, (kind, direction, topic, opening) in enumerate(TEST_POSTS):
@@ -528,7 +571,8 @@ class ContentPublisherStore:
                           COUNT(sl.slot_index) FILTER (WHERE sl.status = 'published') AS published_slots
                    FROM content_test_schedule s
                    LEFT JOIN content_test_schedule_slots sl ON sl.schedule_id = s.schedule_id
-                   WHERE s.singleton = 1 GROUP BY s.schedule_id"""
+                   WHERE s.schedule_id=(SELECT schedule_id FROM content_test_schedule ORDER BY rowid DESC LIMIT 1)
+                   GROUP BY s.schedule_id"""
             ).fetchone()
         if row is None:
             raise ValueError("Тестовое расписание ещё не запущено.")
@@ -544,7 +588,8 @@ class ContentPublisherStore:
         timestamp = self._timestamp()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT owner_user_id, status FROM content_test_schedule WHERE singleton = 1"
+                """SELECT schedule_id, owner_user_id, status FROM content_test_schedule
+                   ORDER BY rowid DESC LIMIT 1"""
             ).fetchone()
             if row is None:
                 raise ValueError("Активного тестового расписания нет.")
@@ -554,12 +599,11 @@ class ContentPublisherStore:
                 raise ValueError("Тестовое расписание уже остановлено.")
             connection.execute(
                 """UPDATE content_test_schedule SET status='stopped', stopped_at=?, updated_at=?
-                   WHERE singleton=1 AND status='active'""", (timestamp, timestamp),
+                   WHERE schedule_id=? AND status='active'""", (timestamp, timestamp, str(row["schedule_id"])),
             )
             connection.execute(
                 """UPDATE content_test_schedule_slots SET status='skipped', updated_at=?
-                   WHERE schedule_id=(SELECT schedule_id FROM content_test_schedule WHERE singleton=1)
-                     AND status='pending'""", (timestamp,),
+                   WHERE schedule_id=? AND status='pending'""", (timestamp, str(row["schedule_id"])),
             )
         return self.test_schedule()
 
@@ -570,15 +614,16 @@ class ContentPublisherStore:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             schedule = connection.execute(
-                "SELECT * FROM content_test_schedule WHERE singleton=1"
+                "SELECT * FROM content_test_schedule WHERE status='active' LIMIT 1"
             ).fetchone()
             if schedule is None or str(schedule["status"]) != "active":
                 return None
             schedule_id = str(schedule["schedule_id"])
             if current >= datetime.fromisoformat(str(schedule["ends_at"])):
                 connection.execute(
-                    "UPDATE content_test_schedule SET status='completed', updated_at=? WHERE singleton=1",
-                    (timestamp,),
+                    """UPDATE content_test_schedule SET status='completed', updated_at=?
+                       WHERE schedule_id=? AND status='active'""",
+                    (timestamp, schedule_id),
                 )
                 connection.execute(
                     "UPDATE content_test_schedule_slots SET status='skipped', updated_at=? WHERE schedule_id=? AND status='pending'",
@@ -635,7 +680,7 @@ class ContentPublisherStore:
 
 
 class ContentPublisherBot:
-    """Owner-only control UI for manual drafts and one bounded automatic test."""
+    """Owner-only control UI for manual drafts and one active bounded test."""
 
     def __init__(
         self, store: ContentPublisherStore, owner_user_ids: set[int] | None, transport: TelegramTransport

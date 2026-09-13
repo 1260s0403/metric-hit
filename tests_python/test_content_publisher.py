@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import sqlite3
 
 import pytest
 
@@ -395,6 +396,91 @@ def test_forwarded_channel_auto_binds_and_owner_starts_then_stops_schedule(tmp_p
     assert [payload["chat_id"] for method, payload in transport.calls if method == "sendMessage"].count(-100123) == 1
 
 
+def test_stopped_schedule_can_start_fresh_without_losing_history_or_allowing_concurrency(tmp_path):
+    clock = Clock()
+    repository = ContentPublisherStore(tmp_path / "publisher.sqlite", now=clock)
+    repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
+    first = repository.start_test_schedule(101)
+    transport = PublishingTransport()
+    bot = ContentPublisherBot(repository, {101}, transport)
+
+    assert bot.publish_due_test_post()
+    stopped = repository.stop_test_schedule(101)
+    assert stopped.schedule_id == first.schedule_id
+    assert stopped.status == "stopped"
+
+    second = repository.start_test_schedule(101)
+    assert second.schedule_id != first.schedule_id
+    assert second.status == "active"
+    assert second.published_slots == 0
+    with pytest.raises(ValueError, match="уже активно"):
+        repository.start_test_schedule(101)
+
+    with repository._connect() as connection:
+        schedules = connection.execute(
+            "SELECT schedule_id, status FROM content_test_schedule ORDER BY rowid"
+        ).fetchall()
+        slot_counts = connection.execute(
+            """SELECT schedule_id, COUNT(*) AS count
+               FROM content_test_schedule_slots GROUP BY schedule_id"""
+        ).fetchall()
+        old_slot_statuses = connection.execute(
+            "SELECT status FROM content_test_schedule_slots WHERE schedule_id=?",
+            (first.schedule_id,),
+        ).fetchall()
+
+    assert [(row["schedule_id"], row["status"]) for row in schedules] == [
+        (first.schedule_id, "stopped"),
+        (second.schedule_id, "active"),
+    ]
+    assert {row["schedule_id"]: row["count"] for row in slot_counts} == {
+        first.schedule_id: TEST_TOTAL_POSTS,
+        second.schedule_id: TEST_TOTAL_POSTS,
+    }
+    assert [row["status"] for row in old_slot_statuses].count("published") == 1
+    assert [row["status"] for row in old_slot_statuses].count("skipped") == TEST_TOTAL_POSTS - 1
+
+
+def test_singleton_schedule_schema_migrates_without_losing_existing_run(tmp_path):
+    database = tmp_path / "publisher.sqlite"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE content_test_schedule (
+                singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                schedule_id TEXT NOT NULL UNIQUE,
+                owner_user_id INTEGER NOT NULL,
+                channel_id INTEGER NOT NULL,
+                status TEXT NOT NULL CHECK(status IN ('active', 'stopped', 'completed', 'failed')),
+                started_at TEXT NOT NULL,
+                ends_at TEXT NOT NULL,
+                stopped_at TEXT,
+                updated_at TEXT NOT NULL
+            );
+            INSERT INTO content_test_schedule VALUES
+                (1, 'legacy-run', 101, -100123, 'stopped',
+                 '2026-09-13T10:00:00+00:00', '2026-09-13T11:00:00+00:00',
+                 '2026-09-13T10:03:00+00:00', '2026-09-13T10:03:00+00:00');
+            """
+        )
+
+    repository = ContentPublisherStore(database)
+    repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
+    assert repository.test_schedule().schedule_id == "legacy-run"
+    fresh = repository.start_test_schedule(101)
+    assert fresh.schedule_id != "legacy-run"
+
+    with repository._connect() as connection:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(content_test_schedule)")}
+        schedules = connection.execute(
+            "SELECT schedule_id, status FROM content_test_schedule ORDER BY rowid"
+        ).fetchall()
+    assert "singleton" not in columns
+    assert [(row["schedule_id"], row["status"]) for row in schedules] == [
+        ("legacy-run", "stopped"),
+        (fresh.schedule_id, "active"),
+    ]
+
 def test_channel_binding_is_one_time_and_cannot_be_silently_replaced(tmp_path):
     repository = store(tmp_path)
     repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
@@ -508,6 +594,8 @@ def test_ambiguous_send_failure_is_not_retried_after_restart(tmp_path):
     restarted = ContentPublisherBot(ContentPublisherStore(database, now=clock), {101}, transport)
     assert restarted.store.test_schedule().status == "failed"
     assert not restarted.publish_due_test_post()
+    with pytest.raises(ValueError, match="завершилась неопределённо"):
+        restarted.store.start_test_schedule(101)
     assert len([payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]) == 1
 
 
