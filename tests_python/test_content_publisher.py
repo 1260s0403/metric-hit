@@ -1,0 +1,158 @@
+from datetime import UTC, datetime
+
+from metrichit_os.content_publisher import (
+    ACCESS_DENIED,
+    ContentPublisherBot,
+    ContentPublisherStore,
+)
+
+
+class FakeTransport:
+    def __init__(self, updates=()):
+        self.updates = list(updates)
+        self.calls = []
+
+    def call(self, method, payload):
+        self.calls.append((method, payload))
+        if method == "getUpdates":
+            updates, self.updates = self.updates, []
+            return {"ok": True, "result": updates}
+        return {"ok": True, "result": True}
+
+
+def store(tmp_path):
+    return ContentPublisherStore(
+        tmp_path / "publisher.sqlite",
+        now=lambda: datetime(2026, 9, 13, 10, tzinfo=UTC),
+    )
+
+
+def message(update_id, user_id, text, *, chat_type="private", chat_id=None):
+    return {
+        "update_id": update_id,
+        "message": {
+            "chat": {"id": user_id if chat_id is None else chat_id, "type": chat_type},
+            "from": {"id": user_id},
+            "text": text,
+        },
+    }
+
+
+def callback(update_id, callback_id, user_id, data, *, chat_type="private", chat_id=None):
+    return {
+        "update_id": update_id,
+        "callback_query": {
+            "id": callback_id,
+            "from": {"id": user_id},
+            "data": data,
+            "message": {
+                "message_id": 10,
+                "chat": {"id": user_id if chat_id is None else chat_id, "type": chat_type},
+            },
+        },
+    }
+
+
+def test_store_persists_draft_image_placeholder_and_decision(tmp_path):
+    database = tmp_path / "publisher.sqlite"
+    first = ContentPublisherStore(database)
+    draft = first.create_job(101, "Как проверить позиции перед тестом")
+    assert draft.status == "in_review"
+    assert draft.image_artifact == f"placeholder://metrichit/{draft.job_id}/v1"
+    assert len(draft.content_hash) == 64
+
+    decision = first.approve(draft.job_id, 1, 101)
+    assert decision.accepted and decision.status == "ready_to_publish"
+    restarted = ContentPublisherStore(database)
+    assert restarted.get(draft.job_id).status == "ready_to_publish"
+    with restarted._connect() as connection:
+        event = connection.execute("SELECT action, outcome FROM content_decisions").fetchone()
+    assert tuple(event) == ("approve", "ready_to_publish")
+
+
+def test_generator_is_deterministic_and_local(tmp_path):
+    repository = store(tmp_path)
+    first = repository.create_job(101, "  Проверка   сайта ")
+    second = repository.create_job(101, "Проверка сайта")
+    assert first.content == second.content
+    assert first.image_brief == second.image_brief
+    assert first.content_hash == second.content_hash
+    assert first.image_artifact.startswith("placeholder://")
+
+
+def test_owner_creates_preview_and_approve_only_marks_ready(tmp_path):
+    transport = FakeTransport([message(1, 101, "/draft Что проверить до запуска")])
+    bot = ContentPublisherBot(store(tmp_path), {101}, transport)
+    assert bot.poll_once(timeout=1) == 1
+    assert transport.calls[0] == ("getUpdates", {"timeout": 1})
+    method, preview = transport.calls[1]
+    assert method == "sendMessage"
+    assert [button["text"] for button in preview["reply_markup"]["inline_keyboard"][0]] == [
+        "✅ Одобрить", "✏️ Доработать", "❌ Отклонить"
+    ]
+    approve_data = preview["reply_markup"]["inline_keyboard"][0][0]["callback_data"]
+    job_id = approve_data.split(":")[2]
+    transport.updates = [callback(2, "approve", 101, approve_data)]
+    assert bot.poll_once() == 1
+    assert bot.store.get(job_id).status == "ready_to_publish"
+    assert {method for method, _ in transport.calls} <= {
+        "getUpdates", "sendMessage", "answerCallbackQuery"
+    }
+    assert not any("channel" in method.casefold() or method == "sendPhoto" for method, _ in transport.calls)
+
+
+def test_outsider_group_and_spoofed_callback_are_rejected(tmp_path):
+    repository = store(tmp_path)
+    draft = repository.create_job(101, "Безопасность")
+    data = f"cp:a:{draft.job_id}:1"
+    transport = FakeTransport([
+        message(1, 202, "/list"),
+        message(2, 101, "/list", chat_type="group", chat_id=-50),
+        callback(3, "spoof", 101, data, chat_id=999),
+    ])
+    bot = ContentPublisherBot(repository, {101}, transport)
+    assert bot.poll_once() == 3
+    assert repository.get(draft.job_id).status == "in_review"
+    sent_texts = [payload["text"] for method, payload in transport.calls if method == "sendMessage"]
+    assert sent_texts == [ACCESS_DENIED, ACCESS_DENIED]
+    assert transport.calls[-1] == (
+        "answerCallbackQuery",
+        {"callback_query_id": "spoof", "text": ACCESS_DENIED, "show_alert": True},
+    )
+
+
+def test_revision_flow_creates_new_immutable_version_and_stale_buttons_fail(tmp_path):
+    repository = store(tmp_path)
+    draft = repository.create_job(101, "Тестовая тема")
+    assert repository.request_revision(draft.job_id, 1, 101).accepted
+    revised = repository.revise(draft.job_id, 101, "добавить чек-лист")
+    assert revised.version == 2 and revised.status == "in_review"
+    assert "добавить чек-лист" in revised.content
+    stale = repository.approve(draft.job_id, 1, 101)
+    assert not stale.accepted and "устаревшей" in stale.reason
+    assert repository.approve(draft.job_id, 2, 101).accepted
+    replay = repository.reject(draft.job_id, 2, 101)
+    assert not replay.accepted and replay.status == "ready_to_publish"
+    with repository._connect() as connection:
+        versions = connection.execute(
+            "SELECT version, revision_note FROM content_drafts WHERE job_id = ? ORDER BY version",
+            (draft.job_id,),
+        ).fetchall()
+    assert [tuple(row) for row in versions] == [(1, ""), (2, "добавить чек-лист")]
+
+
+def test_callback_revision_and_reject_actions_are_explicit(tmp_path):
+    repository = store(tmp_path)
+    revise_draft = repository.create_job(101, "На доработку")
+    reject_draft = repository.create_job(101, "На отклонение")
+    transport = FakeTransport([
+        callback(1, "revise", 101, f"cp:v:{revise_draft.job_id}:1"),
+        callback(2, "reject", 101, f"cp:r:{reject_draft.job_id}:1"),
+    ])
+    bot = ContentPublisherBot(repository, {101}, transport)
+    assert bot.poll_once() == 2
+    assert repository.get(revise_draft.job_id).status == "revision_requested"
+    assert repository.get(reject_draft.job_id).status == "rejected"
+    answers = [payload["text"] for method, payload in transport.calls if method == "answerCallbackQuery"]
+    assert answers[0].startswith("Решение сохранено. Отправьте /revise")
+    assert answers[1] == "Черновик отклонён."
