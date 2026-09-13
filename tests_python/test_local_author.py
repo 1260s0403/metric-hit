@@ -3,7 +3,7 @@ import pytest
 from metrichit_os.local_author import (
     AuthorProfile, DeterministicLocalAdapter, FactIntegrityError, LocalPostAuthor,
     PostKind, PostRequest, PublicDisclosureError, RevisionError, TelegramFormattingError,
-    validate_telegram_markdown,
+    REQUIRED_PUBLIC_LINKS, validate_telegram_markdown,
 )
 
 
@@ -29,6 +29,7 @@ def test_deterministic_mode_supports_every_post_kind_without_model(profile: Auth
     assert draft.kind is kind
     assert draft.text.startswith("**Тема**")
     assert all(fact in draft.text for fact in profile.product_facts)
+    assert all(link in draft.text for link in REQUIRED_PUBLIC_LINKS)
     assert adapter.prompts == [adapter.prompts[0]]
     assert adapter.prompts[0].profile == profile
 

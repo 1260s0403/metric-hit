@@ -102,6 +102,12 @@ _SECTIONS = {
     PostKind.CTA: "Следующий шаг",
 }
 
+REQUIRED_PUBLIC_LINKS = (
+    "https://t.me/mtr_hit",
+    "https://go.mtrhit.ru/",
+    "https://t.me/Metric_Hit",
+)
+
 _PROHIBITED_SEARCH_MECHANICS = re.compile(
     r"(?:поисков\w*\s+(?:выдач\w*|результат\w*)|"
     r"открыва\w*[^\n.]{0,80}(?:результат\w*|сайт)|"
@@ -139,7 +145,11 @@ class DeterministicLocalAdapter:
             f"**{request.topic.strip()}**\n\n"
             f"{request.opening.strip()}\n\n"
             f"**{_SECTIONS[request.kind]}**\n{facts}\n\n"
-            f"{cta.strip()}"
+            f"{cta.strip()}\n\n"
+            "В основном канале MetricHit — разборы и следующие шаги.\n"
+            f"➡️ {REQUIRED_PUBLIC_LINKS[0]}\n\n"
+            f"Лендинг: {REQUIRED_PUBLIC_LINKS[1]}\n"
+            f"Поддержка: {REQUIRED_PUBLIC_LINKS[2]}"
         )
 
 
@@ -182,6 +192,9 @@ class LocalPostAuthor:
             raise FactIntegrityError(f"draft omits supplied facts: {', '.join(missing)}")
         if cta not in text:
             raise FactIntegrityError("draft omits the requested CTA")
+        missing_links = [link for link in REQUIRED_PUBLIC_LINKS if link not in text]
+        if missing_links:
+            raise FactIntegrityError(f"draft omits required public links: {', '.join(missing_links)}")
 
     @staticmethod
     def _reject_public_mechanics(profile: AuthorProfile, request: PostRequest) -> None:
