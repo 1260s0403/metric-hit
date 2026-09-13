@@ -1,19 +1,23 @@
-"""Local, approval-gated content publisher foundation for MetricHit.
+"""Local drafting and explicitly-approved Telegram publishing for MetricHit.
 
-The module owns no Telegram credentials and has no channel publishing method.
-It accepts the same narrow ``call(method, payload)`` transport shape as the
-existing Telegram bot and stops at ``ready_to_publish``.
+Credentials are deliberately supplied only at process start through
+``METRICHIT_PUBLISHER_BOT_TOKEN``.  They are never persisted, logged, or
+accepted through a Telegram message.  A draft approval only makes a version
+ready; a separate owner-only ``/publish`` command is required to send it.
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Callable, Protocol
+from urllib.request import Request, urlopen
 
 from .local_author import AuthorProfile, DeterministicLocalAdapter, LocalPostAuthor, PostKind, PostRequest
 
@@ -23,6 +27,27 @@ ACCESS_DENIED = "Доступ к контент-паблишеру закрыт.
 
 class TelegramTransport(Protocol):
     def call(self, method: str, payload: dict[str, object]) -> dict[str, object]: ...
+
+
+class UrllibTelegramTransport:
+    """Small Telegram API boundary; construction performs no network I/O."""
+
+    def __init__(self, token: str):
+        if not token.strip():
+            raise ValueError("METRICHIT_PUBLISHER_BOT_TOKEN is required")
+        self._base_url = f"https://api.telegram.org/bot{token}/"
+
+    def call(self, method: str, payload: dict[str, object]) -> dict[str, object]:
+        request = Request(
+            self._base_url + method,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"}, method="POST",
+        )
+        with urlopen(request, timeout=35) as response:  # noqa: S310 - fixed Telegram API URL
+            result = json.load(response)
+        if not result.get("ok"):
+            raise RuntimeError(f"Telegram API {method} failed")
+        return result
 
 
 @dataclass(frozen=True)
@@ -42,6 +67,20 @@ class Decision:
     accepted: bool
     status: str
     reason: str
+
+
+@dataclass(frozen=True)
+class ChannelCandidate:
+    channel_id: int
+    title: str
+    username: str | None
+
+
+@dataclass(frozen=True)
+class ChannelBinding:
+    channel_id: int
+    title: str
+    username: str | None
 
 
 class ContentPublisherStore:
@@ -98,6 +137,29 @@ class ContentPublisherStore:
                     action TEXT NOT NULL CHECK(action IN ('approve', 'revise', 'reject')),
                     outcome TEXT NOT NULL,
                     created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS content_channel_candidates (
+                    owner_user_id INTEGER PRIMARY KEY,
+                    channel_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    username TEXT,
+                    observed_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS content_channel_binding (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                    channel_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    username TEXT,
+                    bound_by_user_id INTEGER NOT NULL,
+                    bound_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS content_publications (
+                    job_id TEXT NOT NULL REFERENCES content_jobs(id),
+                    version INTEGER NOT NULL,
+                    channel_id INTEGER NOT NULL,
+                    telegram_message_id INTEGER NOT NULL,
+                    published_at TEXT NOT NULL,
+                    PRIMARY KEY(job_id, version)
                 );
                 """
             )
@@ -240,9 +302,68 @@ class ContentPublisherStore:
             )
         return self.get(job_id)
 
+    def remember_channel_candidate(self, owner_user_id: int, candidate: ChannelCandidate) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO content_channel_candidates(owner_user_id, channel_id, title, username, observed_at)
+                   VALUES (?, ?, ?, ?, ?)
+                   ON CONFLICT(owner_user_id) DO UPDATE SET channel_id=excluded.channel_id,
+                     title=excluded.title, username=excluded.username, observed_at=excluded.observed_at""",
+                (owner_user_id, candidate.channel_id, candidate.title, candidate.username, self._timestamp()),
+            )
+
+    def bind_latest_channel_candidate(self, owner_user_id: int) -> ChannelBinding:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT channel_id, title, username FROM content_channel_candidates WHERE owner_user_id = ?",
+                (owner_user_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("Сначала перешлите боту сообщение из нужного канала.")
+            connection.execute(
+                """INSERT INTO content_channel_binding(singleton, channel_id, title, username, bound_by_user_id, bound_at)
+                   VALUES (1, ?, ?, ?, ?, ?)
+                   ON CONFLICT(singleton) DO UPDATE SET channel_id=excluded.channel_id, title=excluded.title,
+                     username=excluded.username, bound_by_user_id=excluded.bound_by_user_id, bound_at=excluded.bound_at""",
+                (int(row["channel_id"]), str(row["title"]), row["username"], owner_user_id, self._timestamp()),
+            )
+        return self.channel_binding()
+
+    def channel_binding(self) -> ChannelBinding:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT channel_id, title, username FROM content_channel_binding WHERE singleton = 1"
+            ).fetchone()
+        if row is None:
+            raise ValueError("Тестовый канал ещё не привязан.")
+        return ChannelBinding(int(row["channel_id"]), str(row["title"]), row["username"])
+
+    def record_publication(self, job_id: str, version: int, actor_user_id: int,
+                           channel_id: int, telegram_message_id: int) -> None:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT owner_user_id, current_version, status FROM content_jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(job_id)
+            if int(row["owner_user_id"]) != actor_user_id:
+                raise PermissionError(ACCESS_DENIED)
+            if int(row["current_version"]) != version or str(row["status"]) != "ready_to_publish":
+                raise ValueError("К публикации доступна только одобренная актуальная версия.")
+            connection.execute(
+                "INSERT INTO content_publications VALUES (?, ?, ?, ?, ?)",
+                (job_id, version, channel_id, telegram_message_id, self._timestamp()),
+            )
+
+    def is_published(self, job_id: str, version: int) -> bool:
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT 1 FROM content_publications WHERE job_id = ? AND version = ?", (job_id, version)
+            ).fetchone() is not None
+
 
 class ContentPublisherBot:
-    """Owner-only Telegram review UI; deliberately incapable of publishing."""
+    """Owner-only review UI with an explicit, separately gated publish action."""
 
     def __init__(
         self, store: ContentPublisherStore, owner_user_ids: set[int], transport: TelegramTransport
@@ -253,6 +374,11 @@ class ContentPublisherBot:
         self.owner_user_ids = frozenset(owner_user_ids)
         self.transport = transport
         self.offset: int | None = None
+
+    @classmethod
+    def from_environment(cls, store: ContentPublisherStore, owner_user_ids: set[int]) -> "ContentPublisherBot":
+        """Build the live adapter without storing its secret or contacting Telegram."""
+        return cls(store, owner_user_ids, UrllibTelegramTransport(os.environ.get("METRICHIT_PUBLISHER_BOT_TOKEN", "")))
 
     @staticmethod
     def review_keyboard(draft: Draft) -> dict[str, object]:
@@ -298,13 +424,23 @@ class ContentPublisherBot:
         message = update.get("message")
         if isinstance(message, dict):
             chat, sender, text = message.get("chat"), message.get("from"), message.get("text")
-            if not isinstance(chat, dict) or not isinstance(sender, dict) or not isinstance(text, str):
+            if not isinstance(chat, dict) or not isinstance(sender, dict):
                 return False
             chat_id, user_id = chat.get("id"), sender.get("id")
             if not self._authorized(user_id, chat):
                 if isinstance(chat_id, int):
                     self.transport.call("sendMessage", {"chat_id": chat_id, "text": ACCESS_DENIED})
                 return True
+            candidate = self._forwarded_channel(message)
+            if candidate is not None:
+                self.store.remember_channel_candidate(int(user_id), candidate)
+                self.transport.call("sendMessage", {
+                    "chat_id": int(chat_id),
+                    "text": f"Канал найден: {candidate.title}. Отправьте /bind, чтобы привязать его.",
+                })
+                return True
+            if not isinstance(text, str):
+                return False
             self._handle_text(int(chat_id), int(user_id), text)
             return True
         callback = update.get("callback_query")
@@ -353,7 +489,28 @@ class ContentPublisherBot:
                 body = "\n".join(f"{item.job_id} · v{item.version} · {item.status} · {item.topic}" for item in jobs)
                 self.transport.call("sendMessage", {"chat_id": chat_id, "text": body or "Черновиков пока нет."})
                 return
-            help_text = "Команды: /draft тема, /list, /show ID, /revise ID что изменить"
+            if command == "/bind":
+                binding = self.store.bind_latest_channel_candidate(user_id)
+                self.transport.call("sendMessage", {
+                    "chat_id": chat_id, "text": f"Привязан канал: {binding.title}.",
+                })
+                return
+            if command == "/publish":
+                draft = self.store.get(argument.strip())
+                binding = self.store.channel_binding()
+                if draft.status != "ready_to_publish":
+                    raise ValueError("Сначала явно одобрите актуальную версию черновика.")
+                if self.store.is_published(draft.job_id, draft.version):
+                    raise ValueError("Эта версия уже опубликована.")
+                response = self.transport.call("sendMessage", {"chat_id": binding.channel_id, "text": draft.content})
+                result = response.get("result")
+                message_id = result.get("message_id") if isinstance(result, dict) else None
+                if not isinstance(message_id, int):
+                    raise RuntimeError("Telegram не вернул идентификатор опубликованного сообщения.")
+                self.store.record_publication(draft.job_id, draft.version, user_id, binding.channel_id, message_id)
+                self.transport.call("sendMessage", {"chat_id": chat_id, "text": "Опубликовано в привязанном канале."})
+                return
+            help_text = "Команды: /draft тема, /list, /show ID, /revise ID что изменить, /bind, /publish ID"
             self.transport.call("sendMessage", {"chat_id": chat_id, "text": help_text})
         except (KeyError, ValueError, PermissionError) as error:
             self.transport.call("sendMessage", {"chat_id": chat_id, "text": f"Ошибка: {error}"})
@@ -384,3 +541,17 @@ class ContentPublisherBot:
         self.transport.call("answerCallbackQuery", {
             "callback_query_id": callback_id, "text": text, "show_alert": alert,
         })
+
+    @staticmethod
+    def _forwarded_channel(message: dict[str, object]) -> ChannelCandidate | None:
+        """Extract only a channel source from a private forwarded Telegram update."""
+        origin = message.get("forward_origin")
+        channel = origin.get("chat") if isinstance(origin, dict) and origin.get("type") == "channel" else None
+        if not isinstance(channel, dict):
+            channel = message.get("forward_from_chat")
+        if not isinstance(channel, dict):
+            return None
+        channel_id, title, username = channel.get("id"), channel.get("title"), channel.get("username")
+        if not isinstance(channel_id, int) or not isinstance(title, str) or not title.strip():
+            return None
+        return ChannelCandidate(channel_id, title.strip(), username if isinstance(username, str) else None)

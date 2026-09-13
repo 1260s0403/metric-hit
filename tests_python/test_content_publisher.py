@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from metrichit_os.content_publisher import (
     ACCESS_DENIED,
     ContentPublisherBot,
@@ -17,6 +19,17 @@ class FakeTransport:
         if method == "getUpdates":
             updates, self.updates = self.updates, []
             return {"ok": True, "result": updates}
+        return {"ok": True, "result": True}
+
+
+class PublishingTransport(FakeTransport):
+    def call(self, method, payload):
+        self.calls.append((method, payload))
+        if method == "getUpdates":
+            updates, self.updates = self.updates, []
+            return {"ok": True, "result": updates}
+        if method == "sendMessage" and payload.get("chat_id") == -100123:
+            return {"ok": True, "result": {"message_id": 77}}
         return {"ok": True, "result": True}
 
 
@@ -156,3 +169,44 @@ def test_callback_revision_and_reject_actions_are_explicit(tmp_path):
     answers = [payload["text"] for method, payload in transport.calls if method == "answerCallbackQuery"]
     assert answers[0].startswith("Решение сохранено. Отправьте /revise")
     assert answers[1] == "Черновик отклонён."
+
+
+def test_forwarded_channel_requires_explicit_bind_then_publish_after_approval(tmp_path):
+    forwarded = {
+        "update_id": 1,
+        "message": {
+            "chat": {"id": 101, "type": "private"}, "from": {"id": 101},
+            "forward_origin": {"type": "channel", "chat": {"id": -100123, "title": "Тестовый канал"}},
+        },
+    }
+    transport = PublishingTransport([forwarded, message(2, 101, "/bind")])
+    bot = ContentPublisherBot(store(tmp_path), {101}, transport)
+    assert bot.poll_once() == 2
+    assert bot.store.channel_binding().channel_id == -100123
+
+    draft = bot.store.create_job(101, "Проверка перед публикацией")
+    transport.updates = [message(3, 101, f"/publish {draft.job_id}")]
+    assert bot.poll_once() == 1
+    assert not any(payload.get("chat_id") == -100123 for method, payload in transport.calls if method == "sendMessage")
+
+    assert bot.store.approve(draft.job_id, draft.version, 101).accepted
+    transport.updates = [message(4, 101, f"/publish {draft.job_id}")]
+    assert bot.poll_once() == 1
+    channel_messages = [payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]
+    assert channel_messages == [{"chat_id": -100123, "text": draft.content}]
+    with bot.store._connect() as connection:
+        publication = connection.execute("SELECT channel_id, telegram_message_id FROM content_publications").fetchone()
+    assert tuple(publication) == (-100123, 77)
+    transport.updates = [message(5, 101, f"/publish {draft.job_id}")]
+    assert bot.poll_once() == 1
+    assert len([payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]) == 1
+
+
+def test_live_transport_uses_only_process_environment_and_never_contacts_on_setup(tmp_path, monkeypatch):
+    monkeypatch.delenv("METRICHIT_PUBLISHER_BOT_TOKEN", raising=False)
+    with pytest.raises(ValueError, match="METRICHIT_PUBLISHER_BOT_TOKEN"):
+        ContentPublisherBot.from_environment(store(tmp_path), {101})
+
+    monkeypatch.setenv("METRICHIT_PUBLISHER_BOT_TOKEN", "secret-only-in-process")
+    bot = ContentPublisherBot.from_environment(store(tmp_path), {101})
+    assert bot.offset is None
