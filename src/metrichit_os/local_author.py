@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from base64 import b64decode
 import re
 from typing import Protocol
 
@@ -39,10 +38,6 @@ class RevisionError(AuthorError):
 
 class PublicDisclosureError(AuthorError):
     """Public drafts must not disclose the bot's search-result mechanics."""
-
-
-class ImageGenerationError(AuthorError):
-    """An image generator returned an unusable post asset."""
 
 
 @dataclass(frozen=True)
@@ -85,39 +80,12 @@ class AuthorPrompt:
 
 
 @dataclass(frozen=True)
-class ImagePrompt:
-    """A local generator receives only the public post theme and presentation intent."""
-
-    kind: PostKind
-    topic: str
-    audience: str
-
-
-@dataclass(frozen=True)
-class GeneratedImage:
-    """Raster asset prepared alongside a draft, without any publication behaviour."""
-
-    content: bytes
-    media_type: str
-    prompt: str
-
-    def __post_init__(self) -> None:
-        if not self.content:
-            raise ImageGenerationError("generated image must not be empty")
-        if not self.media_type.startswith("image/"):
-            raise ImageGenerationError("generated image must use an image media type")
-        if not self.prompt.strip():
-            raise ImageGenerationError("generated image prompt must not be empty")
-
-
-@dataclass(frozen=True)
 class Draft:
     kind: PostKind
     topic: str
     text: str
     facts: tuple[str, ...]
     cta: str
-    image: GeneratedImage
     revision: int = 1
 
 
@@ -125,12 +93,6 @@ class LocalModelAdapter(Protocol):
     """Replaceable local-model boundary. Implementations must be offline-safe."""
 
     def generate(self, prompt: AuthorPrompt) -> str: ...
-
-
-class LocalImageAdapter(Protocol):
-    """Replaceable offline boundary for themed raster generation."""
-
-    def generate_image(self, prompt: ImagePrompt) -> GeneratedImage: ...
 
 
 _SECTIONS = {
@@ -191,48 +153,11 @@ class DeterministicLocalAdapter:
         )
 
 
-class DeterministicLocalImageAdapter:
-    """Offline baseline that yields a valid JPEG and a Codex-ready image prompt.
-
-    It is deliberately a test-safe fallback, not a substitute for a selected
-    local image model.  A local model only needs to implement ``LocalImageAdapter``.
-    """
-
-    _PIXEL_JPEG = b64decode(
-        "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAP//////////////////////////////////////////////////////////"
-        "////////////////////////////2wBDAf////////////////////////////////////////////////////////////"
-        "//////////////////////wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAA"
-        "AAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAEFAqf/xAAUEQEA"
-        "AAAAAAAAAAAAAAAAAAA/9oACAEDAQE/Aaf/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oACAECAQE/Aaf/xAAUEAEAAAAA"
-        "AAAAAAAAAAAAAAAAAA/9oACAEBAAY/Ap//xAAUEAEAAAAAAAAAAAAAAAAAAAAA/9oACAEBAAE/IR//2gAMAwEAAgAD"
-        "AAAAEP/EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQMBAT8QH//EABQRAQAAAAAAAAAAAAAAAAAAABD/2gAIAQIBAT8Q"
-        "H//EABQQAQAAAAAAAAAAAAAAAAAAABD/2gAIAQEAAT8QH//Z" + "==="
-    ) + b"\xff\xd9"
-
-    def __init__(self) -> None:
-        self.prompts: list[ImagePrompt] = []
-
-    def generate_image(self, prompt: ImagePrompt) -> GeneratedImage:
-        self.prompts.append(prompt)
-        return GeneratedImage(
-            content=self._PIXEL_JPEG,
-            media_type="image/jpeg",
-            prompt=(
-                "Use case: ads-marketing. Asset type: Telegram post cover. "
-                f"Primary request: editorial visual about {prompt.topic.strip()} for {prompt.audience.strip()}. "
-                "Style/medium: clean editorial illustration. Composition/framing: horizontal 3:2 landscape; "
-                "one large central subject kept inside the middle 60% of the frame so a portrait mobile crop remains strong. "
-                "Constraints: JPEG output; no text, no logos, no watermark; no arrows, chevrons, or trend lines."
-            ),
-        )
-
-
 class LocalPostAuthor:
     """Creates and revises drafts without knowing a model engine or publisher."""
 
-    def __init__(self, adapter: LocalModelAdapter, image_adapter: LocalImageAdapter | None = None):
+    def __init__(self, adapter: LocalModelAdapter):
         self._adapter = adapter
-        self._image_adapter = image_adapter or DeterministicLocalImageAdapter()
 
     def draft(self, profile: AuthorProfile, request: PostRequest) -> Draft:
         self._reject_public_mechanics(profile, request)
@@ -240,11 +165,7 @@ class LocalPostAuthor:
         facts = tuple(fact.strip() for fact in profile.product_facts)
         cta = (request.cta or profile.default_cta).strip()
         self._validate(text, facts, cta)
-        image = self._image_adapter.generate_image(ImagePrompt(
-            kind=request.kind, topic=request.topic.strip(), audience=profile.audience.strip(),
-        ))
-        self._validate_image(image, request.topic)
-        return Draft(kind=request.kind, topic=request.topic.strip(), text=text, facts=facts, cta=cta, image=image)
+        return Draft(kind=request.kind, topic=request.topic.strip(), text=text, facts=facts, cta=cta)
 
     def revise(self, draft: Draft, feedback: str) -> Draft:
         """Apply only ``Замени CTA на: ...``; all non-CTA text stays byte-identical."""
@@ -260,7 +181,7 @@ class LocalPostAuthor:
         self._validate(text, draft.facts, replacement)
         return Draft(
             kind=draft.kind, topic=draft.topic, text=text, facts=draft.facts,
-            cta=replacement, image=draft.image, revision=draft.revision + 1,
+            cta=replacement, revision=draft.revision + 1,
         )
 
     @staticmethod
@@ -280,10 +201,3 @@ class LocalPostAuthor:
         public_fields = (request.topic, request.opening, request.cta or "", *profile.product_facts)
         if any(_PROHIBITED_SEARCH_MECHANICS.search(value) for value in public_fields):
             raise PublicDisclosureError("public drafts must not disclose bot search-result mechanics")
-
-    @staticmethod
-    def _validate_image(image: GeneratedImage, topic: str) -> None:
-        if image.media_type != "image/jpeg" or not image.content.startswith(b"\xff\xd8") or not image.content.endswith(b"\xff\xd9"):
-            raise ImageGenerationError("generated image must be a JPEG asset")
-        if topic.strip().casefold() not in image.prompt.casefold():
-            raise ImageGenerationError("generated image prompt must include the post topic")
