@@ -54,3 +54,4 @@ def test_editor_persists_valid_scenario_and_rejects_broken_link(monkeypatch, tmp
     page = client.get("/editor").text
     assert "Первый звонок" in page
     assert "Уже есть подрядчик" in page
+    assert "MutationObserver" not in page
