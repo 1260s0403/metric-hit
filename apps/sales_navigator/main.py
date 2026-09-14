@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import hashlib, json, os, secrets
+import hashlib, json, os, secrets, html
 from copy import deepcopy
 from pathlib import Path
 from urllib.parse import parse_qs
@@ -54,6 +54,7 @@ def home(r:Request):
  if r.cookies.get("sales_session") not in SESSIONS: return HTMLResponse(LOGIN)
  safeguard = '''<script>
 let inlineSnapshot=null;Object.keys(n).filter(k=>!names[k]).forEach(k=>names[k]=`Новая ветка ${k.replace('new-node-','')}`.trim());
+const mapLink=document.createElement('a');mapLink.href='/map';mapLink.textContent='Карта сценария';document.querySelector('header div').insertBefore(mapLink,document.querySelector('header form'));
 function cancelInlineEdit(){if(inlineSnapshot)n[c]=JSON.parse(inlineSnapshot);editing=false;$('edit-panel').hidden=true;$('edit').textContent='Редактировать этот шаг';$('edit-status').textContent='';r();}
 const openInlineEdit=$('edit').onclick,saveInlineEdit=$('save-edit').onclick;
 $('edit').onclick=()=>{if(editing){cancelInlineEdit();return;}inlineSnapshot=JSON.stringify(n[c]);openInlineEdit();};
@@ -61,6 +62,17 @@ $('cancel-edit').onclick=cancelInlineEdit;
 $('save-edit').onclick=async()=>{await saveInlineEdit();if(!editing)inlineSnapshot=null;};
 </script>'''
  return HTMLResponse(app_page().replace('</main></html>',safeguard+'</main></html>'))
+def map_page():
+ s=load();labels={'start':'Первый звонок','qualification':'Уточнение ситуации','contact':'Передать контакт','planning':'Пока в планах','current_provider':'Уже есть подрядчик','price':'Возражение по цене','proof':'Нужны доказательства','time':'Нет времени'}
+ cards=[]
+ for key,node in s.items():
+  links=''.join(f'<li><strong>{html.escape(x["label"])}</strong> → {html.escape(labels.get(x["next"],"Новая ветка"))}</li>' for x in node['choices']) or '<li>Конец ветки</li>'
+  cards.append(f'<article class="map-node"><span>{html.escape(labels.get(key,"Новая ветка"))}</span><h2>{html.escape(node["client"])}</h2><p>{html.escape(node["manager"])}</p><ul>{links}</ul></article>')
+ return layout('Карта сценария',f'''<style>.map-help{{color:#cbd5e1;margin:0 0 18px}}.map{{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px}}.map-node{{background:#0f172a;border:1px solid #334155;border-radius:14px;padding:16px;box-shadow:0 12px 28px #0003}}.map-node>span{{color:#67e8f9;font-size:12px;text-transform:uppercase}}.map-node h2{{font-size:18px;margin:8px 0}}.map-node p{{color:#dbeafe;line-height:1.45}}.map-node ul{{border-top:1px solid #334155;margin:14px 0 0;padding:12px 0 0;list-style:none}}.map-node li{{padding:7px 0;color:#cbd5e1}}.map-node strong{{color:#f8fafc}}</style><p class="map-help">Все этапы и переходы сценария. Стрелка показывает, куда ведёт ответ клиента.</p><section class="map">{''.join(cards)}</section>''')
+@app.get('/map',response_class=HTMLResponse)
+def map_view(r:Request):
+ if r.cookies.get('sales_session') not in SESSIONS: return RedirectResponse('/',303)
+ return HTMLResponse(map_page())
 @app.get("/editor",response_class=HTMLResponse)
 def editor(r:Request):
  if r.cookies.get("sales_session") not in SESSIONS:

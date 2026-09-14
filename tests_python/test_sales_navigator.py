@@ -24,6 +24,8 @@ def test_demo_login_opens_scenario(monkeypatch) -> None:
     assert "Редактировать этот шаг" in response.text
     assert "Добавить вариант ответа" in response.text
     assert "cancelInlineEdit" in response.text
+    assert client.get("/map").status_code == 200
+    assert "Карта сценария" in client.get("/map").text
     qualification = client.get("/api/scenario/qualification")
     assert qualification.status_code == 200
     assert qualification.json()["manager"] == "Отлично, тогда коротко уточню: вы уже продвигаете сайт в Яндексе или это пока в планах?"
