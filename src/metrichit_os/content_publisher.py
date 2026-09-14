@@ -515,10 +515,7 @@ class ContentPublisherStore:
         )
         variant = int(hashlib.sha256(clean_topic.encode("utf-8")).hexdigest(), 16) % len(_INVITE_REFRAMES)
         conclusion = _INVITE_BRIDGES[variant]
-        source_notes = (
-            f"{_INVITE_REFRAMES[variant]} {_INVITE_CONTEXTS[variant]} "
-            "Полный ответ не нужно пытаться уместить в одном входном посте."
-        )
+        source_notes = f"{_INVITE_REFRAMES[variant]} {_INVITE_CONTEXTS[variant]}"
         content = self.author.draft(profile, PostRequest(
             kind, clean_topic, opening or "Разбираем тему спокойно, без общих обещаний и выдуманных примеров.",
             direction=direction, source_notes=source_notes, conclusion=conclusion,

@@ -8,6 +8,7 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const defaultDatabasePath = join(repositoryRoot, 'data', 'database', 'metrichit.db');
 const decisionPath = 'knowledge/decisions/telegram-invite-channel-authoring-2026-09-14.md';
 const semanticKey = 'editorial.telegram_invite_channel_authoring';
+const policyRevision = 2;
 const owner = 'owner';
 const reviewedAt = '2026-09-14T00:00:00.000Z';
 
@@ -20,16 +21,20 @@ export function applyTelegramInviteChannelAuthoringPolicy(databasePath = default
   const bytes = readFileSync(join(repositoryRoot, decisionPath));
   const documentContent = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   const title = 'Автор invite-канала Telegram MetricHit';
-  const content = 'Invite-канал MetricHit ведёт читателя в основной Telegram-канал и не дублирует его длинные разборы. Каждый новый пост содержит 600–750 знаков вместе с точным полным футером, написан plain text без Markdown, эмодзи, стрелок и декоративных списков. Один пост раскрывает одну конкретную узнаваемую ситуацию, даёт один полезный принцип и краткую причину продолжить тему в основном канале, не исчерпывая глубокий материал. Автор чередует заходы и форматы, не использует универсальный заполнитель, опирается только на подтверждённые факты, не придумывает метрики, кейсы и обновления и не раскрывает механику бота. Футер ровно один: основной канал https://t.me/mtr_hit, сайт https://go.mtrhit.ru/ и поддержка https://t.me/Metric_Hit. Публикация, запуск бота или расписания, сеть, credentials и привязка канала этим решением не разрешаются.';
-  const data = JSON.stringify({ platform: 'telegram', channel_role: 'invite_to_main_channel', character_count_including_footer: { minimum: 600, maximum: 750 }, plain_text_only: true, decorative_lists_prohibited: true, structure: ['recognizable_situation', 'one_useful_reframe_or_principle', 'main_channel_bridge'], full_footer: ['https://t.me/mtr_hit', 'https://go.mtrhit.ru/', 'https://t.me/Metric_Hit'], prohibited: ['invented_metrics_or_cases', 'unverified_search_updates', 'search_bot_mechanics_disclosure', 'publication_or_runtime_actions'], evidence: { path: decisionPath } });
+  const content = 'Invite-канал MetricHit ведёт читателя в основной Telegram-канал и не дублирует его длинные разборы. Каждый новый пост содержит 600–750 знаков вместе с точным полным футером, написан plain text без Markdown, стрелок и декоративных списков. Эмодзи запрещены вне точного футера; в нём обязательны смысловые маркеры 📢 для основного канала, 🌐 для сайта и 💬 для поддержки. Один пост раскрывает одну конкретную узнаваемую ситуацию, даёт один полезный принцип и краткую причину продолжить тему в основном канале, не исчерпывая глубокий материал. Автор чередует заходы и форматы, не использует универсальный заполнитель, опирается только на подтверждённые факты, не придумывает метрики, кейсы и обновления и не раскрывает механику бота. Публикация, запуск бота или расписания, сеть, credentials и привязка канала этим решением не разрешаются.';
+  const legacyCandidateId = stableUuid(`candidate:${semanticKey}`);
+  const data = JSON.stringify({ revision: policyRevision, supersedes_candidate_id: legacyCandidateId, platform: 'telegram', channel_role: 'invite_to_main_channel', character_count_including_footer: { minimum: 600, maximum: 750 }, plain_text_only: true, footer_icons_only: ['📢', '🌐', '💬'], decorative_lists_prohibited: true, structure: ['recognizable_situation', 'one_useful_reframe_or_principle', 'main_channel_bridge'], full_footer: ['📢 Основной канал MetricHit: https://t.me/mtr_hit', '🌐 Сайт MetricHit: https://go.mtrhit.ru/', '💬 Поддержка в Telegram: https://t.me/Metric_Hit'], prohibited: ['invented_metrics_or_cases', 'unverified_search_updates', 'search_bot_mechanics_disclosure', 'publication_or_runtime_actions'], evidence: { path: decisionPath } });
   const metadata = JSON.stringify({ path: decisionPath, bytes: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), encoding: 'utf-8', authority: 'direct_owner_confirmation', decision_date: '2026-09-14' });
-  const sourceId = stableUuid(`source:${decisionPath}`); const documentId = stableUuid(`document:${decisionPath}`);
-  const versionId = stableUuid(`version:${decisionPath}:1`); const candidateId = stableUuid(`candidate:${semanticKey}`);
+  const sourceId = stableUuid(`source:${decisionPath}:${policyRevision}`); const documentId = stableUuid(`document:${decisionPath}:${policyRevision}`);
+  const versionId = stableUuid(`version:${decisionPath}:${policyRevision}`); const candidateId = stableUuid(`candidate:${semanticKey}:${policyRevision}`);
   const database = new DatabaseSync(databasePath); const created = { sources: 0, documents: 0, versions: 0, candidates: 0 };
   database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
   try {
-    const duplicate = database.prepare("SELECT id FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").get(semanticKey, candidateId);
-    if (duplicate) throw new Error('Semantic duplicate blocks Telegram invite authoring policy');
+    const prior = database.prepare("SELECT id,status FROM memory_candidates WHERE id=? AND semantic_key=?").get(legacyCandidateId, semanticKey);
+    if (!prior || prior.status !== 'approved') throw new Error('Approved Telegram invite authoring revision 1 is required before footer-icon refinement');
+    const duplicate = database.prepare("SELECT id,status,coalesce(json_extract(data_json, '$.revision'), 1) AS revision FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").all(semanticKey, candidateId)
+      .filter((row) => row.id !== legacyCandidateId && (row.status !== 'approved' || Number(row.revision) >= policyRevision));
+    if (duplicate.length) throw new Error('Semantic duplicate or evolution blocks Telegram invite authoring policy');
     const conflict = database.prepare("SELECT id FROM memory_conflicts WHERE status='open' AND (candidate_id=? OR existing_memory_item_id IN (SELECT id FROM memory_items WHERE semantic_key=?))").get(candidateId, semanticKey);
     if (conflict) throw new Error('Open memory conflict blocks Telegram invite authoring policy');
     created.sources += Number(database.prepare("INSERT OR IGNORE INTO sources (id,type,title,content,data_json,status,author,valid_at,access_level) VALUES (?,'owner_decision',?,?,?,'active',?,'2026-09-14','internal')").run(sourceId, title, `Repository file: ${decisionPath}`, metadata, owner).changes);

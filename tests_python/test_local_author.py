@@ -109,6 +109,17 @@ def test_plain_text_sanitizer_keeps_only_canonical_urls_and_removes_markup_emoji
     assert sanitize_plain_text(f"Текст {CANONICAL_URLS[0]}.evil") == "Текст"
 
 
+def test_plain_text_allows_meaningful_icons_only_in_the_exact_footer() -> None:
+    assert CANONICAL_FOOTER == (
+        "📢 Основной канал MetricHit: https://t.me/mtr_hit\n"
+        "🌐 Сайт MetricHit: https://go.mtrhit.ru/\n"
+        "💬 Поддержка в Telegram: https://t.me/Metric_Hit"
+    )
+    assert sanitize_plain_text(f"Тема\n\n{CANONICAL_FOOTER}") == f"Тема\n\n{CANONICAL_FOOTER}"
+    with pytest.raises(TelegramFormattingError):
+        validate_plain_text("Тема 📢")
+
+
 @pytest.mark.parametrize("kind", list(PostKind))
 def test_deterministic_author_enforces_plain_text_length_for_all_formats(
     profile: AuthorProfile, kind: PostKind,

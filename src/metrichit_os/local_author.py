@@ -133,9 +133,9 @@ _PROHIBITED_SEARCH_MECHANICS = re.compile(
 )
 
 CANONICAL_FOOTER = (
-    "Основной канал MetricHit: https://t.me/mtr_hit\n"
-    "Сайт MetricHit: https://go.mtrhit.ru/\n"
-    "Поддержка в Telegram: https://t.me/Metric_Hit"
+    "📢 Основной канал MetricHit: https://t.me/mtr_hit\n"
+    "🌐 Сайт MetricHit: https://go.mtrhit.ru/\n"
+    "💬 Поддержка в Telegram: https://t.me/Metric_Hit"
 )
 CANONICAL_URLS = (
     "https://t.me/mtr_hit",
@@ -145,6 +145,7 @@ CANONICAL_URLS = (
 _CANONICAL_URL = re.compile(
     r"(?<![A-Za-z0-9_./-])(" + "|".join(re.escape(url) for url in CANONICAL_URLS) + r")(?![A-Za-z0-9_./-])"
 )
+_CANONICAL_FOOTER = re.compile(re.escape(CANONICAL_FOOTER))
 _URL = re.compile(r"(?i)\b(?:https?://|www\.|t\.me/)[^\s<>()]+")
 _HTML_TAG = re.compile(r"<[^>\n]*>")
 _HTML_ENTITY = re.compile(r"&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]+);")
@@ -161,17 +162,18 @@ _MAIN_CHANNEL_BRIDGE = "основном канале"
 def sanitize_plain_text(text: str) -> str:
     """Return the narrow plain-text subset allowed in channel publications.
 
-    Only the three canonical MetricHit URLs survive. Other URLs, markup,
-    emoji, non-printing Unicode and non-standard symbols are removed rather
-    than passed through to Telegram. Newlines remain visible paragraph breaks.
+    Only the exact canonical footer, including its three meaningful icons,
+    survives. Other URLs, markup, emoji, non-printing Unicode and non-standard
+    symbols are removed rather than passed through to Telegram.
     """
     protected: dict[str, str] = {}
     value = text.replace("\r\n", "\n").replace("\r", "\n")
     def protect(match: re.Match[str]) -> str:
         marker = f"CANONICALURL{len(protected)}"
-        protected[marker] = match.group(1)
+        protected[marker] = match.group(0)
         return marker
 
+    value = _CANONICAL_FOOTER.sub(lambda match: protect(match), value)
     value = _CANONICAL_URL.sub(protect, value)
     value = _URL.sub("", value)
     value = re.sub(r"\(\s*\)", "", value)
