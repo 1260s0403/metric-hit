@@ -20,7 +20,9 @@ def test_demo_login_opens_scenario(monkeypatch) -> None:
     response = client.post("/login", data={"password": "test-password"}, follow_redirects=True)
     assert response.status_code == 200
     assert "С кем можно поговорить по вопросу продвижения вашего сайта" in response.text
-    assert '"choices": []}};let c=' in response.text
+    assert '}},names={start:' in response.text
+    assert "Редактировать этот шаг" in response.text
+    assert "Добавить вариант ответа" in response.text
     qualification = client.get("/api/scenario/qualification")
     assert qualification.status_code == 200
     assert qualification.json()["manager"] == "Отлично, тогда коротко уточню: вы уже продвигаете сайт в Яндексе или это пока в планах?"
