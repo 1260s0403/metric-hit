@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
-from apps.sales_navigator.main import SESSIONS, app
+from copy import deepcopy
+
+from apps.sales_navigator.main import SESSIONS, app, load
 
 
 def test_scenario_requires_login() -> None:
@@ -31,3 +33,20 @@ def test_unknown_branch_returns_not_found() -> None:
     client.post("/login", data={"password": "demo"})
     response = client.get("/api/scenario/unknown")
     assert response.status_code == 404
+
+
+def test_editor_persists_valid_scenario_and_rejects_broken_link(monkeypatch, tmp_path) -> None:
+    SESSIONS.clear()
+    monkeypatch.setenv("SALES_NAVIGATOR_DATA_PATH", str(tmp_path / "scenario.json"))
+    client = TestClient(app)
+    client.post("/login", data={"password": "demo"})
+    loaded = client.get("/api/scenario").json()
+    scenario = deepcopy(loaded["scenario"])
+    scenario["new-node-1"] = {"client": "Ответ", "manager": "Реплика", "hint": "Подсказка", "choices": []}
+    scenario["planning"]["choices"] = [{"label": "Продолжить", "next": "new-node-1"}]
+    saved = client.put("/api/scenario", json={"scenario": scenario, "revision": loaded["revision"]})
+    assert saved.status_code == 200
+    assert "new-node-1" in load()
+    broken = deepcopy(scenario); broken["start"]["choices"][0]["next"] = "missing"
+    assert client.put("/api/scenario", json={"scenario": broken, "revision": saved.json()["revision"]}).status_code == 422
+    assert load() == scenario

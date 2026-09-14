@@ -32,6 +32,7 @@ data/database/*
 
 # Local editorial database
 data/editorial/editorial.sqlite*
+data/sales_navigator/
 
 # Logs
 *.log

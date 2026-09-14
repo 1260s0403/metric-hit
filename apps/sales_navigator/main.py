@@ -1,180 +1,76 @@
 from __future__ import annotations
 
-import os
-import secrets
-from html import escape
+import hashlib, json, os, secrets
+from copy import deepcopy
+from pathlib import Path
 from urllib.parse import parse_qs
-
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 app = FastAPI(title="Навигатор продаж", docs_url=None, redoc_url=None)
+DEFAULT_SCENARIO = {
+ "start":{"client":"Первый холодный контакт","manager":"Здравствуйте. Меня зовут [Имя], я из команды MetricHit. Мы занимаемся продвижением сайтов в Яндексе. С кем можно поговорить по вопросу продвижения вашего сайта?","hint":"Сначала найдите человека, который отвечает за сайт и продвижение.","choices":[{"label":"Я отвечаю за сайт","next":"qualification"},{"label":"Это другой коллега","next":"contact"},{"label":"Сейчас неудобно говорить","next":"time"}]},
+ "qualification":{"client":"Да, я отвечаю за сайт.","manager":"Отлично, тогда коротко уточню: вы уже продвигаете сайт в Яндексе или это пока в планах?","hint":"Дайте собеседнику выбрать статус без давления.","choices":[{"label":"Уже продвигаем","next":"current_provider"},{"label":"Пока в планах","next":"planning"}]},
+ "contact":{"client":"Этим занимается другой коллега.","manager":"Спасибо. Подскажите, пожалуйста, как к нему обратиться и когда будет удобно коротко созвониться?","hint":"Зафиксируйте имя, роль и время контакта.","choices":[]},
+ "planning":{"client":"Пока это только в планах.","manager":"Понял. Что должно произойти, чтобы вы вернулись к вопросу продвижения: новый сайт, сезон или конкретная бизнес-цель?","hint":"Выясните триггер следующего контакта.","choices":[]},
+ "current_provider":{"client":"Мы уже работаем с другим подрядчиком.","manager":"Понимаю. Не предлагаю менять всё прямо сейчас — хочу понять, что для вас важнее всего в текущем результате.","hint":"Не спорьте с выбором клиента.","choices":[{"label":"Нас не устраивает цена","next":"price"},{"label":"Нам важна предсказуемость результата","next":"proof"},{"label":"Сейчас нет времени разбираться","next":"time"}]},
+ "price":{"client":"Нас прежде всего не устраивает цена.","manager":"Давайте сравним не только сумму, а стоимость результата. Какая задача должна окупиться в первую очередь?","hint":"Переводите разговор от скидки к экономике.","choices":[]},
+ "proof":{"client":"Нам важна предсказуемость результата.","manager":"Покажу, как мы фиксируем стартовую точку, контрольные метрики и формат отчёта.","hint":"Предлагайте прозрачный процесс.","choices":[]},
+ "time":{"client":"Сейчас нет времени разбираться.","manager":"Тогда не будем перегружать вас. Я подготовлю вариант, который можно оценить за пять минут.","hint":"Снижайте усилие клиента.","choices":[]}}
+SESSIONS:set[str]=set()
 
-# This is deliberately a small, editable in-code sample.  A later stage can
-# move scenarios into an editor and database without changing the UI contract.
-SCENARIO = {
-    "start": {
-        "client": "Первый холодный контакт",
-        "manager": "Здравствуйте. Меня зовут [Имя], я из команды MetricHit. Мы занимаемся продвижением сайтов в Яндексе. С кем можно поговорить по вопросу продвижения вашего сайта?",
-        "hint": "Цель первого вопроса — не продавать сразу, а найти человека, который отвечает за сайт и продвижение.",
-        "choices": [
-            {"label": "Я отвечаю за сайт", "next": "qualification"},
-            {"label": "Это другой коллега", "next": "contact"},
-            {"label": "Сейчас неудобно говорить", "next": "time"},
-        ],
-    },
-    "qualification": {
-        "client": "Да, я отвечаю за сайт.",
-        "manager": "Отлично, тогда коротко уточню: вы уже продвигаете сайт в Яндексе или это пока в планах?",
-        "hint": "Задайте вопрос ровно так и дайте собеседнику выбрать статус без давления.",
-        "choices": [
-            {"label": "Уже продвигаем", "next": "current_provider"},
-            {"label": "Пока в планах", "next": "planning"},
-        ],
-    },
-    "contact": {
-        "client": "Этим занимается другой коллега.",
-        "manager": "Спасибо. Подскажите, пожалуйста, как к нему обратиться и когда будет удобно коротко созвониться?",
-        "hint": "Зафиксируйте имя, роль и удобное время контакта — не пытайтесь продолжать продажу через нерелевантного собеседника.",
-        "choices": [],
-    },
-    "planning": {
-        "client": "Пока это только в планах.",
-        "manager": "Понял. Что должно произойти, чтобы вы вернулись к вопросу продвижения: новый сайт, сезон или конкретная бизнес-цель?",
-        "hint": "Выясните триггер и согласуйте спокойный следующий контакт вместо немедленного предложения.",
-        "choices": [],
-    },
-    "current_provider": {
-        "client": "Мы уже работаем с другим подрядчиком.",
-        "manager": "Понимаю. Не предлагаю менять всё прямо сейчас — хочу понять, что для вас важнее всего в текущем результате.",
-        "hint": "Не спорьте с выбором клиента. Сначала выясните критерий, по которому он оценивает текущего подрядчика.",
-        "choices": [
-            {"label": "Нас не устраивает цена", "next": "price"},
-            {"label": "Нам важна предсказуемость результата", "next": "proof"},
-            {"label": "Сейчас нет времени разбираться", "next": "time"},
-        ],
-    },
-    "price": {
-        "client": "Нас прежде всего не устраивает цена.",
-        "manager": "Давайте сравним не только сумму, а стоимость результата. Какая задача должна окупиться в первую очередь?",
-        "hint": "Переводите разговор от скидки к экономике и приоритету клиента.",
-        "choices": [
-            {"label": "Хочу увидеть расчёт", "next": "calculation"},
-            {"label": "Всё равно дорого", "next": "pilot"},
-        ],
-    },
-    "proof": {
-        "client": "Нам важна предсказуемость результата.",
-        "manager": "Согласен: обещания здесь не помогают. Покажу, как мы фиксируем стартовую точку, контрольные метрики и формат отчёта.",
-        "hint": "Предлагайте прозрачный процесс и понятные критерии, а не гарантии, которые нельзя подтвердить.",
-        "choices": [{"label": "Покажите пример отчёта", "next": "report"}],
-    },
-    "time": {
-        "client": "Сейчас нет времени разбираться.",
-        "manager": "Тогда не будем перегружать вас. Я задам два коротких вопроса и подготовлю вариант, который можно оценить за пять минут.",
-        "hint": "Снижайте усилие клиента: предложите следующий шаг с ясным объёмом времени.",
-        "choices": [{"label": "Хорошо, задавайте", "next": "qualification"}],
-    },
-    "calculation": {
-        "client": "Хочу увидеть расчёт.",
-        "manager": "Отлично. Зафиксируем текущую конверсию и средний чек — на их основе подготовлю два варианта с разным темпом запуска.",
-        "hint": "Следующий шаг: запросите только данные, без которых расчёт невозможен.",
-        "choices": [],
-    },
-    "pilot": {
-        "client": "Всё равно дорого.",
-        "manager": "Тогда начнём с ограниченного пилота с заранее согласованными метриками. После него решите, есть ли смысл масштабироваться.",
-        "hint": "Не снижайте цену автоматически: уменьшите объём и сделайте решение обратимым.",
-        "choices": [],
-    },
-    "report": {
-        "client": "Покажите пример отчёта.",
-        "manager": "Покажу структуру: исходная точка, действия, динамика метрик и выводы. После этого выберем, какие показатели важны именно вам.",
-        "hint": "Закончите вопросом: какие метрики клиент готов считать успехом?",
-        "choices": [],
-    },
-}
-SESSIONS: set[str] = set()
-
-
-def expected_password() -> str:
-    return os.getenv("SALES_NAVIGATOR_PASSWORD", "demo")
-
-
-def authenticated(request: Request) -> bool:
-    return request.cookies.get("sales_navigator_session") in SESSIONS
-
-
-def require_auth(request: Request) -> None:
-    if not authenticated(request):
-        raise HTTPException(status_code=401, detail="Требуется вход")
-
-
-def page() -> str:
-    initial = SCENARIO["start"]
-    return f"""<!doctype html>
-<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Навигатор продаж</title><style>
-:root {{ color-scheme: dark; font-family: Inter, system-ui, sans-serif; background:#111827; color:#f8fafc; }}
-body {{ margin:0; min-height:100vh; background:radial-gradient(circle at top right,#164e63,#111827 45%); }}
-main {{ max-width:850px; margin:0 auto; padding:32px 20px 56px; }}
-header {{ display:flex; justify-content:space-between; align-items:center; gap:16px; margin-bottom:34px; }}
-h1 {{ margin:0; font-size:clamp(1.5rem,4vw,2.25rem); }} .eyebrow {{ color:#67e8f9; font-size:.82rem; letter-spacing:.12em; text-transform:uppercase; }}
-.card {{ background:rgba(15,23,42,.9); border:1px solid #334155; border-radius:18px; padding:24px; box-shadow:0 20px 50px rgba(0,0,0,.25); }}
-.label {{ color:#94a3b8; font-size:.84rem; text-transform:uppercase; letter-spacing:.08em; }}
-.client {{ font-size:1.35rem; margin:8px 0 22px; }} .answer {{ border-left:3px solid #22d3ee; padding:12px 16px; background:#172554; border-radius:0 10px 10px 0; line-height:1.5; }}
-.hint {{ margin-top:18px; color:#cbd5e1; line-height:1.45; }} .choices {{ display:grid; gap:10px; margin-top:24px; }}
-button {{ cursor:pointer; font:inherit; border-radius:10px; border:1px solid #475569; padding:13px 15px; text-align:left; color:#f8fafc; background:#1e293b; }} button:hover {{ border-color:#67e8f9; background:#0f3b4d; }}
-.actions {{ display:flex; gap:10px; margin-top:24px; }} .actions button {{ text-align:center; }} .secondary {{ background:transparent; }} form {{ margin:0; }}
-</style></head><body><main><header><div><div class="eyebrow">MetricHit · прототип</div><h1>Навигатор продаж</h1></div><form method="post" action="/logout"><button class="secondary">Выйти</button></form></header>
-<section class="card"><div class="label">Клиент говорит</div><div id="client" class="client">{escape(initial['client'])}</div><div class="label">Ответ менеджера</div><div id="manager" class="answer">{escape(initial['manager'])}</div><div id="hint" class="hint">Подсказка: {escape(initial['hint'])}</div><div id="choices" class="choices"></div><div class="actions"><button id="back" class="secondary">← Назад</button><button id="restart" class="secondary">Начать заново</button></div></section>
-</main><script>
-const nodes = {SCENARIO!r}; let current = 'start', history = [];
-const client = document.querySelector('#client'), manager = document.querySelector('#manager'), hint = document.querySelector('#hint'), choices = document.querySelector('#choices');
-function render() {{ const node=nodes[current]; client.textContent=node.client; manager.textContent=node.manager; hint.textContent='Подсказка: '+node.hint; choices.innerHTML='';
- if (!node.choices.length) choices.innerHTML='<div class="hint">Ветка завершена. Зафиксируйте следующий шаг в CRM.</div>';
- node.choices.forEach(choice => {{ const button=document.createElement('button'); button.textContent=choice.label; button.onclick=()=>{{history.push(current); current=choice.next; render();}}; choices.append(button); }});
- document.querySelector('#back').disabled=!history.length; }}
-document.querySelector('#back').onclick=()=>{{if(history.length){{current=history.pop();render();}}}}; document.querySelector('#restart').onclick=()=>{{current='start';history=[];render();}}; render();
-</script></body></html>"""
-
-
-LOGIN_PAGE = """<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Вход — Навигатор продаж</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;background:#111827;color:#f8fafc;font:16px system-ui}.box{width:min(360px,calc(100% - 48px));padding:28px;background:#1e293b;border:1px solid #475569;border-radius:16px}input,button{box-sizing:border-box;width:100%;padding:12px;border-radius:9px;margin-top:12px;font:inherit}input{border:1px solid #64748b;background:#0f172a;color:white}button{border:0;background:#22d3ee;color:#083344;font-weight:700;cursor:pointer}.note{color:#94a3b8;font-size:.9rem;line-height:1.4}</style></head><body><form class="box" method="post" action="/login"><h1>Навигатор продаж</h1><p class="note">Локальный прототип. Для демонстрации используйте пароль <code>demo</code>; в запуске пароль задаётся переменной окружения.</p><label>Пароль<input name="password" type="password" required autofocus></label><button>Войти</button></form></body></html>"""
-
-
-@app.get("/", response_class=HTMLResponse)
-def home(request: Request) -> HTMLResponse:
-    return HTMLResponse(page() if authenticated(request) else LOGIN_PAGE)
-
-
+def store_path(): return Path(os.getenv("SALES_NAVIGATOR_DATA_PATH", Path(__file__).resolve().parents[2]/"data"/"sales_navigator"/"scenario.json"))
+def revision(s): return hashlib.sha256(json.dumps(s,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
+def validate(s):
+ if not isinstance(s,dict) or "start" not in s: raise ValueError("Нужна стартовая ветка.")
+ for key,node in s.items():
+  if not isinstance(key,str) or not key or not isinstance(node,dict): raise ValueError("Некорректная ветка.")
+  if any(not isinstance(node.get(x),str) or not node[x].strip() for x in ("client","manager","hint")): raise ValueError("Заполните все поля ветки.")
+  if not isinstance(node.get("choices"),list): raise ValueError("Варианты ответа должны быть списком.")
+  for choice in node["choices"]:
+   if not isinstance(choice,dict) or not choice.get("label") or choice.get("next") not in s: raise ValueError("Укажите текст и существующую следующую ветку.")
+ return s
+def load():
+ p=store_path()
+ if not p.exists(): return deepcopy(DEFAULT_SCENARIO)
+ try: return validate(json.loads(p.read_text(encoding="utf-8")))
+ except Exception as error: raise HTTPException(500,"Сохранённый сценарий повреждён; он не был перезаписан.") from error
+def save(s,old):
+ validate(s)
+ if old!=revision(load()): raise HTTPException(409,"Сценарий изменён в другой вкладке. Обновите редактор.")
+ p=store_path();p.parent.mkdir(parents=True,exist_ok=True);t=p.with_suffix(".new")
+ with t.open("w",encoding="utf-8") as f: json.dump(s,f,ensure_ascii=False,indent=2);f.flush();os.fsync(f.fileno())
+ os.replace(t,p);return {"scenario":s,"revision":revision(s)}
+def auth(r):
+ if r.cookies.get("sales_session") not in SESSIONS: raise HTTPException(401,"Требуется вход")
+def layout(title,body):
+ body = body.replace("{{", "{").replace("}}", "}")
+ return f'''<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>body{{margin:0;background:#111827;color:#f8fafc;font:16px system-ui}}main{{max-width:960px;margin:auto;padding:28px 20px}}header{{display:flex;justify-content:space-between;gap:12px;margin-bottom:24px}}a,button{{background:#1e293b;color:white;border:1px solid #475569;border-radius:8px;padding:10px;text-decoration:none;font:inherit;cursor:pointer}}button.primary{{background:#22d3ee;color:#083344;font-weight:700}}.card{{background:#0f172a;border:1px solid #334155;border-radius:16px;padding:22px}}.label{{color:#94a3b8;font-size:12px;text-transform:uppercase}}.answer{{background:#172554;border-left:3px solid #22d3ee;padding:12px;margin:8px 0}}.choices{{display:grid;gap:8px;margin-top:18px}}.editor{{display:grid;grid-template-columns:210px 1fr;gap:16px}}textarea,input,select{{box-sizing:border-box;width:100%;margin:5px 0 13px;padding:9px;background:#111827;color:white;border:1px solid #475569;border-radius:7px;font:inherit}}textarea{{min-height:72px}}.choice{{display:grid;grid-template-columns:1fr 150px auto;gap:7px}}.status{{color:#67e8f9}}@media(max-width:650px){{.editor,.choice{{grid-template-columns:1fr}}header{{flex-direction:column}}}}</style><main><header><h1>{title}</h1><div><a href="/">Сценарий</a> <a href="/editor">Редактор</a> <form style="display:inline" method="post" action="/logout"><button>Выйти</button></form></div></header>{body}</main></html>'''
+def app_page():
+ s=load();return layout("Навигатор продаж",f'''<section class="card"><div class="label">Клиент говорит</div><h2 id="client"></h2><div class="label">Ответ менеджера</div><div id="manager" class="answer"></div><p id="hint"></p><div id="choices" class="choices"></div><p><button id="back">← Назад</button> <button id="restart">Начать заново</button></p></section><script>const n={json.dumps(s,ensure_ascii=False)};let c='start',h=[];function r(){{let x=n[c];client.textContent=x.client;manager.textContent=x.manager;hint.textContent='Подсказка: '+x.hint;choices.innerHTML='';x.choices.forEach(y=>{{let b=document.createElement('button');b.textContent=y.label;b.onclick=()=>{{h.push(c);c=y.next;r()}};choices.append(b)}});back.disabled=!h.length}}back.onclick=()=>{{c=h.pop();r()}};restart.onclick=()=>{{c='start';h=[];r()}};r()</script>''')
+def editor_page(): return layout("Редактор сценария",'''<div class="editor"><aside class="card"><div id="nodes"></div><button id="new">+ Новая ветка</button></aside><section class="card"><label>Что говорит клиент<textarea id="client"></textarea></label><label>Ответ менеджера<textarea id="manager"></textarea></label><label>Подсказка<textarea id="hint"></textarea></label><div id="choices"></div><button id="add">+ Вариант ответа</button><p><button class="primary" id="save">Сохранить</button> <button id="cancel">Отменить</button> <span id="status" class="status"></span></p></section></div><script>let d,id='start';const $=x=>document.querySelector(x);async function load(){{d=await (await fetch('/api/scenario')).json();draw()}}function collect(){{let n=d.scenario[id];n.client=$('#client').value;n.manager=$('#manager').value;n.hint=$('#hint').value;document.querySelectorAll('[data-l]').forEach(x=>n.choices[x.dataset.l].label=x.value);document.querySelectorAll('[data-n]').forEach(x=>n.choices[x.dataset.n].next=x.value)}function draw(){{let n=d.scenario[id],ids=Object.keys(d.scenario);$('#nodes').innerHTML=ids.map(x=>`<button data-id="${{x}}">${{x===id?'● ':''}}${{x}}</button>`).join('<br>');document.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>{{collect();id=b.dataset.id;draw()}});$('#client').value=n.client;$('#manager').value=n.manager;$('#hint').value=n.hint;$('#choices').innerHTML=n.choices.map((x,i)=>`<div class="choice"><input data-l="${{i}}" value="${{x.label}}"><select data-n="${{i}}">${{ids.map(k=>`<option ${{k===x.next?'selected':''}}>${{k}}</option>`).join('')}}</select><button data-x="${{i}}">×</button></div>`).join('');document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{{collect();n.choices.splice(b.dataset.x,1);draw()}})}$('#add').onclick=()=>{{collect();d.scenario[id].choices.push({{label:'Новый вариант',next:'start'}});draw()}};$('#new').onclick=()=>{{collect();let i=1,k;while(d.scenario[k='new-node-'+i++]);d.scenario[k]={{client:'Ответ клиента',manager:'Новая реплика',hint:'Подсказка',choices:[]}};id=k;draw()}};$('#cancel').onclick=load;$('#save').onclick=async()=>{{collect();let r=await fetch('/api/scenario',{{method:'PUT',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}}),x=await r.json();if(r.ok){{d=x;status.textContent='Сохранено'}}else status.textContent=x.detail}};load()</script>''')
+LOGIN='''<!doctype html><html lang="ru"><meta charset="utf-8"><body style="background:#111827;color:white;font:16px system-ui;padding:30px"><form method="post" action="/login"><h1>Навигатор продаж</h1><p>Демо-пароль: <code>demo</code></p><input name="password" type="password"><button>Войти</button></form></body></html>'''
+@app.get("/",response_class=HTMLResponse)
+def home(r:Request): return HTMLResponse(app_page() if r.cookies.get("sales_session") in SESSIONS else LOGIN)
+@app.get("/editor",response_class=HTMLResponse)
+def editor(r:Request): auth(r);return HTMLResponse(editor_page())
 @app.post("/login")
-async def login(request: Request) -> RedirectResponse:
-    """Accept the tiny form without adding a multipart dependency to the OS."""
-    form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
-    password = form.get("password", [""])[0]
-    if not secrets.compare_digest(password, expected_password()):
-        return RedirectResponse("/", status_code=303)
-    token = secrets.token_urlsafe(32)
-    SESSIONS.add(token)
-    response = RedirectResponse("/", status_code=303)
-    response.set_cookie("sales_navigator_session", token, httponly=True, samesite="lax")
-    return response
-
-
+async def login(r:Request):
+ f=parse_qs((await r.body()).decode());
+ if f.get("password",[""])[0]!=os.getenv("SALES_NAVIGATOR_PASSWORD","demo"): return RedirectResponse("/",303)
+ t=secrets.token_urlsafe();SESSIONS.add(t);x=RedirectResponse("/",303);x.set_cookie("sales_session",t,httponly=True,samesite="lax");return x
 @app.post("/logout")
-def logout(request: Request) -> RedirectResponse:
-    token = request.cookies.get("sales_navigator_session")
-    if token:
-        SESSIONS.discard(token)
-    response = RedirectResponse("/", status_code=303)
-    response.delete_cookie("sales_navigator_session")
-    return response
-
-
+def logout(r:Request): SESSIONS.discard(r.cookies.get("sales_session",""));x=RedirectResponse("/",303);x.delete_cookie("sales_session");return x
+@app.get("/api/scenario")
+def get_scenario(r:Request): auth(r);s=load();return {"scenario":s,"revision":revision(s)}
+@app.put("/api/scenario")
+async def put_scenario(r:Request):
+ auth(r);p=await r.json()
+ try:return save(p.get("scenario"),p.get("revision"))
+ except ValueError as e:raise HTTPException(422,str(e))
 @app.get("/api/scenario/{node_id}")
-def scenario_node(node_id: str, request: Request) -> JSONResponse:
-    require_auth(request)
-    node = SCENARIO.get(node_id)
-    if node is None:
-        raise HTTPException(status_code=404, detail="Ветка не найдена")
-    return JSONResponse(node)
+def node(node_id:str,r:Request):
+ auth(r)
+ n=load().get(node_id)
+ if not n: raise HTTPException(404,"Ветка не найдена")
+ return n
