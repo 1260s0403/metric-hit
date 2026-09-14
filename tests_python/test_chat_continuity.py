@@ -403,6 +403,40 @@ def test_parallel_start_isolates_each_telegram_bot(tmp_path: Path, capsys: pytes
     assert finance["execution_worktree"] != support["execution_worktree"]
 
 
+def test_parallel_start_resumes_current_telegram_checkpoint_before_stale_worktree(tmp_path: Path) -> None:
+    path, _, continuity = fixture(tmp_path)
+    canonical, root = repository(tmp_path)
+    command = "Ядро старт. ТГ-боты. Контент-паблишер."
+    scope = continuity.scope_info("ТГ-боты. Контент-паблишер")
+    old = IsolatedWorktree(canonical, root).prepare(scope_key=str(scope["key"]))
+    continuity.transition(
+        scope_label=str(scope["label"]), branch=old["branch"],
+        canonical_worktree=old["canonical_worktree"], execution_worktree=old["execution_worktree"],
+        head=old["head"],
+    )
+    old_path = Path(old["execution_worktree"])
+    (old_path / "README.md").write_text("old divergent\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(old_path), "commit", "-am", "old divergent"], check=True, capture_output=True)
+    (canonical / "README.md").write_text("canonical current\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(canonical), "commit", "-am", "canonical current"], check=True, capture_output=True)
+    current = IsolatedWorktree(canonical, root).prepare(
+        scope_key=f"{scope['key']}:current", branch="codex/telegram-publisher-current",
+    )
+    continuity.transition(
+        scope_label=str(scope["label"]), branch=current["branch"],
+        canonical_worktree=current["canonical_worktree"], execution_worktree=current["execution_worktree"],
+        head=current["head"],
+    )
+
+    resumed = continuity.prepare_parallel_start(
+        text=command, canonical_worktree=str(canonical), worktree_root=str(root),
+    )
+
+    assert resumed["status"] == "resuming"
+    assert resumed["execution_worktree"] == current["execution_worktree"]
+    assert resumed["checkpoint"]["branch"] == "codex/telegram-publisher-current"
+
+
 def test_parallel_start_isolates_named_project_tasks_and_rejects_unknown(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     path, _, continuity = fixture(tmp_path)
     canonical, root = repository(tmp_path)

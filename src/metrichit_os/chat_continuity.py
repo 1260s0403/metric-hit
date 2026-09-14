@@ -189,15 +189,9 @@ class ChatContinuityStore:
             raise KnowledgeError(
                 "parallel start supports: Ядро старт. ТГ-боты. Имя. or Ядро старт. Проект «Название»: задача"
             )
-        prepared = IsolatedWorktree(canonical_worktree, worktree_root).prepare(
-            scope_key=str(scope["key"]), branch=str(scope["branch"]) if scope.get("branch") else None,
-            base=base,
-        )
-        return self.transition(
-            scope_label=scope_label, branch=prepared["branch"],
-            canonical_worktree=prepared["canonical_worktree"],
-            execution_worktree=prepared["execution_worktree"], head=prepared["head"],
-            task_name=str(scope.get("task_name") or scope["label"]),
+        return self.prepare_workspace(
+            scope_label=scope_label, canonical_worktree=canonical_worktree,
+            worktree_root=worktree_root, base=base,
         )
 
     def prepare_workspace(self, *, scope_label: str, canonical_worktree: str,
