@@ -428,13 +428,16 @@ def test_parallel_start_resumes_current_telegram_checkpoint_before_stale_worktre
         head=current["head"],
     )
 
-    resumed = continuity.prepare_parallel_start(
-        text=command, canonical_worktree=str(canonical), worktree_root=str(root),
-    )
+    resumes = [
+        continuity.prepare_parallel_start(
+            text=command, canonical_worktree=str(canonical), worktree_root=str(root),
+        )
+        for _ in range(3)
+    ]
 
-    assert resumed["status"] == "resuming"
-    assert resumed["execution_worktree"] == current["execution_worktree"]
-    assert resumed["checkpoint"]["branch"] == "codex/telegram-publisher-current"
+    assert [resumed["status"] for resumed in resumes] == ["resuming", "resuming", "resuming"]
+    assert {resumed["execution_worktree"] for resumed in resumes} == {current["execution_worktree"]}
+    assert {resumed["checkpoint"]["branch"] for resumed in resumes} == {"codex/telegram-publisher-current"}
 
 
 def test_parallel_start_isolates_named_project_tasks_and_rejects_unknown(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
