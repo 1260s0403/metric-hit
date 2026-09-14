@@ -16,7 +16,10 @@ def test_demo_login_opens_scenario(monkeypatch) -> None:
     client = TestClient(app)
     response = client.post("/login", data={"password": "test-password"}, follow_redirects=True)
     assert response.status_code == 200
-    assert "Мы уже работаем с другим подрядчиком" in response.text
+    assert "С кем можно поговорить по вопросу продвижения вашего сайта" in response.text
+    qualification = client.get("/api/scenario/qualification")
+    assert qualification.status_code == 200
+    assert "вы уже продвигаете сайт или это пока в планах" in qualification.json()["manager"]
     branch = client.get("/api/scenario/price")
     assert branch.status_code == 200
     assert branch.json()["manager"].startswith("Давайте сравним")
