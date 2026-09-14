@@ -53,7 +53,17 @@ LOGIN='''<!doctype html><html lang="ru"><meta charset="utf-8"><body style="backg
 @app.get("/",response_class=HTMLResponse)
 def home(r:Request): return HTMLResponse(app_page() if r.cookies.get("sales_session") in SESSIONS else LOGIN)
 @app.get("/editor",response_class=HTMLResponse)
-def editor(r:Request): auth(r);return HTMLResponse(editor_page())
+def editor(r:Request):
+ auth(r)
+ additions = '''<style>
+.editor-intro{margin:0 0 18px;padding:14px 16px;border:1px solid #334155;border-radius:12px;background:#172554;color:#dbeafe;line-height:1.45}.editor-intro strong{color:#67e8f9}.nodes{padding:14px!important}.nodes button{border:0!important;background:transparent!important;text-align:left;width:100%;margin:2px 0;padding:10px!important}.nodes button:hover{background:#1e293b!important}.nodes button:first-child{background:#164e63!important}.editor .card{box-shadow:0 18px 45px rgba(0,0,0,.2)}.editor label{display:block;font-weight:600}.editor label:before{content:'Редактируйте текст так, как его увидит менеджер';display:block;color:#94a3b8;font-size:12px;font-weight:400;margin-top:3px}.editor label:nth-of-type(2):before{content:'Эта реплика показывается менеджеру';}.editor label:nth-of-type(3):before{content:'Короткая подсказка, не для клиента';}.choice{padding:8px;border:1px solid #334155;border-radius:10px;margin:8px 0}.choice:before{content:'Если клиент отвечает:';color:#94a3b8;font-size:12px;grid-column:1/-1}</style><script>
+const russianNames={start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени',calculation:'Запрос расчёта',pilot:'Пилотный запуск',report:'Пример отчёта'};
+function russianName(id){return russianNames[id]||'Новая ветка';}
+function localizeEditor(){document.querySelectorAll('[data-id]').forEach(button=>{const active=button.textContent.includes('●');button.textContent=(active?'● ':'')+russianName(button.dataset.id)});document.querySelectorAll('[data-n] option').forEach(option=>option.textContent=russianName(option.value));}
+const editorObserver=new MutationObserver(localizeEditor);editorObserver.observe(document.body,{childList:true,subtree:true});localizeEditor();
+</script>'''
+ page = editor_page().replace('<div class="editor">', '<div class="editor-intro"><strong>Как работать с редактором.</strong> Слева выберите этап разговора. Справа измените текст и варианты ответов. Нажмите «Сохранить», когда закончите.</div><div class="editor">')
+ return HTMLResponse(page.replace('</main></html>', additions + '</main></html>'))
 @app.post("/login")
 async def login(r:Request):
  f=parse_qs((await r.body()).decode());

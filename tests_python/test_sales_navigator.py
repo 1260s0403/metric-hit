@@ -50,3 +50,6 @@ def test_editor_persists_valid_scenario_and_rejects_broken_link(monkeypatch, tmp
     broken = deepcopy(scenario); broken["start"]["choices"][0]["next"] = "missing"
     assert client.put("/api/scenario", json={"scenario": broken, "revision": saved.json()["revision"]}).status_code == 422
     assert load() == scenario
+    page = client.get("/editor").text
+    assert "Первый звонок" in page
+    assert "Уже есть подрядчик" in page
