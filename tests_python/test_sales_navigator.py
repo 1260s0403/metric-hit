@@ -19,7 +19,7 @@ def test_demo_login_opens_scenario(monkeypatch) -> None:
     assert "С кем можно поговорить по вопросу продвижения вашего сайта" in response.text
     qualification = client.get("/api/scenario/qualification")
     assert qualification.status_code == 200
-    assert "вы уже продвигаете сайт или это пока в планах" in qualification.json()["manager"]
+    assert qualification.json()["manager"] == "Отлично, тогда коротко уточню: вы уже продвигаете сайт в Яндексе или это пока в планах?"
     branch = client.get("/api/scenario/price")
     assert branch.status_code == 200
     assert branch.json()["manager"].startswith("Давайте сравним")
