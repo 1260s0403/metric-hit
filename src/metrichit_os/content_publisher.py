@@ -27,7 +27,6 @@ from .local_author import (
     PostKind,
     PostRequest,
     THEMATIC_DIRECTIONS,
-    sanitize_plain_text,
     validate_publication_text,
 )
 
@@ -261,8 +260,8 @@ class TelegramTransport(Protocol):
 
 
 def channel_message_payload(channel_id: int, content: str) -> dict[str, object]:
-    """Build a literal-text message with ordinary URLs and no Telegram formatting."""
-    text = sanitize_plain_text(content)
+    """Build the narrowly validated Markdown payload used by invite posts."""
+    text = content
     try:
         validate_publication_text(text)
     except ValueError as error:
@@ -270,6 +269,7 @@ def channel_message_payload(channel_id: int, content: str) -> dict[str, object]:
     return {
         "chat_id": channel_id,
         "text": text,
+        "parse_mode": "Markdown",
         "link_preview_options": {"is_disabled": True},
     }
 
@@ -303,6 +303,16 @@ class Draft:
     content: str
     content_hash: str
     status: str
+    image_brief: str
+    image_artifact: str
+
+
+IMAGE_ARTIFACT_REQUIRED = "image-required-before-publication"
+
+
+def _prepared_image_exists(artifact: str) -> bool:
+    """An offline package names a real local asset; a label alone is not a visual."""
+    return bool(artifact.strip()) and artifact != IMAGE_ARTIFACT_REQUIRED and Path(artifact).is_file()
 
 
 @dataclass(frozen=True)
@@ -506,7 +516,7 @@ class ContentPublisherStore:
             product_facts=(),
             constraints=(
                 "Не раскрывать поисковую механику бота.",
-                "Писать plain text без Markdown, emoji и скрытых символов; разрешены только обязательные URL в footer.",
+                "Использовать Markdown только для заголовка и строки основного канала; emoji допустимы только в footer.",
                 "Не выдумывать кейсы, метрики, факты или обновления поисковых систем.",
                 "Инструкции и последовательные действия использовать только для практического формата.",
                 "Работать по тематическим направлениям: " + "; ".join(THEMATIC_DIRECTIONS) + ".",
@@ -523,7 +533,6 @@ class ContentPublisherStore:
         if revision_note:
             content = content.removesuffix(CANONICAL_FOOTER).rstrip()
             content += f"\n\nУчтено при доработке: {revision_note.strip()}\n\n{CANONICAL_FOOTER}"
-        content = sanitize_plain_text(content)
         validate_publication_text(content)
         return content
 
@@ -537,20 +546,42 @@ class ContentPublisherStore:
         version = 1
         timestamp = self._timestamp()
         with self._connect() as connection:
+            image_brief = f"Подготовить релевантный визуал для темы: {topic.strip()}."
             connection.execute(
                 "INSERT INTO content_jobs VALUES (?, ?, 'metrichit', ?, 'in_review', ?, ?, ?)",
                 (job_id, owner_user_id, " ".join(topic.split()), version, timestamp, timestamp),
             )
             connection.execute(
                 "INSERT INTO content_drafts VALUES (?, ?, ?, ?, ?, ?, '', ?)",
-                (job_id, version, content, "", "", self._hash(content), timestamp),
+                (job_id, version, content, image_brief, IMAGE_ARTIFACT_REQUIRED, self._hash(content), timestamp),
+            )
+        return self.get(job_id)
+
+    def attach_image_artifact(self, job_id: str, version: int, actor_user_id: int, artifact: str) -> Draft:
+        """Record an owner-prepared visual; this offline author never creates image files."""
+        clean_artifact = artifact.strip()
+        if not _prepared_image_exists(clean_artifact):
+            raise ValueError("Укажите путь к существующему подготовленному визуалу для публикации.")
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT owner_user_id, current_version FROM content_jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(job_id)
+            if int(row["owner_user_id"]) != actor_user_id:
+                raise PermissionError(ACCESS_DENIED)
+            if int(row["current_version"]) != version:
+                raise ValueError("Визуал можно приложить только к актуальной версии.")
+            connection.execute(
+                "UPDATE content_drafts SET image_artifact=? WHERE job_id=? AND version=?",
+                (clean_artifact, job_id, version),
             )
         return self.get(job_id)
 
     def get(self, job_id: str) -> Draft:
         with self._connect() as connection:
             row = connection.execute(
-                """SELECT j.id, j.current_version, j.topic, j.status, d.content, d.content_hash
+                """SELECT j.id, j.current_version, j.topic, j.status, d.content, d.content_hash, d.image_brief, d.image_artifact
                    FROM content_jobs j JOIN content_drafts d
                      ON d.job_id = j.id AND d.version = j.current_version
                    WHERE j.id = ?""",
@@ -561,7 +592,7 @@ class ContentPublisherStore:
         return Draft(
             job_id=str(row["id"]), version=int(row["current_version"]), topic=str(row["topic"]),
             content=str(row["content"]), content_hash=str(row["content_hash"]),
-            status=str(row["status"]),
+            status=str(row["status"]), image_brief=str(row["image_brief"]), image_artifact=str(row["image_artifact"]),
         )
 
     def list_jobs(self, owner_user_id: int) -> list[Draft]:
@@ -632,7 +663,7 @@ class ContentPublisherStore:
             content = self._render(str(row["topic"]), clean_note)
             connection.execute(
                 "INSERT INTO content_drafts VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (job_id, version, content, "", "", self._hash(content), clean_note, timestamp),
+                (job_id, version, content, f"Подготовить релевантный визуал для темы: {row['topic']}.", IMAGE_ARTIFACT_REQUIRED, self._hash(content), clean_note, timestamp),
             )
             connection.execute(
                 "UPDATE content_jobs SET status = 'in_review', current_version = ?, updated_at = ? WHERE id = ?",
@@ -732,8 +763,12 @@ class ContentPublisherStore:
                            channel_id: int, telegram_message_id: int) -> None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT owner_user_id, current_version, status FROM content_jobs WHERE id = ?", (job_id,)
+                """SELECT j.owner_user_id, j.current_version, j.status, d.image_artifact
+                   FROM content_jobs j JOIN content_drafts d ON d.job_id=j.id AND d.version=j.current_version
+                   WHERE j.id = ?""", (job_id,)
             ).fetchone()
+            if row is not None and not _prepared_image_exists(str(row["image_artifact"])):
+                raise ValueError("Перед публикацией нужен подготовленный визуал для этого поста.")
             if row is None:
                 raise KeyError(job_id)
             if int(row["owner_user_id"]) != actor_user_id:
@@ -968,23 +1003,11 @@ class ContentPublisherBot:
         claimed = self.store.claim_due_test_slot()
         if claimed is None:
             return False
-        schedule, slot_index, content = claimed
-        try:
-            response = self.transport.call("sendMessage", channel_message_payload(schedule.channel_id, content))
-            result = response.get("result")
-            message_id = result.get("message_id") if isinstance(result, dict) else None
-            if not isinstance(message_id, int):
-                raise RuntimeError("Telegram не вернул идентификатор опубликованного сообщения.")
-            finished = self.store.finish_test_slot(schedule.schedule_id, slot_index, message_id)
-        except Exception:
-            self.store.fail_test_slot(schedule.schedule_id)
-            raise
-        if finished.status == "completed":
-            self.transport.call("sendMessage", {
-                "chat_id": schedule.owner_user_id,
-                "text": f"Тест завершён автоматически. Опубликовано: {finished.published_slots}.",
-            })
-        return True
+        schedule, _slot_index, _content = claimed
+        # Scheduled slots have no owner-prepared visual artifact.  They must
+        # never become text-only publications under the invite-channel policy.
+        self.store.fail_test_slot(schedule.schedule_id)
+        return False
 
     def _authorized(self, user_id: object, chat: object) -> bool:
         active_owner_ids = self.owner_user_ids or self.store.verified_owner_user_ids()
@@ -1133,6 +1156,8 @@ class ContentPublisherBot:
                 binding = self.store.channel_binding()
                 if draft.status != "ready_to_publish":
                     raise ValueError("Сначала явно одобрите актуальную версию черновика.")
+                if not _prepared_image_exists(draft.image_artifact):
+                    raise ValueError("Перед публикацией нужен подготовленный визуал для этого поста.")
                 if self.store.is_published(draft.job_id, draft.version):
                     raise ValueError("Эта версия уже опубликована.")
                 response = self.transport.call(

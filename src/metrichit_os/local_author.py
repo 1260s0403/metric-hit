@@ -133,7 +133,8 @@ _PROHIBITED_SEARCH_MECHANICS = re.compile(
 )
 
 CANONICAL_FOOTER = (
-    "📢 Основной канал MetricHit: https://t.me/mtr_hit\n"
+    "**📢 Основной канал MetricHit: https://t.me/mtr_hit**\n"
+    "\n"
     "🌐 Сайт MetricHit: https://go.mtrhit.ru/\n"
     "💬 Поддержка в Telegram: https://t.me/Metric_Hit"
 )
@@ -157,6 +158,7 @@ _FORBIDDEN_META_PHRASES = (
 )
 _DECORATIVE_LIST_LINE = re.compile(r"(?m)^\s*(?:[-*•▪◦]|\d+[.)])\s+")
 _MAIN_CHANNEL_BRIDGE = "основном канале"
+_BOLD_LINE = re.compile(r"^\*\*[^*\n]+\*\*$")
 
 
 def sanitize_plain_text(text: str) -> str:
@@ -200,7 +202,8 @@ def validate_plain_text(text: str) -> None:
 
 def validate_publication_text(text: str) -> None:
     """Apply the short invite-channel contract before a post is stored or sent."""
-    validate_plain_text(text)
+    if not text.strip() or "\r" in text or _HTML_TAG.search(text) or _HTML_ENTITY.search(text):
+        raise TelegramFormattingError("draft must use safe Telegram text")
     if not MIN_POST_LENGTH <= len(text) <= MAX_POST_LENGTH:
         raise TelegramFormattingError(
             f"draft must contain {MIN_POST_LENGTH}-{MAX_POST_LENGTH} characters including the required footer"
@@ -209,7 +212,21 @@ def validate_publication_text(text: str) -> None:
         raise TelegramFormattingError("draft must end with the required MetricHit footer")
     if any(text.count(url) != 1 for url in CANONICAL_URLS):
         raise TelegramFormattingError("draft must contain each canonical MetricHit URL exactly once")
+    if len(_URL.findall(text)) != len(CANONICAL_URLS):
+        raise TelegramFormattingError("invite post must not contain arbitrary links")
+    lines = text.splitlines()
+    first_nonempty = next((line for line in lines if line), "")
+    main_channel_line = "**📢 Основной канал MetricHit: https://t.me/mtr_hit**"
+    if first_nonempty != lines[0] or not _BOLD_LINE.fullmatch(first_nonempty):
+        raise TelegramFormattingError("invite post must start with one bold headline")
+    if text.count("**") != 4 or main_channel_line not in lines:
+        raise TelegramFormattingError("invite post allows bold text only for the headline and main channel footer line")
+    main_channel_index = lines.index(main_channel_line)
+    if lines[main_channel_index + 1:] != ["", "🌐 Сайт MetricHit: https://go.mtrhit.ru/", "💬 Поддержка в Telegram: https://t.me/Metric_Hit"]:
+        raise TelegramFormattingError("invite footer structure is invalid")
     body = text.removesuffix(CANONICAL_FOOTER).rstrip()
+    if _DISALLOWED.search(body.replace("**", "")):
+        raise TelegramFormattingError("invite post contains unsupported markup or symbols")
     if _DECORATIVE_LIST_LINE.search(body):
         raise TelegramFormattingError("invite post must not use a decorative list")
     if _MAIN_CHANNEL_BRIDGE not in body.casefold():
@@ -235,13 +252,13 @@ class DeterministicLocalAdapter:
         request, profile = prompt.request, prompt.profile
         facts = "\n".join(profile.product_facts)
         cta = request.cta or profile.default_cta
-        lead = f"{request.topic.strip()}\n\n{request.opening.strip()}"
+        lead = f"**{request.topic.strip()}**\n\n{request.opening.strip()}"
         if request.source_notes is not None:
             body = request.source_notes.strip()
         else:
             body = (
-                "Сначала определите одну страницу и одну задачу пользователя. Если смешать запросы, регионы или "
-                "периоды, цифра не подскажет следующее решение."
+                "Сначала определите одну страницу и задачу пользователя. Если смешать запросы, регионы или "
+                "периоды, цифра не подскажет решение."
                 "\n\nЭто помогает отделить наблюдение от предположения."
             )
         conclusion = request.conclusion or self._contextual_conclusion(request)
@@ -266,7 +283,7 @@ class LocalPostAuthor:
 
     def draft(self, profile: AuthorProfile, request: PostRequest) -> Draft:
         self._reject_public_mechanics(profile, request)
-        generated = sanitize_plain_text(self._adapter.generate(AuthorPrompt(profile=profile, request=request)))
+        generated = self._adapter.generate(AuthorPrompt(profile=profile, request=request))
         text = f"{generated}\n\n{CANONICAL_FOOTER}"
         facts = tuple(sanitize_plain_text(fact) for fact in profile.product_facts)
         cta = sanitize_plain_text(request.cta or profile.default_cta)
@@ -292,7 +309,6 @@ class LocalPostAuthor:
 
     @staticmethod
     def _validate(text: str, facts: tuple[str, ...], cta: str) -> None:
-        validate_plain_text(text)
         missing = [fact for fact in facts if fact not in text]
         if missing:
             raise FactIntegrityError(f"draft omits supplied facts: {', '.join(missing)}")

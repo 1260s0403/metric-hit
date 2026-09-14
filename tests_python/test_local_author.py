@@ -28,9 +28,9 @@ def test_deterministic_mode_supports_every_post_kind_without_model(profile: Auth
     draft = LocalPostAuthor(adapter).draft(profile, PostRequest(kind, "Тема", "Короткое вступление."))
 
     assert draft.kind is kind
-    assert draft.text.startswith("Тема")
+    assert draft.text.startswith("**Тема**")
     assert all(fact in draft.text for fact in profile.product_facts)
-    assert draft.text == sanitize_plain_text(draft.text)
+    validate_publication_text(draft.text)
     assert adapter.prompts == [adapter.prompts[0]]
     assert adapter.prompts[0].profile == profile
 
@@ -111,7 +111,8 @@ def test_plain_text_sanitizer_keeps_only_canonical_urls_and_removes_markup_emoji
 
 def test_plain_text_allows_meaningful_icons_only_in_the_exact_footer() -> None:
     assert CANONICAL_FOOTER == (
-        "📢 Основной канал MetricHit: https://t.me/mtr_hit\n"
+        "**📢 Основной канал MetricHit: https://t.me/mtr_hit**\n"
+        "\n"
         "🌐 Сайт MetricHit: https://go.mtrhit.ru/\n"
         "💬 Поддержка в Telegram: https://t.me/Metric_Hit"
     )
@@ -132,8 +133,8 @@ def test_deterministic_author_enforces_plain_text_length_for_all_formats(
     assert MIN_POST_LENGTH <= len(draft.text) <= MAX_POST_LENGTH
     assert draft.text.endswith(CANONICAL_FOOTER)
     assert all(draft.text.count(url) == 1 for url in CANONICAL_URLS)
-    assert "**" not in draft.text
-    assert draft.text == sanitize_plain_text(draft.text)
+    assert draft.text.splitlines()[0] == f"**{draft.topic}**"
+    assert draft.text.count("**") == 4
 
 
 def test_actions_are_reserved_for_practical_instruction_format(profile: AuthorProfile) -> None:
@@ -153,9 +154,9 @@ def test_actions_are_reserved_for_practical_instruction_format(profile: AuthorPr
 
 
 @pytest.mark.parametrize("body", [
-    "Тема\n\n- Первый пункт\n\nВ основном канале MetricHit есть продолжение.\n\n",
-    "Тема\n\n1. Первый пункт\n\nВ основном канале MetricHit есть продолжение.\n\n",
-    "Тема\n\nКороткий вывод без перехода.\n\n",
+    "**Тема**\n\n- Первый пункт\n\nВ основном канале MetricHit есть продолжение.\n\n",
+    "**Тема**\n\n1. Первый пункт\n\nВ основном канале MetricHit есть продолжение.\n\n",
+    "**Тема**\n\nКороткий вывод без перехода.\n\n",
 ])
 def test_invite_validator_rejects_decorative_lists_and_missing_main_channel_bridge(body: str) -> None:
     padded = body + ("Текст " * 100) + "\n\n" + CANONICAL_FOOTER
@@ -164,9 +165,9 @@ def test_invite_validator_rejects_decorative_lists_and_missing_main_channel_brid
 
 
 @pytest.mark.parametrize("text", [
-    "Короткий текст\n\n" + CANONICAL_FOOTER,
-    ("Текст " * 200) + "\n\n" + CANONICAL_FOOTER + "\n\nлишнее",
-    ("Здесь важно " * 80) + "\n\n" + CANONICAL_FOOTER,
+    "**Короткий текст**\n\n" + CANONICAL_FOOTER,
+    "**Тема**\n\n" + ("Текст " * 200) + "\n\n" + CANONICAL_FOOTER + "\n\nлишнее",
+    "**Тема**\n\n" + ("Здесь важно " * 80) + "\n\n" + CANONICAL_FOOTER,
 ])
 def test_publication_quality_validator_rejects_bad_length_footer_or_generic_filler(text: str) -> None:
     with pytest.raises(TelegramFormattingError):

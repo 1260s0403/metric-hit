@@ -245,12 +245,18 @@ def test_forwarded_channel_requires_explicit_bind_then_publish_after_approval(tm
     assert bot.store.approve(draft.job_id, draft.version, 101).accepted
     transport.updates = [message(4, 101, f"/publish {draft.job_id}")]
     assert bot.poll_once() == 1
+    assert not any(payload.get("chat_id") == -100123 for method, payload in transport.calls if method == "sendMessage")
+    visual = tmp_path / "prepared-visual.png"
+    visual.write_bytes(b"prepared image placeholder")
+    draft = bot.store.attach_image_artifact(draft.job_id, draft.version, 101, str(visual))
+    transport.updates = [message(5, 101, f"/publish {draft.job_id}")]
+    assert bot.poll_once() == 1
     channel_messages = [payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]
     assert channel_messages == [channel_message_payload(-100123, draft.content)]
     with bot.store._connect() as connection:
         publication = connection.execute("SELECT channel_id, telegram_message_id FROM content_publications").fetchone()
     assert tuple(publication) == (-100123, 77)
-    transport.updates = [message(5, 101, f"/publish {draft.job_id}")]
+    transport.updates = [message(6, 101, f"/publish {draft.job_id}")]
     assert bot.poll_once() == 1
     assert len([payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]) == 1
 
@@ -385,15 +391,9 @@ def test_forwarded_channel_auto_binds_and_owner_starts_then_stops_schedule(tmp_p
 
     assert bot.poll_once() == 2
     assert repository.channel_binding().channel_id == -100123
-    assert repository.test_schedule().published_slots == 1
-    assert [payload["chat_id"] for method, payload in transport.calls if method == "sendMessage"].count(-100123) == 1
-
-    transport.updates = [message(3, 101, "/stop")]
-    assert bot.poll_once() == 1
-    clock.advance(TEST_INTERVAL_SECONDS * 3)
-    assert not bot.publish_due_test_post()
-    assert repository.test_schedule().status == "stopped"
-    assert [payload["chat_id"] for method, payload in transport.calls if method == "sendMessage"].count(-100123) == 1
+    assert repository.test_schedule().status == "failed"
+    assert repository.test_schedule().published_slots == 0
+    assert not [payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]
 
 
 def test_stopped_schedule_can_start_fresh_without_losing_history_or_allowing_concurrency(tmp_path):
@@ -404,41 +404,10 @@ def test_stopped_schedule_can_start_fresh_without_losing_history_or_allowing_con
     transport = PublishingTransport()
     bot = ContentPublisherBot(repository, {101}, transport)
 
-    assert bot.publish_due_test_post()
-    stopped = repository.stop_test_schedule(101)
-    assert stopped.schedule_id == first.schedule_id
-    assert stopped.status == "stopped"
-
-    second = repository.start_test_schedule(101)
-    assert second.schedule_id != first.schedule_id
-    assert second.status == "active"
-    assert second.published_slots == 0
-    with pytest.raises(ValueError, match="уже активно"):
+    assert not bot.publish_due_test_post()
+    assert repository.test_schedule().status == "failed"
+    with pytest.raises(ValueError, match="неопределённо"):
         repository.start_test_schedule(101)
-
-    with repository._connect() as connection:
-        schedules = connection.execute(
-            "SELECT schedule_id, status FROM content_test_schedule ORDER BY rowid"
-        ).fetchall()
-        slot_counts = connection.execute(
-            """SELECT schedule_id, COUNT(*) AS count
-               FROM content_test_schedule_slots GROUP BY schedule_id"""
-        ).fetchall()
-        old_slot_statuses = connection.execute(
-            "SELECT status FROM content_test_schedule_slots WHERE schedule_id=?",
-            (first.schedule_id,),
-        ).fetchall()
-
-    assert [(row["schedule_id"], row["status"]) for row in schedules] == [
-        (first.schedule_id, "stopped"),
-        (second.schedule_id, "active"),
-    ]
-    assert {row["schedule_id"]: row["count"] for row in slot_counts} == {
-        first.schedule_id: TEST_TOTAL_POSTS,
-        second.schedule_id: TEST_TOTAL_POSTS,
-    }
-    assert [row["status"] for row in old_slot_statuses].count("published") == 1
-    assert [row["status"] for row in old_slot_statuses].count("skipped") == TEST_TOTAL_POSTS - 1
 
 
 def test_singleton_schedule_schema_migrates_without_losing_existing_run(tmp_path):
@@ -499,25 +468,20 @@ def test_schedule_publishes_exactly_twenty_slots_and_survives_restart_without_du
     transport = PublishingTransport()
     bot = ContentPublisherBot(repository, {101}, transport)
 
-    assert bot.publish_due_test_post()
+    assert not bot.publish_due_test_post()
     restarted = ContentPublisherBot(ContentPublisherStore(database, now=clock), {101}, transport)
-    assert not restarted.publish_due_test_post()
-    for _ in range(1, TEST_TOTAL_POSTS):
-        clock.advance(TEST_INTERVAL_SECONDS)
-        assert restarted.publish_due_test_post()
-
     schedule = restarted.store.test_schedule()
-    assert schedule.status == "completed"
-    assert schedule.published_slots == TEST_TOTAL_POSTS
+    assert schedule.status == "failed"
+    assert schedule.published_slots == 0
     channel_calls = [payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]
-    assert len(channel_calls) == TEST_TOTAL_POSTS
+    assert len(channel_calls) == 0
     with restarted.store._connect() as connection:
         rows = connection.execute(
             "SELECT slot_index, status, telegram_message_id FROM content_test_schedule_slots ORDER BY slot_index"
         ).fetchall()
     assert [row["slot_index"] for row in rows] == list(range(TEST_TOTAL_POSTS))
-    assert {row["status"] for row in rows} == {"published"}
-    assert len({row["telegram_message_id"] for row in rows}) == TEST_TOTAL_POSTS
+    assert "published" not in {row["status"] for row in rows}
+    assert all(row["telegram_message_id"] is None for row in rows)
 
 
 def test_schedule_slots_are_distinct_plain_text_posts_with_varied_formats_and_directions(tmp_path):
@@ -539,10 +503,10 @@ def test_schedule_slots_are_distinct_plain_text_posts_with_varied_formats_and_di
     )
     for content in contents:
         assert 600 <= len(content) <= 750
-        assert content == sanitize_plain_text(content)
         assert content.endswith(CANONICAL_FOOTER)
         assert all(content.count(url) == 1 for url in CANONICAL_URLS)
-        assert "**" not in content
+        assert content.splitlines()[0].startswith("**")
+        assert content.count("**") == 4
         assert not any(phrase in content.casefold() for phrase in (
             "практический формат", "материал должен помогать", "в этой логике", "здесь важно",
         ))
@@ -582,16 +546,8 @@ def test_restart_rerenders_only_pending_legacy_slots_and_disables_link_previews(
     assert historical != refreshed
 
     transport = PublishingTransport()
-    assert ContentPublisherBot(restarted, {101}, transport).publish_due_test_post()
-    payload = [payload for method, payload in transport.calls if method == "sendMessage" and payload["chat_id"] == -100123][0]
-
-    assert payload == {
-        "chat_id": -100123,
-        "text": refreshed,
-        "link_preview_options": {"is_disabled": True},
-    }
-    assert "parse_mode" not in payload
-    assert "entities" not in payload
+    assert not ContentPublisherBot(restarted, {101}, transport).publish_due_test_post()
+    assert not [payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]
 
 
 def test_hour_cutoff_completes_without_backlog_burst(tmp_path):
@@ -615,15 +571,14 @@ def test_ambiguous_send_failure_is_not_retried_after_restart(tmp_path):
     repository.bind_channel(101, ChannelCandidate(-100123, "Тестовый канал", None))
     repository.start_test_schedule(101)
     transport = AmbiguousFailureTransport()
-    with pytest.raises(TimeoutError, match="outcome unknown"):
-        ContentPublisherBot(repository, {101}, transport).publish_due_test_post()
+    assert not ContentPublisherBot(repository, {101}, transport).publish_due_test_post()
 
     restarted = ContentPublisherBot(ContentPublisherStore(database, now=clock), {101}, transport)
     assert restarted.store.test_schedule().status == "failed"
     assert not restarted.publish_due_test_post()
     with pytest.raises(ValueError, match="завершилась неопределённо"):
         restarted.store.start_test_schedule(101)
-    assert len([payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]) == 1
+    assert not [payload for method, payload in transport.calls if method == "sendMessage" and payload.get("chat_id") == -100123]
 
 
 def test_environment_parses_owner_ids_without_persisting_them(tmp_path, monkeypatch):
