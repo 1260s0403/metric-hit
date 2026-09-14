@@ -527,6 +527,39 @@ export const telegramSiteReadinessBeforePfPublicationUpdate = Object.freeze({
   },
 });
 
+export const telegramPathToLeadBeforeMetricsPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.telegram_path_to_lead_before_metrics_2026_09_14', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Почему цифры не отвечают за путь до заявки',
+  content: 'Владелец подтвердил публикацию в Telegram 14.09.2026 поста «Почему цифры не отвечают за путь до заявки». Публичный URL и Telegram message ID не предоставлены. Зафиксированы локальные пути текста и social-карточки; запись основана на прямом подтверждении владельца.',
+  platform: 'Telegram', canonicalUrl: null,
+  publishedAt: '2026-09-14T00:00:00.000Z', reviewedAt: '2026-09-14T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: { published: true, publication_date: '2026-09-14', post_title: 'Почему цифры не отвечают за путь до заявки', local_post_path: 'work/social/telegram/drafts/2026-09-14-path-to-lead-before-metrics.md', cover_asset_path: 'work/social/telegram/assets/2026-09-14-path-to-lead-before-metrics-cover.png', cover_asset_sha256: 'bd6f89d6e600f02ac383a496a859a38186bbe773c16a2202bb251d0018c1d60c', publication_status: 'owner_confirmed_published', public_url: null, telegram_message_id: null, external_action_performed_in_this_update: false },
+});
+
+export const telegramOneChangeOnePeriodPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.telegram_one_change_one_period_2026_09_14', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'Не меняйте всё в один день',
+  content: 'Владелец подтвердил публикацию в Telegram 14.09.2026 поста «Не меняйте всё в один день». Публичный URL и Telegram message ID не предоставлены. Зафиксированы локальные пути текста и social-карточки; запись основана на прямом подтверждении владельца.',
+  platform: 'Telegram', canonicalUrl: null,
+  publishedAt: '2026-09-14T00:00:00.000Z', reviewedAt: '2026-09-14T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: { published: true, publication_date: '2026-09-14', post_title: 'Не меняйте всё в один день', local_post_path: 'work/social/telegram/drafts/2026-09-14-one-change-one-period.md', cover_asset_path: 'work/social/telegram/assets/2026-09-14-one-change-one-period-cover.png', cover_asset_sha256: '942f2c0c3397bee14e8a2d8cf800f53d54ad51bdcecfe1c4b4a88301f5200c3a', publication_status: 'owner_confirmed_published', public_url: null, telegram_message_id: null, external_action_performed_in_this_update: false },
+});
+
+export const telegramOnePageOneGoalPublicationUpdate = Object.freeze({
+  semanticKey: 'publication.telegram_one_page_one_goal_2026_09_14', revision: 1, expectedPriorRevisions: [],
+  allowCreate: true, publicationStatus: 'owner_confirmed_published',
+  title: 'У страницы должна быть одна задача',
+  content: 'Владелец подтвердил публикацию в Telegram 14.09.2026 поста «У страницы должна быть одна задача». Публичный URL и Telegram message ID не предоставлены. Зафиксированы локальные пути текста и social-карточки; запись основана на прямом подтверждении владельца.',
+  platform: 'Telegram', canonicalUrl: null,
+  publishedAt: '2026-09-14T00:00:00.000Z', reviewedAt: '2026-09-14T00:00:00.000Z',
+  authority: 'direct_owner_publication_confirmation', verificationMethod: 'owner_confirmation',
+  verifiedFacts: { published: true, publication_date: '2026-09-14', post_title: 'У страницы должна быть одна задача', local_post_path: 'work/social/telegram/drafts/2026-09-14-one-page-one-goal.md', cover_asset_path: 'work/social/telegram/assets/2026-09-14-one-page-one-goal-cover.png', cover_asset_sha256: '27d9b770d843e2dcd0e68859a48dd9ecc3cdd5276fe26da7dd9d8d0fe8435552', publication_status: 'owner_confirmed_published', public_url: null, telegram_message_id: null, external_action_performed_in_this_update: false },
+});
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const command = process.argv[2] ?? 'sostav-first-article';
   const databasePath = process.argv[3] ? resolve(process.argv[3]) : defaultDatabasePath;
@@ -545,8 +578,11 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
                         : command === 'vk-business-site-launch-readiness-publication' ? vkBusinessSiteLaunchReadinessPublicationUpdate
                           : command === 'oborot-business-site-launch-readiness-publication' ? oborotBusinessSiteLaunchReadinessPublicationUpdate
                             : command === 'oborot-pf-yandex-publication' ? oborotPfYandexPublicationUpdate
-                              : command === 'telegram-site-readiness-before-pf-publication' ? telegramSiteReadinessBeforePfPublicationUpdate : sostavFirstArticleUpdate;
-  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication', 'vk-internet-shop-category-first-launch-publication', 'vk-business-site-launch-readiness-publication', 'oborot-business-site-launch-readiness-publication', 'oborot-pf-yandex-publication', 'oborot-preview-rule', 'telegram-site-readiness-before-pf-publication'].includes(command)) {
+                              : command === 'telegram-site-readiness-before-pf-publication' ? telegramSiteReadinessBeforePfPublicationUpdate
+                                : command === 'telegram-path-to-lead-before-metrics-publication' ? telegramPathToLeadBeforeMetricsPublicationUpdate
+                                  : command === 'telegram-one-change-one-period-publication' ? telegramOneChangeOnePeriodPublicationUpdate
+                                    : command === 'telegram-one-page-one-goal-publication' ? telegramOnePageOneGoalPublicationUpdate : sostavFirstArticleUpdate;
+  if (!['sostav-first-article', 'oborot-editorial-integration', 'oborot-internet-shop-publication', 'tenchat-internet-shop-publication', 'vk-community-cover-publication', 'vk-pf-yandex-service', 'vk-yandex-maps-service-publication', 'vk-website-creation-service-publication', 'vk-prelaunch-pf-checklist-publication', 'vk-august-16-pf-services-incident-publication', 'vk-metrichit-pf-product-overview-publication', 'vk-internet-shop-category-first-launch-publication', 'vk-business-site-launch-readiness-publication', 'oborot-business-site-launch-readiness-publication', 'oborot-pf-yandex-publication', 'oborot-preview-rule', 'telegram-site-readiness-before-pf-publication', 'telegram-path-to-lead-before-metrics-publication', 'telegram-one-change-one-period-publication', 'telegram-one-page-one-goal-publication'].includes(command)) {
     throw new Error('Usage: update-publication-memory.mjs <sostav-first-article|oborot-editorial-integration|oborot-internet-shop-publication|tenchat-internet-shop-publication|vk-community-cover-publication|vk-pf-yandex-service|vk-yandex-maps-service-publication|vk-website-creation-service-publication|vk-prelaunch-pf-checklist-publication|vk-august-16-pf-services-incident-publication|vk-internet-shop-category-first-launch-publication|vk-business-site-launch-readiness-publication|oborot-business-site-launch-readiness-publication> [databasePath]');
   }
   console.log(JSON.stringify(command === 'oborot-preview-rule'

@@ -30,6 +30,10 @@ test('editorial visual standard is approved, idempotent, and encodes default and
   const policy = JSON.parse(row.data_json);
   assert.deepEqual(policy.applies_to, ['articles', 'article_drafts']);
   assert.equal(policy.article_image_brief.total, 3);
+  assert.equal(policy.telegram_social_card_brief.aspect_ratio, '1:1');
+  assert.equal(policy.telegram_social_card_brief.semantic_focus, 'one_abstract_metaphor_for_one_post_principle');
+  assert.ok(policy.telegram_social_card_brief.prohibited.includes('arrows'));
+  assert.ok(policy.telegram_social_card_brief.prohibited.includes('ui'));
   assert.equal(policy.oborot_long_form_image_brief.classifier.source_semantic_key, 'content.editorial_target_query_volume_ladder');
   assert.equal(policy.oborot_long_form_image_brief.classifier.band, 'highest_or_above');
   assert.equal(policy.oborot_long_form_image_brief.classifier.minimum_characters, 7001);
