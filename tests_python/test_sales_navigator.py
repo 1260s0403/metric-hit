@@ -10,6 +10,7 @@ def test_scenario_requires_login() -> None:
     client = TestClient(app)
     response = client.get("/api/scenario/start")
     assert response.status_code == 401
+    assert TestClient(app).get("/editor", follow_redirects=False).status_code == 303
 
 
 def test_demo_login_opens_scenario(monkeypatch) -> None:

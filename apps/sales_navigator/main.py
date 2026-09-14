@@ -54,7 +54,8 @@ LOGIN='''<!doctype html><html lang="ru"><meta charset="utf-8"><body style="backg
 def home(r:Request): return HTMLResponse(app_page() if r.cookies.get("sales_session") in SESSIONS else LOGIN)
 @app.get("/editor",response_class=HTMLResponse)
 def editor(r:Request):
- auth(r)
+ if r.cookies.get("sales_session") not in SESSIONS:
+  return RedirectResponse("/", status_code=303)
  additions = '''<style>
 .editor-intro{margin:0 0 18px;padding:14px 16px;border:1px solid #334155;border-radius:12px;background:#172554;color:#dbeafe;line-height:1.45}.editor-intro strong{color:#67e8f9}.nodes{padding:14px!important}.nodes button{border:0!important;background:transparent!important;text-align:left;width:100%;margin:2px 0;padding:10px!important}.nodes button:hover{background:#1e293b!important}.nodes button:first-child{background:#164e63!important}.editor .card{box-shadow:0 18px 45px rgba(0,0,0,.2)}.editor label{display:block;font-weight:600}.editor label:before{content:'Редактируйте текст так, как его увидит менеджер';display:block;color:#94a3b8;font-size:12px;font-weight:400;margin-top:3px}.editor label:nth-of-type(2):before{content:'Эта реплика показывается менеджеру';}.editor label:nth-of-type(3):before{content:'Короткая подсказка, не для клиента';}.choice{padding:8px;border:1px solid #334155;border-radius:10px;margin:8px 0}.choice:before{content:'Если клиент отвечает:';color:#94a3b8;font-size:12px;grid-column:1/-1}</style><script>
 const russianNames={start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени',calculation:'Запрос расчёта',pilot:'Пилотный запуск',report:'Пример отчёта'};
