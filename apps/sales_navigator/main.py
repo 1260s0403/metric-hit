@@ -53,7 +53,7 @@ LOGIN='''<!doctype html><html lang="ru"><meta charset="utf-8"><body style="backg
 def home(r:Request):
  if r.cookies.get("sales_session") not in SESSIONS: return HTMLResponse(LOGIN)
  safeguard = '''<script>
-let inlineSnapshot=null;
+let inlineSnapshot=null;Object.keys(n).filter(k=>!names[k]).forEach(k=>names[k]=`Новая ветка ${k.replace('new-node-','')}`.trim());
 function cancelInlineEdit(){if(inlineSnapshot)n[c]=JSON.parse(inlineSnapshot);editing=false;$('edit-panel').hidden=true;$('edit').textContent='Редактировать этот шаг';$('edit-status').textContent='';r();}
 const openInlineEdit=$('edit').onclick,saveInlineEdit=$('save-edit').onclick;
 $('edit').onclick=()=>{if(editing){cancelInlineEdit();return;}inlineSnapshot=JSON.stringify(n[c]);openInlineEdit();};
