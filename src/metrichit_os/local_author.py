@@ -149,11 +149,13 @@ _URL = re.compile(r"(?i)\b(?:https?://|www\.|t\.me/)[^\s<>()]+")
 _HTML_TAG = re.compile(r"<[^>\n]*>")
 _HTML_ENTITY = re.compile(r"&(?:#\d+|#x[0-9a-f]+|[a-z][a-z0-9]+);")
 _DISALLOWED = re.compile(r"[^A-Za-zА-Яа-яЁё0-9 \n.,;:!?()\-\"']")
-MIN_POST_LENGTH = 900
-MAX_POST_LENGTH = 1400
+MIN_POST_LENGTH = 600
+MAX_POST_LENGTH = 750
 _FORBIDDEN_META_PHRASES = (
     "практический формат", "материал должен помогать", "в этой логике", "здесь важно",
 )
+_DECORATIVE_LIST_LINE = re.compile(r"(?m)^\s*(?:[-*•▪◦]|\d+[.)])\s+")
+_MAIN_CHANNEL_BRIDGE = "основном канале"
 
 
 def sanitize_plain_text(text: str) -> str:
@@ -195,7 +197,7 @@ def validate_plain_text(text: str) -> None:
 
 
 def validate_publication_text(text: str) -> None:
-    """Apply the channel's readable-text contract before a post is stored or sent."""
+    """Apply the short invite-channel contract before a post is stored or sent."""
     validate_plain_text(text)
     if not MIN_POST_LENGTH <= len(text) <= MAX_POST_LENGTH:
         raise TelegramFormattingError(
@@ -205,6 +207,11 @@ def validate_publication_text(text: str) -> None:
         raise TelegramFormattingError("draft must end with the required MetricHit footer")
     if any(text.count(url) != 1 for url in CANONICAL_URLS):
         raise TelegramFormattingError("draft must contain each canonical MetricHit URL exactly once")
+    body = text.removesuffix(CANONICAL_FOOTER).rstrip()
+    if _DECORATIVE_LIST_LINE.search(body):
+        raise TelegramFormattingError("invite post must not use a decorative list")
+    if _MAIN_CHANNEL_BRIDGE not in body.casefold():
+        raise TelegramFormattingError("invite post must give a concise reason to continue in the main channel")
     lowered = text.casefold()
     if any(phrase in lowered for phrase in _FORBIDDEN_META_PHRASES):
         raise TelegramFormattingError("draft contains generic editorial filler")
@@ -226,53 +233,14 @@ class DeterministicLocalAdapter:
         request, profile = prompt.request, prompt.profile
         facts = "\n".join(profile.product_facts)
         cta = request.cta or profile.default_cta
-        lead = f"{request.topic.strip()}\n\n{request.opening.strip()} "
+        lead = f"{request.topic.strip()}\n\n{request.opening.strip()}"
         if request.source_notes is not None:
-            body = (
-                request.source_notes.strip()
-            )
-        elif request.kind in _INSTRUCTION_KINDS:
-            body = (
-                "Сначала определите, какую страницу и какие запросы вы проверяете. Затем откройте страницу как "
-                "пользователь: понятна ли услуга, следующий шаг и условия обращения. После этого сверяйте выводы с "
-                "данными за один и тот же период. Если причина не подтверждается, фиксируйте вопрос, а не меняйте "
-                "страницу наугад. Такой порядок оставляет у команды понятное основание для следующего решения."
-                "\n\nНе ограничивайтесь формальной проверкой наличия блоков. Сравните заголовок, первый экран, "
-                "описание услуги и форму обращения с тем, что человек ожидает получить по запросу. Если между ними "
-                "есть разрыв, сначала опишите его словами. Это даёт задачу для доработки вместо длинного списка "
-                "несвязанных правок."
-            )
-        elif request.kind in _DIAGNOSTIC_KINDS:
-            body = (
-                "Один и тот же симптом не указывает на одну причину. На него влияют страница, намерение запроса, "
-                "регион, недавние изменения и период сравнения. Сначала отделите факт из данных от предположения. "
-                "Потом проверьте соседние запросы и страницы, которые участвуют в той же задаче пользователя. Так "
-                "можно понять, где нужна правка, а где достаточно продолжить наблюдение."
-                "\n\nСравнение должно отвечать на один вопрос. Не складывайте в один вывод смену контента, "
-                "перенастройку аналитики и изменение спроса. Когда условия записаны рядом с наблюдением, обсуждение "
-                "идёт о проверяемой причине, а не о впечатлении от графика."
-                " Не торопитесь назначать виноватого до такой сверки."
-            )
-        elif request.kind == PostKind.EXPLANATORY or request.kind == PostKind.CTA:
-            body = (
-                "У такой задачи редко бывает одна причина. Роль страницы, полнота ответа, техническая доступность, "
-                "коммерческая информация и региональный контекст работают вместе. Изменение одного показателя не "
-                "доказывает влияние одного фактора. Полезнее сначала понять задачу пользователя, а затем проверять, "
-                "насколько страница действительно отвечает на неё."
-                "\n\nНапример, коммерческий запрос не решается одним упоминанием услуги. Читателю нужны условия, "
-                "сроки, способ связи и ответ на сомнения, которые возникают до обращения. Страница становится понятнее, "
-                "когда эти ответы находятся там, где их ожидают увидеть, а не спрятаны в общем тексте."
-            )
+            body = request.source_notes.strip()
         else:
             body = (
-                "В SEO полезно разделять факт, наблюдение и вывод. Позиция существует в контексте запроса, страницы, "
-                "региона и периода измерения. Одно изменение не стоит выдавать за доказанный эффект, а один показатель "
-                "не заменяет картину целиком. Назовите, что известно, и только затем решайте, нужна ли проверка "
-                "страницы, семантики или технической части."
-                "\n\nТакой подход экономит время команды. Вместо попытки исправить всё сразу появляется короткий "
-                "список проверок с понятным основанием: что менялось, какую задачу решает страница и какие данные "
-                "нужны для следующего вывода."
-                " Это сохраняет фокус и не превращает работу в поток случайных правок."
+                "Сначала определите одну страницу и одну задачу пользователя. Если смешать запросы, регионы или "
+                "периоды, цифра не подскажет следующее решение."
+                "\n\nЭто помогает отделить наблюдение от предположения."
             )
         conclusion = request.conclusion or self._contextual_conclusion(request)
         sections = [lead, body, conclusion, facts, cta.strip()]
@@ -280,12 +248,12 @@ class DeterministicLocalAdapter:
 
     @staticmethod
     def _contextual_conclusion(request: PostRequest) -> str:
-        """A fallback ending tied to the requested format, never a channel-wide slogan."""
+        """A concise bridge; the main channel keeps the deeper explanation."""
         if request.kind in _INSTRUCTION_KINDS:
-            return f"Итог проверки по теме «{request.topic.strip()}» лучше записать рядом с датой и страницей: так следующий шаг останется понятным команде."
+            return "В основном канале MetricHit разбираем, как превратить такую проверку в последовательный план действий."
         if request.kind in _DIAGNOSTIC_KINDS:
-            return f"Для темы «{request.topic.strip()}» полезнее оставить одну проверяемую гипотезу, чем собирать в один вывод все возможные причины."
-        return f"Тема «{request.topic.strip()}» становится рабочей, когда её можно связать с конкретной страницей и задачей посетителя."
+            return "В основном канале MetricHit разбираем, какие признаки помогают проверить такую гипотезу глубже."
+        return "В основном канале MetricHit разбираем, как применять этот принцип к страницам и группам запросов."
 
 
 class LocalPostAuthor:

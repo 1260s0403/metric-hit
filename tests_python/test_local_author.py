@@ -136,9 +136,20 @@ def test_actions_are_reserved_for_practical_instruction_format(profile: AuthorPr
         PostKind.INFORMATIONAL, "Контекст выдачи", "Выдача зависит от нескольких условий.",
         direction=THEMATIC_DIRECTIONS[1],
     ))
-    assert "Сначала" in instruction.text and "Затем" in instruction.text
-    assert "Сначала" not in informational.text
+    assert "основном канале" in instruction.text.casefold()
+    assert "основном канале" in informational.text.casefold()
     assert adapter.prompts[-1].request.direction == THEMATIC_DIRECTIONS[1]
+
+
+@pytest.mark.parametrize("body", [
+    "Тема\n\n- Первый пункт\n\nВ основном канале MetricHit есть продолжение.\n\n",
+    "Тема\n\n1. Первый пункт\n\nВ основном канале MetricHit есть продолжение.\n\n",
+    "Тема\n\nКороткий вывод без перехода.\n\n",
+])
+def test_invite_validator_rejects_decorative_lists_and_missing_main_channel_bridge(body: str) -> None:
+    padded = body + ("Текст " * 100) + "\n\n" + CANONICAL_FOOTER
+    with pytest.raises(TelegramFormattingError):
+        validate_publication_text(padded)
 
 
 @pytest.mark.parametrize("text", [

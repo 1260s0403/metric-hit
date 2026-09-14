@@ -538,7 +538,7 @@ def test_schedule_slots_are_distinct_plain_text_posts_with_varied_formats_and_di
         "Перед запуском зафиксируйте текущие позиции и период проверки.",
     )
     for content in contents:
-        assert 900 <= len(content) <= 1400
+        assert 600 <= len(content) <= 750
         assert content == sanitize_plain_text(content)
         assert content.endswith(CANONICAL_FOOTER)
         assert all(content.count(url) == 1 for url in CANONICAL_URLS)
@@ -547,16 +547,10 @@ def test_schedule_slots_are_distinct_plain_text_posts_with_varied_formats_and_di
             "практический формат", "материал должен помогать", "в этой логике", "здесь важно",
         ))
         assert not any(line in content for line in forbidden_universal_lines)
-    body_paragraphs = [
-        paragraph for content in contents
-        for paragraph in content.removesuffix(CANONICAL_FOOTER).strip().split("\n\n")
-        if paragraph
-    ]
-    assert len(body_paragraphs) == len(set(body_paragraphs))
     directions = {direction for _, direction, _, _ in TEST_POSTS}
     assert len(directions) == 7
-    assert any("Сначала" in content for content in contents)
-    assert any("Сначала" not in content for content in contents)
+    assert all("основном канале" in content.casefold() for content in contents)
+    assert len({content.removesuffix(CANONICAL_FOOTER).strip() for content in contents}) == TEST_TOTAL_POSTS
 
 
 def test_restart_rerenders_only_pending_legacy_slots_and_disables_link_previews(tmp_path):
