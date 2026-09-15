@@ -11,7 +11,7 @@ const semanticKey = 'editorial.telegram_invite_channel_published_topics';
 const scopeId = 'scope:subproject:editorial';
 const reviewedAt = '2026-09-15T00:00:00.000Z';
 const owner = 'owner';
-const revision = 2;
+const revision = 3;
 
 function stableUuid(key) {
   const hex = createHash('sha256').update(`metrichit-telegram-invite-published-topics:${key}`).digest('hex');
@@ -23,23 +23,23 @@ export function applyTelegramInviteChannelPublishedTopics(databasePath = default
   const documentContent = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   const sha256 = createHash('sha256').update(bytes).digest('hex');
   const title = 'Уже опубликованные темы invite-канала Telegram MetricHit';
-  const content = 'В invite-канале уже опубликованы 11 тематических углов: первые запросы; поэтапный запуск; дневной лимит после выбора страницы, задачи и группы запросов; соответствие намерения запроса посадочной странице; регион как часть задачи; исходный снимок перед стартом; расходы в контексте страницы, запросов, региона и выполненного объёма; первая посадочная страница как рамка проекта; путь посетителя до заявки отдельно от позиций и трафика; поэтапные изменения страницы с фиксацией точки и периода наблюдения; одна главная задача страницы. Следующий invite-пост не повторяет эти углы или их основной вывод; смежная тема требует самостоятельного практического вопроса и нового вывода.';
-  const metadata = JSON.stringify({ path: decisionPath, bytes: bytes.length, sha256, encoding: 'utf-8', authority: 'direct_owner_channel_review_and_confirmation', reviewed_date: '2026-09-15', platform: 'telegram', channel_role: 'invite_to_main_channel', topic_count: 11, authored_post_count: 12, semantic_duplicate_prevention: true, revision, supersedes_semantic_revision: 1 });
+  const content = 'В invite-канале уже опубликованы 12 тематических углов: первые запросы; поэтапный запуск; первый запуск вокруг одной страницы, запросов и региона; дневной лимит после выбора страницы, задачи и группы запросов; соответствие намерения запроса посадочной странице; регион как часть задачи; исходный снимок перед стартом; расходы в контексте страницы, запросов, региона и выполненного объёма; первая посадочная страница как рамка проекта; путь посетителя до заявки отдельно от позиций и трафика; поэтапные изменения страницы с фиксацией точки и периода наблюдения; одна главная задача страницы. Следующий invite-пост не повторяет эти углы или их основной вывод; смежная тема требует самостоятельного практического вопроса и нового вывода.';
+  const metadata = JSON.stringify({ path: decisionPath, bytes: bytes.length, sha256, encoding: 'utf-8', authority: 'direct_owner_channel_review_and_confirmation', reviewed_date: '2026-09-15', platform: 'telegram', channel_role: 'invite_to_main_channel', topic_count: 12, authored_post_count: 13, semantic_duplicate_prevention: true, revision, supersedes_semantic_revision: 2 });
   const sourceId = stableUuid(`source:${decisionPath}:${revision}`);
   const documentId = stableUuid(`document:${decisionPath}:${revision}`);
   const versionId = stableUuid(`version:${decisionPath}:${revision}`);
   const candidateId = stableUuid(`candidate:${semanticKey}:${revision}`);
   const recordId = stableUuid(`record:${scopeId}:${semanticKey}:${revision}`);
-  const priorCandidateId = stableUuid(`candidate:${semanticKey}:1`);
-  const priorRecordId = stableUuid(`record:${scopeId}:${semanticKey}:1`);
+  const priorCandidateId = stableUuid(`candidate:${semanticKey}:2`);
+  const priorRecordId = stableUuid(`record:${scopeId}:${semanticKey}:2`);
   const database = new DatabaseSync(databasePath);
   const created = { sources: 0, documents: 0, versions: 0, candidates: 0, scopedRecords: 0 };
   database.exec('PRAGMA foreign_keys=ON; BEGIN IMMEDIATE;');
   try {
     const priorCandidate = database.prepare('SELECT id,status FROM memory_candidates WHERE id=?').get(priorCandidateId);
-    if (!priorCandidate || priorCandidate.status !== 'approved') throw new Error('Prior Telegram invite topic registry is required for revision 2');
+    if (!priorCandidate || priorCandidate.status !== 'approved') throw new Error('Prior Telegram invite topic registry is required for revision 3');
     const priorRevisions = database.prepare("SELECT coalesce(json_extract(data_json, '$.revision'), 0) AS revision FROM memory_candidates WHERE semantic_key=? AND status IN ('pending','approved') AND id<>?").all(semanticKey, candidateId).map((row) => Number(row.revision));
-    if (JSON.stringify(priorRevisions) !== JSON.stringify([0])) throw new Error(`Unexpected Telegram invite topic registry revisions: ${priorRevisions.join(',')}`);
+    if (JSON.stringify(priorRevisions) !== JSON.stringify([0, 2])) throw new Error(`Unexpected Telegram invite topic registry revisions: ${priorRevisions.join(',')}`);
     const existingCandidate = database.prepare('SELECT status,content,data_json FROM memory_candidates WHERE id=?').get(candidateId);
     if (existingCandidate && (existingCandidate.status !== 'approved' || existingCandidate.content !== content || existingCandidate.data_json !== metadata)) throw new Error('Telegram invite topic registry revision differs from approved evidence');
     if (!database.prepare("SELECT id FROM scope_passports WHERE id=? AND status='active'").get(scopeId)) throw new Error('Editorial scope is unavailable');
