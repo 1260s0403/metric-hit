@@ -1,8 +1,9 @@
 from fastapi.testclient import TestClient
 
 from copy import deepcopy
+from playwright.sync_api import sync_playwright
 
-from apps.sales_navigator.main import SESSIONS, app, load
+from apps.sales_navigator.main import SESSIONS, app, load, validate
 
 
 def client() -> TestClient:
@@ -87,3 +88,60 @@ def test_editor_persists_valid_scenario_and_rejects_broken_link(monkeypatch, tmp
     assert "Уже есть подрядчик" in page
     assert "MutationObserver" not in page
     assert "const names={start:" in page
+
+
+def test_admin_adds_distinct_editable_linked_branch_in_both_editors(monkeypatch) -> None:
+    SESSIONS.clear()
+    configure_roles(monkeypatch)
+    SESSIONS["browser-test-session"] = "admin"
+    test_client = client()
+    test_client.cookies.set("sales_session", "browser-test-session")
+    original = test_client.get("/api/scenario").json()
+    home_page = test_client.get("/").text
+    editor_page = test_client.get("/editor").text
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.route("https://sales.mtrhit.ru/", lambda route: route.fulfill(body=home_page, content_type="text/html"))
+        page.route("https://sales.mtrhit.ru/editor", lambda route: route.fulfill(body=editor_page, content_type="text/html"))
+        page.route("https://sales.mtrhit.ru/api/scenario", lambda route: route.fulfill(json=original))
+
+        page.goto("https://sales.mtrhit.ru/")
+        page.locator("#edit").click()
+        page.locator("#add-choice").click()
+        inline = page.evaluate("({current:c,scenario:n,history:h})")
+        inline_next = inline["scenario"]["start"]["choices"][-1]["next"]
+        assert inline_next != "start"
+        assert inline_next not in original["scenario"]
+        assert inline["current"] == inline_next
+        assert inline["history"] == ["start"]
+        assert inline["scenario"][inline_next]["choices"] == []
+        validate(inline["scenario"])
+        for field, key in (("edit-client", "client"), ("edit-manager", "manager"), ("edit-hint", "hint")):
+            assert page.locator(f"#{field}").input_value() == inline["scenario"][inline_next][key]
+            page.locator(f"#{field}").fill(f"Редактируемый {key}")
+        page.evaluate("pull()")
+        assert page.evaluate("n[c].client") == "Редактируемый client"
+        page.locator("#cancel-edit").click()
+        assert page.evaluate("({current:c,scenario:n,history:h})") == {
+            "current": "start", "scenario": original["scenario"], "history": []
+        }
+
+        page.goto("https://sales.mtrhit.ru/editor")
+        page.locator("#add").click()
+        page.locator("#add").click()
+        full = page.evaluate("({current:id,scenario:d.scenario})")
+        first_next = full["scenario"]["start"]["choices"][-1]["next"]
+        second_next = full["scenario"][first_next]["choices"][-1]["next"]
+        assert first_next != second_next
+        assert first_next not in original["scenario"] and second_next not in original["scenario"]
+        assert full["current"] == second_next
+        validate(full["scenario"])
+        assert full["scenario"][second_next]["choices"] == []
+        for field, key in (("client", "client"), ("manager", "manager"), ("hint", "hint")):
+            assert page.locator(f"#{field}").input_value() == full["scenario"][second_next][key]
+            page.locator(f"#{field}").fill(f"Редактируемый {key}")
+        page.evaluate("collect()")
+        assert page.evaluate("d.scenario[id].manager") == "Редактируемый manager"
+        browser.close()
