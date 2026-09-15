@@ -302,3 +302,173 @@ def test_admin_names_branches_and_reorders_only_current_branch_in_both_editors(m
         validate(writes[-1]["scenario"])
         assert errors == []
         browser.close()
+
+
+def test_manager_persistent_navigation_search_collapse_current_and_mobile(monkeypatch) -> None:
+    SESSIONS.clear()
+    configure_roles(monkeypatch)
+    SESSIONS["manager-nav-session"] = "manager"
+    test_client = client()
+    test_client.cookies.set("sales_session", "manager-nav-session")
+    home_page = test_client.get("/").text
+    assert 'id="branch-nav"' in home_page
+    assert "Найти ветку" in home_page
+    assert 'id="edit-title"' not in home_page
+    errors = []
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route("https://sales.mtrhit.ru/", lambda route: route.fulfill(body=home_page, content_type="text/html"))
+        page.goto("https://sales.mtrhit.ru/")
+        assert page.locator("#branch-nav").is_visible()
+        assert page.locator("#nav-mobile-toggle").is_hidden()
+        assert page.locator("#nav-tree [data-nav-key]").count() < len(page.evaluate("Object.keys(n)"))
+        assert page.locator("#nav-tree [data-nav-open='start']").get_attribute("aria-current") == "step"
+        assert page.locator("#nav-tree [data-nav-toggle='start']").get_attribute("aria-expanded") == "true"
+        page.locator("#nav-tree [data-nav-toggle='start']").click()
+        assert page.locator("#nav-tree [data-nav-key]").count() == 1
+        assert page.locator("#nav-tree [data-nav-toggle='start']").get_attribute("aria-expanded") == "false"
+        page.locator("#nav-tree [data-nav-toggle='start']").click()
+        page.evaluate("n.qualification.title='Уточнить задачу';navRender()")
+        assert page.locator("#nav-tree [data-nav-open='qualification']").inner_text() == "Уточнить задачу"
+        page.locator("#nav-tree [data-nav-open='qualification']").click()
+        assert page.evaluate("c") == "qualification"
+        assert page.locator("#client").inner_text() == page.evaluate("n[c].client")
+        assert page.locator("#nav-tree [data-nav-open='qualification']").get_attribute("aria-current") == "step"
+        assert page.locator("#nav-tree [data-nav-toggle='start']").get_attribute("aria-expanded") == "true"
+        page.locator("#back").click()
+        assert page.evaluate("c") == "start"
+        page.locator("#choices button").first.click()
+        assert page.evaluate("c") == "qualification"
+        assert page.locator("#nav-tree [data-nav-open='qualification']").get_attribute("aria-current") == "step"
+        page.locator("#restart").click()
+        assert page.evaluate("c") == "start"
+        page.locator("#nav-tree .reference [data-nav-open='time']").click()
+        assert page.evaluate("c") == "time"
+        assert page.locator("#nav-tree .current [data-nav-open='time']").is_visible()
+        page.locator("#restart").click()
+
+        page.locator("#nav-search").fill("Нужны доказательства")
+        assert page.locator("#nav-tree [data-nav-open='proof']").is_visible()
+        page.locator("#nav-tree [data-nav-open='proof']").click()
+        assert page.evaluate("c") == "proof"
+        assert page.locator("#nav-tree [data-nav-open='proof']").get_attribute("aria-current") == "step"
+        page.locator("#nav-search").fill("нет такой ветки")
+        assert "Ветка не найдена" in page.locator("#nav-tree").inner_text()
+        page.locator("#nav-search").clear()
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        assert page.locator("#branch-nav").is_visible()
+        assert page.locator("#nav-search").is_hidden()
+        assert page.locator("#client").is_visible()
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        page.locator("#nav-mobile-toggle").click()
+        assert page.locator("#nav-search").is_visible()
+        assert page.locator("#nav-mobile-toggle").get_attribute("aria-expanded") == "true"
+        page.locator("#nav-tree [data-nav-open='start']").click()
+        assert page.evaluate("c") == "start"
+        assert page.locator("#nav-search").is_hidden()
+        assert page.locator("#client").is_visible()
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        assert page.locator("#edit").count() == 0
+        assert page.locator("#branch-nav [data-up], #branch-nav [data-down], #branch-nav [data-remove]").count() == 0
+        assert errors == []
+        browser.close()
+
+
+def test_navigation_guards_large_shared_cyclic_and_broken_graph(monkeypatch) -> None:
+    SESSIONS.clear()
+    configure_roles(monkeypatch)
+    SESSIONS["graph-nav-session"] = "manager"
+    test_client = client()
+    test_client.cookies.set("sales_session", "graph-nav-session")
+    home_page = test_client.get("/").text
+    errors = []
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route("https://sales.mtrhit.ru/", lambda route: route.fulfill(body=home_page, content_type="text/html"))
+        page.goto("https://sales.mtrhit.ru/")
+        page.evaluate("""() => {
+            for (let i=1;i<=30;i++) n['dense-'+i]={title:'Ветка '+i,client:'Ответ',manager:'Реплика',hint:'Подсказка',choices:[]};
+            n.start.choices.push({label:'Начать длинный путь',next:'dense-1'});
+            n.start.choices.push({label:'Сломанный переход',next:'absent-node'});
+            for (let i=1;i<30;i++) n['dense-'+i].choices.push({label:'Далее '+i,next:'dense-'+(i+1)});
+            n['dense-20'].choices.push({label:'Общая ветка',next:'dense-10'});
+            n['dense-30'].choices.push({label:'Вернуться к началу',next:'start'});
+            n['orphan-one']={title:'Отдельная ветка',client:'Ответ',manager:'Реплика',hint:'Подсказка',choices:[]};
+            navRender();
+        }""")
+        assert page.locator("#nav-tree [data-nav-key]").count() < 15
+        assert page.evaluate("navGraph().paths.size") == len(page.evaluate("Object.keys(n)"))
+        assert page.evaluate("navGraph().root.children.map(node=>node.key)") == [
+            "qualification", "contact", "time", "dense-1"
+        ]
+        assert "Другие ветки" in page.locator("#nav-tree").inner_text()
+        page.locator("#nav-tree .nav-group button").click()
+        page.locator("#nav-tree [data-nav-open='orphan-one']").click()
+        assert page.evaluate("c") == "orphan-one"
+        assert page.locator("#nav-tree [data-nav-open='orphan-one']").get_attribute("aria-current") == "step"
+        page.locator("#restart").click()
+        page.locator("#nav-search").fill("Ветка 30")
+        assert page.locator("#nav-tree [data-nav-open='dense-30']").is_visible()
+        assert page.locator("#nav-tree [data-nav-key]").count() < 45
+        page.locator("#nav-tree [data-nav-open='dense-30']").click()
+        assert page.evaluate("c") == "dense-30"
+        assert page.locator("#nav-tree [data-nav-open='dense-30']").get_attribute("aria-current") == "step"
+        page.locator("#nav-search").clear()
+        assert page.locator("#nav-tree [data-nav-key]").count() < 45
+        assert page.evaluate("navTree.scrollHeight > navTree.clientHeight")
+        assert page.evaluate("""() => {
+            const tree=navTree.getBoundingClientRect(),current=navTree.querySelector('.nav-row.current').getBoundingClientRect();
+            return current.top>=tree.top && current.bottom<=tree.bottom;
+        }""")
+        page.locator("#restart").click()
+        page.locator("#choices button").last.click()
+        assert page.evaluate("c") == "start"
+        assert "недоступна" in page.locator("#nav-status").inner_text()
+        assert errors == []
+        browser.close()
+
+
+def test_admin_navigation_blocks_unsaved_inline_edits_until_cancel(monkeypatch) -> None:
+    SESSIONS.clear()
+    configure_roles(monkeypatch)
+    SESSIONS["admin-nav-session"] = "admin"
+    test_client = client()
+    test_client.cookies.set("sales_session", "admin-nav-session")
+    home_page = test_client.get("/").text
+    errors = []
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route("https://sales.mtrhit.ru/", lambda route: route.fulfill(body=home_page, content_type="text/html"))
+        page.goto("https://sales.mtrhit.ru/")
+        page.locator("#edit").click()
+        page.locator("#edit-client").fill("Несохранённая реплика")
+        page.locator("#nav-tree [data-nav-open='qualification']").click()
+        assert page.evaluate("c") == "start"
+        assert page.locator("#edit-panel").is_visible()
+        assert page.locator("#edit-client").input_value() == "Несохранённая реплика"
+        assert "Сначала сохраните" in page.locator("#nav-status").inner_text()
+        assert "Отменить" in page.locator("#edit-status").inner_text()
+        page.locator("#choices button").first.click()
+        assert page.evaluate("c") == "start"
+        assert page.locator("#edit-client").input_value() == "Несохранённая реплика"
+        page.locator("header a[href='/editor']").click()
+        page.locator("header form button").click()
+        assert page.url == "https://sales.mtrhit.ru/"
+        assert page.locator("#edit-panel").is_visible()
+        page.locator("#cancel-edit").click()
+        assert page.locator("#nav-status").inner_text() == ""
+        page.locator("#nav-tree [data-nav-open='qualification']").click()
+        assert page.evaluate("c") == "qualification"
+        assert page.locator("#nav-tree [data-nav-open='qualification']").get_attribute("aria-current") == "step"
+        assert errors == []
+        browser.close()

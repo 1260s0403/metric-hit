@@ -71,6 +71,138 @@ fill=function(){syncBranchNames();originalInlineFill();$('edit-title').value=n[c
 '''
  return layout("Навигатор продаж",f'''<section class="card"><div class="label">Клиент говорит</div><h2 id="client"></h2><div class="label">Ответ менеджера</div><div id="manager" class="answer"></div><p id="hint"></p><div id="choices" class="choices"></div><p><button id="back">← Назад</button> <button id="restart">Начать заново</button>{edit_controls}</section><script>const n={json.dumps(s,ensure_ascii=False)},names={{start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени'}};let c='start',h=[],editing=false,v='{revision(s)}';const $=x=>document.getElementById(x),name=x=>names[x]||'Новая ветка';function r(){{let x=n[c];$('client').textContent=x.client;$('manager').textContent=x.manager;$('hint').textContent='Подсказка: '+x.hint;$('choices').innerHTML='';x.choices.forEach(y=>{{let b=document.createElement('button');b.textContent=y.label;b.onclick=()=>{{h.push(c);c=y.next;r()}};$('choices').append(b)}});$('back').disabled=!h.length}}{edit_script}$('back').onclick=()=>{{if(!editing){{c=h.pop();r()}}}};$('restart').onclick=()=>{{if(!editing){{c='start';h=[];r()}}}};r()</script>''',role)
 def editor_page(): return layout("Редактор сценария",'''<div class="editor"><aside class="card"><div id="nodes"></div><button id="new">+ Новая ветка</button></aside><section class="card"><label>Что говорит клиент<textarea id="client"></textarea></label><label>Ответ менеджера<textarea id="manager"></textarea></label><label>Подсказка<textarea id="hint"></textarea></label><div id="choices"></div><button id="add">+ Вариант ответа</button><p><button class="primary" id="save">Сохранить</button> <button id="cancel">Отменить</button> <span id="status" class="status"></span></p></section></div><script>let d,id='start';const names={{start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени'}};const name=x=>names[x]||'Новая ветка';const $=x=>document.querySelector(x);async function load(){{d=await (await fetch('/api/scenario')).json();id='start';draw()}}function collect(){{let n=d.scenario[id];n.client=$('#client').value;n.manager=$('#manager').value;n.hint=$('#hint').value;document.querySelectorAll('[data-l]').forEach(x=>n.choices[x.dataset.l].label=x.value);document.querySelectorAll('[data-n]').forEach(x=>n.choices[x.dataset.n].next=x.value)}function draw(){{let n=d.scenario[id],ids=Object.keys(d.scenario);$('#nodes').innerHTML=ids.map(x=>`<button data-id="${{x}}">${{x===id?'● ':''}}${{name(x)}}</button>`).join('<br>');document.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>{{collect();id=b.dataset.id;draw()}});$('#client').value=n.client;$('#manager').value=n.manager;$('#hint').value=n.hint;$('#choices').innerHTML=n.choices.map((x,i)=>`<div class="choice"><input data-l="${{i}}" value="${{x.label}}"><select data-n="${{i}}">${{ids.map(k=>`<option value="${{k}}" ${{k===x.next?'selected':''}}>${{name(k)}}</option>`).join('')}}</select><button data-x="${{i}}">×</button></div>`).join('');document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{{collect();n.choices.splice(b.dataset.x,1);draw()}})}function freshNode(){{let i=1,k;while(d.scenario[k='new-node-'+i++]);d.scenario[k]={{client:'Ответ клиента',manager:'Новая реплика менеджера',hint:'Подсказка для менеджера',choices:[]}};return k}}$('#add').onclick=()=>{{collect();let from=id,k=freshNode();d.scenario[from].choices.push({{label:'Новый вариант ответа',next:k}});id=k;draw();$('#client').focus()}};$('#new').onclick=()=>{{collect();id=freshNode();draw();$('#client').focus()}};$('#cancel').onclick=load;$('#save').onclick=async()=>{{collect();let r=await fetch('/api/scenario',{{method:'PUT',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}}),x=await r.json();if(r.ok){{d=x;status.textContent='Сохранено'}}else status.textContent=x.detail}};load()</script>'''.replace("{{", "{").replace("}}", "}"),'admin')
+SCENARIO_NAV_STYLE = '''<style>
+body{display:grid;grid-template-columns:282px minmax(0,1fr);align-items:start}
+main{max-width:960px;width:100%;box-sizing:border-box;margin:0;padding:28px 32px}
+.branch-nav{position:sticky;top:0;box-sizing:border-box;height:100vh;display:flex;flex-direction:column;overflow:hidden;margin:8px;padding:18px 14px;background:#0f172a;border:1px solid #334155;border-radius:14px}
+.branch-nav h2{font-size:20px;line-height:1.2;margin:0 0 16px}
+.branch-nav label{display:block;color:#94a3b8;font-size:13px}
+.branch-nav input{margin:6px 0 4px;background:#17243a}
+.nav-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}
+#nav-mobile-toggle{display:none}
+#nav-status{min-height:18px;color:#67e8f9;font-size:13px;line-height:1.4;margin:4px 0}
+.nav-content{display:flex;flex-direction:column;flex:1;min-height:0}
+.nav-tree{margin-top:10px;flex:1;min-height:0;overflow-y:auto}
+.nav-row{display:flex;align-items:center;min-width:0;box-sizing:border-box;min-height:36px;margin:2px 0;border-left:3px solid transparent;border-radius:7px}
+.nav-row.current{background:#1e3a5f;border-left-color:#22d3ee}
+.nav-row.current .nav-open{font-weight:700}
+.nav-row.reference .nav-open{color:#cbd5e1}
+.nav-open,.nav-toggle{background:transparent;border:0;box-shadow:none;border-radius:5px;padding:5px 4px}
+.nav-open{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
+.nav-open:hover,.nav-toggle:not(:disabled):hover{background:#233852}
+.nav-toggle,.nav-spacer{flex:none;width:24px;height:28px;text-align:center;padding:4px 0;color:#94a3b8}
+.nav-toggle:disabled{cursor:default;opacity:.6}
+.nav-group{margin:12px 0 4px;border-top:1px solid #334155;padding-top:10px}
+.nav-empty{color:#94a3b8;font-size:14px;padding:10px 5px}
+@media(max-width:650px){
+ body{display:block}
+ .branch-nav{position:relative;height:auto;max-height:70vh;margin:10px 12px 0;padding:12px 14px}
+ .branch-nav[data-mobile-closed="true"] .nav-content{display:none}
+ #nav-mobile-toggle{display:inline-block;font-size:13px;padding:7px 9px}
+ .branch-nav h2{font-size:18px;margin:0}
+ main{max-width:none;padding:14px 12px}
+}
+</style>'''
+SCENARIO_NAV_PANEL = '''<aside id="branch-nav" class="branch-nav" aria-label="Навигация по веткам" data-mobile-closed="true"><div class="nav-heading"><h2>Навигатор</h2><button id="nav-mobile-toggle" type="button" aria-expanded="false" aria-controls="nav-content">Открыть ветки</button></div><div id="nav-content" class="nav-content"><label for="nav-search">Найти ветку</label><input id="nav-search" type="search" placeholder="Найти ветку" autocomplete="off"><p id="nav-status" role="status" aria-live="polite"></p><div id="nav-tree" class="nav-tree" aria-label="Ветки сценария"></div></div></aside>'''
+SCENARIO_NAV_SCRIPT = '''<script>
+const navLegacyNames={start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени'};
+const navTitle=key=>n[key]?.title||navLegacyNames[key]||`Новая ветка ${key.replace('new-node-','')}`;
+const navPanel=$('branch-nav'),navTree=$('nav-tree'),navSearch=$('nav-search'),navStatus=$('nav-status');
+let navExpanded=new Set(['start']),navOtherExpanded=false,navLastCurrent=null;
+function navGraph(){
+ const seen=new Set(),paths=new Map();
+ function visit(key,trail,incoming=''){
+  if(!n[key]||typeof n[key]!=='object')return null;
+  if(seen.has(key))return {key,incoming,reference:true,children:[]};
+  seen.add(key);paths.set(key,[...trail,key]);
+  const choices=Array.isArray(n[key].choices)?n[key].choices:[];
+  const children=[];
+  for(const choice of choices){
+   if(!choice||typeof choice.next!=='string'||!n[choice.next])continue;
+   const child=visit(choice.next,[...trail,key],String(choice.label||''));
+   if(child)children.push(child);
+  }
+  return {key,incoming,reference:false,children};
+ }
+ const root=visit('start',[]);
+ const other=[];
+ for(const key of Object.keys(n))if(!seen.has(key)){const node=visit(key,[]);if(node)other.push(node)}
+ return {root,other,paths};
+}
+function navMatches(node,query){return navTitle(node.key).toLocaleLowerCase('ru-RU').includes(query)||node.incoming.toLocaleLowerCase('ru-RU').includes(query)}
+function navHasMatch(node,query){return !query||navMatches(node,query)||node.children.some(child=>navHasMatch(child,query))}
+function navWarnUnsaved(){
+ const message='Сначала сохраните изменения или нажмите «Отменить» в редакторе шага.';
+ navStatus.textContent=message;
+ if($('edit-status'))$('edit-status').textContent=message;
+}
+function navOpenBranch(key){
+ if(editing){navWarnUnsaved();return}
+ if(!n[key])return;
+ navStatus.textContent='';
+ if(key!==c){h.push(c);c=key;r()}
+ if(matchMedia('(max-width:650px)').matches){
+  navPanel.dataset.mobileClosed='true';$('nav-mobile-toggle').textContent='Открыть ветки';$('nav-mobile-toggle').setAttribute('aria-expanded','false');
+  document.querySelector('main').scrollIntoView({block:'start'});
+ }
+}
+function navRenderNode(node,depth,query,selectedPath,container){
+ if(!navHasMatch(node,query))return;
+ const row=document.createElement('div');row.className='nav-row'+(node.reference?' reference':'')+(node.key===c&&!node.reference?' current':'');
+ row.dataset.navKey=node.key;row.style.paddingLeft=`${Math.min(depth,4)*13}px`;
+ const hasChildren=node.children.length>0;
+ if(hasChildren&&!node.reference){
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='nav-toggle';toggle.dataset.navToggle=node.key;
+  const open=query||navExpanded.has(node.key);toggle.textContent=open?'⌄':'›';
+  toggle.setAttribute('aria-expanded',String(!!open));toggle.setAttribute('aria-label',`${open?'Свернуть':'Развернуть'} ветку ${navTitle(node.key)}`);
+  const protectedPath=node.key!==c&&selectedPath.includes(node.key);
+  toggle.disabled=protectedPath&&!query;toggle.title=toggle.disabled?'Путь к текущей ветке остаётся открытым':'';
+  toggle.onclick=()=>{if(navExpanded.has(node.key))navExpanded.delete(node.key);else navExpanded.add(node.key);navRender();[...navTree.querySelectorAll('[data-nav-toggle]')].find(button=>button.dataset.navToggle===node.key)?.focus()};
+  row.append(toggle);
+ }else{const spacer=document.createElement('span');spacer.className='nav-spacer';spacer.setAttribute('aria-hidden','true');spacer.textContent=node.reference?'↗':'';row.append(spacer)}
+ const open=document.createElement('button');open.type='button';open.className='nav-open';open.dataset.navOpen=node.key;open.textContent=navTitle(node.key);
+ open.title=node.incoming?`Ответ клиента: ${node.incoming}`:navTitle(node.key);
+ if(node.key===c&&!node.reference)open.setAttribute('aria-current','step');
+ if(node.reference)open.setAttribute('aria-label',`Открыть уже показанную ветку ${navTitle(node.key)}`);
+ open.onclick=()=>navOpenBranch(node.key);row.append(open);container.append(row);
+ if(query||navExpanded.has(node.key))for(const child of node.children)navRenderNode(child,depth+1,query,selectedPath,container);
+}
+function navRender(){
+ const graph=navGraph(),selectedPath=graph.paths.get(c)||[c],query=navSearch.value.trim().toLocaleLowerCase('ru-RU');
+ const currentChanged=c!==navLastCurrent;
+ if(currentChanged){navExpanded=new Set(selectedPath);navOtherExpanded=graph.other.some(node=>graph.paths.get(c)?.[0]===node.key);navLastCurrent=c}
+ for(const key of selectedPath.slice(0,-1))navExpanded.add(key);
+ navTree.replaceChildren();
+ if(graph.root)navRenderNode(graph.root,0,query,selectedPath,navTree);
+ const visibleOther=graph.other.filter(node=>navHasMatch(node,query));
+ if(visibleOther.length){
+  const group=document.createElement('div');group.className='nav-group';
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='nav-open';toggle.textContent=`Другие ветки (${visibleOther.length})`;
+  toggle.setAttribute('aria-expanded',String(!!(query||navOtherExpanded)));
+  toggle.onclick=()=>{navOtherExpanded=!navOtherExpanded;navRender()};group.append(toggle);navTree.append(group);
+  if(query||navOtherExpanded)for(const node of visibleOther)navRenderNode(node,0,query,selectedPath,navTree);
+ }
+ if(query&&!navTree.querySelector('[data-nav-key]')){const empty=document.createElement('p');empty.className='nav-empty';empty.textContent='Ветка не найдена';navTree.append(empty)}
+ if(currentChanged)navTree.querySelector('.nav-row.current')?.scrollIntoView({block:'nearest'});
+}
+const originalScenarioRender=r;
+r=function(){
+ originalScenarioRender();
+ if(!editing&&navStatus.textContent.startsWith('Сначала сохраните'))navStatus.textContent='';
+ document.querySelectorAll('#choices button').forEach((button,index)=>{const open=button.onclick;button.onclick=()=>{if(editing){navWarnUnsaved();return}if(!n[n[c].choices[index]?.next]){navStatus.textContent='Связанная ветка недоступна. Выберите другую ветку.';return}open()}});
+ navRender();
+};
+navSearch.oninput=()=>{navRender();navTree.querySelector('.nav-row.current')?.scrollIntoView({block:'nearest'})};
+document.querySelectorAll('header a').forEach(link=>link.addEventListener('click',event=>{if(editing){event.preventDefault();navWarnUnsaved()}}));
+document.querySelector('header form')?.addEventListener('submit',event=>{if(editing){event.preventDefault();navWarnUnsaved()}});
+$('nav-mobile-toggle').onclick=()=>{
+ const closed=navPanel.dataset.mobileClosed==='true';navPanel.dataset.mobileClosed=String(!closed);
+ $('nav-mobile-toggle').textContent=closed?'Свернуть ветки':'Открыть ветки';
+ $('nav-mobile-toggle').setAttribute('aria-expanded',String(closed));
+ if(closed)navSearch.focus();
+};
+r();
+</script>'''
 LOGIN='''<!doctype html><html lang="ru"><meta charset="utf-8"><body style="background:#111827;color:white;font:16px system-ui;padding:30px"><form method="post" action="/login"><h1>Навигатор продаж</h1><p>Введите пароль доступа.</p><input name="password" type="password" autocomplete="current-password"><button>Войти</button></form></body></html>'''
 @app.get("/",response_class=HTMLResponse)
 def home(r:Request):
@@ -86,7 +218,8 @@ $('cancel-edit').onclick=cancelInlineEdit;
 $('save-edit').onclick=async()=>{await saveInlineEdit();if(!editing)inlineSnapshot=null;};
 </script>'''
  page=app_page(role)
- return HTMLResponse(page.replace('</main></html>',safeguard+'</main></html>') if role=='admin' else page)
+ page=page.replace('<main>',SCENARIO_NAV_STYLE+SCENARIO_NAV_PANEL+'<main>')
+ return HTMLResponse(page.replace('</main></html>',(safeguard if role=='admin' else '')+SCENARIO_NAV_SCRIPT+'</main></html>'))
 def map_page():
  s=load();labels={'start':'Первый звонок','qualification':'Уточнение ситуации','contact':'Передать контакт','planning':'Пока в планах','current_provider':'Уже есть подрядчик','price':'Возражение по цене','proof':'Нужны доказательства','time':'Нет времени'}
  def branch_name(key): return s[key].get('title') or labels.get(key) or 'Новая ветка '+key.replace('new-node-','')
