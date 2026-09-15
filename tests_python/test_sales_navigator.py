@@ -2,6 +2,7 @@ from fastapi.testclient import TestClient
 
 from copy import deepcopy
 from playwright.sync_api import sync_playwright
+import pytest
 
 from apps.sales_navigator.main import SESSIONS, app, load, validate
 
@@ -51,6 +52,7 @@ def test_manager_is_read_only_and_has_no_edit_controls(monkeypatch) -> None:
     response = test_client.post("/login", data={"password": "manager-test-password"}, follow_redirects=True)
     assert response.status_code == 200
     assert "Редактировать этот шаг" not in response.text
+    assert 'id="edit-title"' not in response.text
     assert 'href="/editor"' not in response.text
     assert test_client.get("/api/scenario/start").status_code == 200
     assert test_client.get("/editor").status_code == 403
@@ -83,11 +85,34 @@ def test_editor_persists_valid_scenario_and_rejects_broken_link(monkeypatch, tmp
     broken = deepcopy(scenario); broken["start"]["choices"][0]["next"] = "missing"
     assert test_client.put("/api/scenario", json={"scenario": broken, "revision": saved.json()["revision"]}).status_code == 422
     assert load() == scenario
+    assert "title" not in load()["new-node-1"]
+    invalid_title = deepcopy(scenario); invalid_title["new-node-1"]["title"] = " "
+    with pytest.raises(ValueError, match="название ветки"):
+        validate(invalid_title)
     page = test_client.get("/editor").text
     assert "Первый звонок" in page
     assert "Уже есть подрядчик" in page
     assert "MutationObserver" not in page
     assert "const names={start:" in page
+
+
+def test_named_branch_saves_without_migrating_legacy_nodes(monkeypatch, tmp_path) -> None:
+    SESSIONS.clear()
+    configure_roles(monkeypatch)
+    monkeypatch.setenv("SALES_NAVIGATOR_DATA_PATH", str(tmp_path / "scenario.json"))
+    test_client = client()
+    test_client.post("/login", data={"password": "admin-test-password"})
+    loaded = test_client.get("/api/scenario").json()
+    scenario = deepcopy(loaded["scenario"])
+    scenario["contact"]["title"] = "Коллега <контакт>"
+    saved = test_client.put("/api/scenario", json={"scenario": scenario, "revision": loaded["revision"]})
+    assert saved.status_code == 200
+    assert load()["contact"]["title"] == "Коллега <контакт>"
+    assert "title" not in load()["start"]
+    assert "Коллега &lt;контакт&gt;" in test_client.get("/map").text
+    scenario["contact"]["title"] = " "
+    assert test_client.put("/api/scenario", json={"scenario": scenario, "revision": saved.json()["revision"]}).status_code == 422
+    assert load()["contact"]["title"] == "Коллега <контакт>"
 
 
 def test_admin_adds_distinct_editable_linked_branch_in_both_editors(monkeypatch) -> None:
@@ -171,4 +196,109 @@ def test_admin_adds_distinct_editable_linked_branch_in_both_editors(monkeypatch)
             page.locator(f"#{field}").fill(f"Редактируемый {key}")
         page.evaluate("collect()")
         assert page.evaluate("d.scenario[id].manager") == "Редактируемый manager"
+        browser.close()
+
+
+def test_admin_names_branches_and_reorders_only_current_branch_in_both_editors(monkeypatch) -> None:
+    SESSIONS.clear()
+    configure_roles(monkeypatch)
+    SESSIONS["branch-browser-session"] = "admin"
+    test_client = client()
+    test_client.cookies.set("sales_session", "branch-browser-session")
+    original = test_client.get("/api/scenario").json()
+    home_page = test_client.get("/").text
+    editor_page = test_client.get("/editor").text
+    errors = []
+    writes = []
+
+    def scenario_route(route) -> None:
+        if route.request.method == "PUT":
+            payload = route.request.post_data_json
+            writes.append(payload)
+            route.fulfill(json={"scenario": payload["scenario"], "revision": "saved-revision"})
+        else:
+            route.fulfill(json=original)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page()
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route("https://sales.mtrhit.ru/", lambda route: route.fulfill(body=home_page, content_type="text/html"))
+        page.route("https://sales.mtrhit.ru/editor", lambda route: route.fulfill(body=editor_page, content_type="text/html"))
+        page.route("https://sales.mtrhit.ru/api/scenario", scenario_route)
+
+        page.goto("https://sales.mtrhit.ru/")
+        page.locator("#edit").click()
+        assert page.locator("#edit-title").input_value() == "Первый звонок"
+        page.locator("#edit-title").fill("Стартовая беседа")
+        page.locator("#edit-choices [data-choice]").nth(1).locator("input").fill("Другой коллега — уточнить")
+        page.locator("#edit-choices [data-choice]").nth(1).get_by_role("button", name="Поднять вариант ответа").click()
+        inline = page.evaluate("n")
+        assert [choice["next"] for choice in inline["start"]["choices"][:3]] == [
+            "contact", "qualification", "time"
+        ]
+        assert inline["start"]["choices"][0]["label"] == "Другой коллега — уточнить"
+        assert inline["qualification"]["choices"] == original["scenario"]["qualification"]["choices"]
+        assert inline["start"]["title"] == "Стартовая беседа"
+        page.locator("#edit-choices [data-choice]").first.get_by_role("button", name="Опустить вариант ответа").click()
+        assert [choice["next"] for choice in page.evaluate("n.start.choices")[:3]] == [
+            "qualification", "contact", "time"
+        ]
+        page.locator("#add-choice").click()
+        created = page.evaluate("n.start.choices.at(-1).next")
+        assert page.evaluate("n")[created]["title"].startswith("Новый ответ клиента ")
+        assert page.locator("#edit-choices [data-choice]").last.locator("select option:checked").text_content() == page.evaluate("n")[created]["title"]
+        page.locator("#edit-choices [data-choice]").last.locator("[data-open]").click()
+        assert page.locator("#edit-title").input_value() == page.evaluate("n")[created]["title"]
+        assert page.locator("#edit-title").evaluate("element => document.activeElement === element")
+        page.locator("#edit-title").fill("Уточнение запроса клиента")
+        page.locator("#add-choice").click()
+        assert page.locator("#edit-choices [data-choice] select option").filter(has_text="Уточнение запроса клиента").count() == 1
+        page.set_viewport_size({"width": 390, "height": 844})
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        assert page.locator("#edit-choices [data-choice] [data-up]").is_visible()
+        page.locator("#cancel-edit").click()
+        assert page.evaluate("n") == original["scenario"]
+        page.locator("#edit").click()
+        page.locator("#edit-title").fill("Тестовое начало разговора")
+        page.locator("#edit-choices [data-choice]").nth(1).get_by_role("button", name="Поднять вариант ответа").click()
+        page.locator("#save-edit").click()
+        page.wait_for_function("document.querySelector('#edit-panel').hidden")
+        assert writes[-1]["scenario"]["start"]["title"] == "Тестовое начало разговора"
+        assert writes[-1]["scenario"]["start"]["choices"][0]["next"] == "contact"
+        validate(writes[-1]["scenario"])
+
+        page.goto("https://sales.mtrhit.ru/editor")
+        assert page.locator("#title").input_value() == "Первый звонок"
+        page.locator("#title").fill("Первый контакт")
+        assert "Первый контакт" in page.locator("#nodes [data-id='start']").inner_text()
+        page.locator("#choices .choice").nth(1).locator("input").fill("Контакт коллеги — проверить")
+        page.locator("#choices .choice").nth(1).get_by_role("button", name="Поднять вариант ответа").click()
+        full = page.evaluate("d.scenario")
+        assert [choice["next"] for choice in full["start"]["choices"][:3]] == [
+            "contact", "qualification", "time"
+        ]
+        assert full["start"]["choices"][0]["label"] == "Контакт коллеги — проверить"
+        assert full["qualification"]["choices"] == original["scenario"]["qualification"]["choices"]
+        page.locator("#add").click()
+        full_created = page.evaluate("id")
+        assert page.locator("#title").input_value() == page.evaluate("d.scenario[id].title")
+        assert page.locator("#title").input_value().startswith("Новый ответ клиента ")
+        assert page.locator("#title").evaluate("element => document.activeElement === element")
+        page.locator("#title").fill("Уточнение <срочно>")
+        page.locator("#nodes [data-id='start']").click()
+        assert "Уточнение <срочно>" in page.locator(f"#nodes [data-id='{full_created}']").inner_text()
+        assert page.locator("#choices .choice").last.locator("select option:checked").text_content() == "Уточнение <срочно>"
+        assert page.locator("#title").input_value() == "Первый контакт"
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        assert page.locator("#choices .choice [data-up]").first.is_visible()
+        page.locator("#cancel").click()
+        page.wait_for_function("d.scenario.start.choices.length === 3 && !d.scenario['new-node-1']")
+        assert page.evaluate("d.scenario") == original["scenario"]
+        page.locator("#title").fill("Начало разговора")
+        page.locator("#save").click()
+        page.wait_for_function("document.querySelector('#status').textContent === 'Сохранено'")
+        assert writes[-1]["scenario"]["start"]["title"] == "Начало разговора"
+        validate(writes[-1]["scenario"])
+        assert errors == []
         browser.close()
