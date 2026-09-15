@@ -109,20 +109,47 @@ def test_admin_adds_distinct_editable_linked_branch_in_both_editors(monkeypatch)
 
         page.goto("https://sales.mtrhit.ru/")
         page.locator("#edit").click()
+        page.locator("#edit-client").fill("Несохранённый текст исходного шага")
         page.locator("#add-choice").click()
         inline = page.evaluate("({current:c,scenario:n,history:h})")
         inline_next = inline["scenario"]["start"]["choices"][-1]["next"]
         assert inline_next != "start"
         assert inline_next not in original["scenario"]
-        assert inline["current"] == inline_next
-        assert inline["history"] == ["start"]
+        assert inline["current"] == "start"
+        assert inline["history"] == []
+        assert inline["scenario"]["start"]["client"] == "Несохранённый текст исходного шага"
+        assert page.locator("#edit-choices [data-choice]").count() == len(inline["scenario"]["start"]["choices"])
+        assert page.locator("#edit-choices [data-choice]").last.locator("input").input_value() == "Новый вариант ответа"
+        assert page.locator("#edit-choices [data-choice]").last.locator("select").input_value() == inline_next
+        assert "Добавлен вариант ответа" in page.locator("#edit-status").inner_text()
+        assert page.locator("#edit-choices [data-choice]").last.locator("input").evaluate("x=>document.activeElement===x")
         assert inline["scenario"][inline_next]["choices"] == []
         validate(inline["scenario"])
+        page.locator("#edit-choices [data-choice]").last.locator("input").fill("Первый вложенный ответ")
+        page.locator("#edit-choices [data-choice]").last.locator("[data-open]").click()
+        opened = page.evaluate("({current:c,scenario:n,history:h})")
+        assert opened["current"] == inline_next
+        assert opened["history"] == ["start"]
+        assert opened["scenario"]["start"]["choices"][-1]["label"] == "Первый вложенный ответ"
+        assert "Открыта связанная ветка" in page.locator("#edit-status").inner_text()
         for field, key in (("edit-client", "client"), ("edit-manager", "manager"), ("edit-hint", "hint")):
-            assert page.locator(f"#{field}").input_value() == inline["scenario"][inline_next][key]
+            assert page.locator(f"#{field}").input_value() == opened["scenario"][inline_next][key]
             page.locator(f"#{field}").fill(f"Редактируемый {key}")
-        page.evaluate("pull()")
-        assert page.evaluate("n[c].client") == "Редактируемый client"
+        page.locator("#add-choice").click()
+        nested = page.evaluate("({current:c,scenario:n,history:h})")
+        nested_next = nested["scenario"][inline_next]["choices"][-1]["next"]
+        assert nested["current"] == inline_next
+        assert nested_next not in original["scenario"] and nested_next != inline_next
+        assert nested["scenario"][inline_next]["client"] == "Редактируемый client"
+        assert page.locator("#edit-choices [data-choice]").count() == 1
+        assert page.locator("#edit-choices [data-choice] [data-open]").count() == 1
+        validate(nested["scenario"])
+        page.locator("#edit-choices [data-choice] input").fill("Второй вложенный ответ")
+        page.locator("#edit-choices [data-choice] [data-open]").click()
+        assert page.evaluate("c") == nested_next
+        assert page.evaluate("h") == ["start", inline_next]
+        assert page.locator("#edit-client").input_value() == nested["scenario"][nested_next]["client"]
+        assert page.locator("#edit-panel").is_visible()
         page.locator("#cancel-edit").click()
         assert page.evaluate("({current:c,scenario:n,history:h})") == {
             "current": "start", "scenario": original["scenario"], "history": []
