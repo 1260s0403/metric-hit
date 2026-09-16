@@ -378,6 +378,78 @@ def test_manager_persistent_navigation_search_collapse_current_and_mobile(monkey
         browser.close()
 
 
+def test_manager_centered_workspace_resizable_tree_and_quick_help(monkeypatch) -> None:
+    SESSIONS.clear()
+    configure_roles(monkeypatch)
+    SESSIONS["manager-workspace-session"] = "manager"
+    test_client = client()
+    test_client.cookies.set("sales_session", "manager-workspace-session")
+    home_page = test_client.get("/").text
+    assert 'id="nav-resizer"' in home_page
+    assert 'id="quick-help"' in home_page
+    assert 'id="help-modal"' in home_page
+    errors = []
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 900})
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route("https://sales.mtrhit.ru/", lambda route: route.fulfill(body=home_page, content_type="text/html"))
+        page.goto("https://sales.mtrhit.ru/")
+
+        main_box = page.locator("main").bounding_box()
+        assert main_box is not None
+        assert abs(main_box["x"] + main_box["width"] / 2 - 720) <= 30
+        assert page.locator(".quick-help-button").count() == 10
+
+        initial_width = page.locator("#branch-nav").bounding_box()["width"]
+        handle = page.locator("#nav-resizer").bounding_box()
+        assert handle is not None
+        page.mouse.move(handle["x"] + handle["width"] / 2, handle["y"] + 50)
+        page.mouse.down()
+        page.mouse.move(handle["x"] + handle["width"] / 2 + 72, handle["y"] + 50)
+        page.mouse.up()
+        resized_width = page.locator("#branch-nav").bounding_box()["width"]
+        assert resized_width >= initial_width + 60
+        assert page.locator("#nav-resizer").get_attribute("aria-valuenow") == str(round(resized_width))
+        stored_width = page.evaluate("localStorage.getItem('sales-navigator-branch-width')")
+        assert stored_width == str(round(resized_width))
+        page.reload()
+        assert abs(page.locator("#branch-nav").bounding_box()["width"] - resized_width) <= 1
+
+        expected_titles = [
+            "О MetricHit", "Как это работает", "Тест 1 000 кликов", "Цены и тарифы", "Как начать",
+            "Что видно в кабинете", "Частые вопросы", "Возражения", "Поддержка и контакты", "Что не обещаем",
+        ]
+        for index, title in enumerate(expected_titles):
+            page.locator(".quick-help-button").nth(index).click()
+            assert page.locator("#help-modal").is_visible()
+            assert page.locator("#help-title").inner_text() == title
+            page.locator("#help-close").click()
+            assert page.locator("#help-modal").is_hidden()
+
+        page.get_by_role("button", name="Как это работает").click()
+        assert "искусственные переходы" in page.locator("#help-content").inner_text()
+        page.keyboard.press("Escape")
+        assert page.locator("#help-modal").is_hidden()
+        page.get_by_role("button", name="Цены и тарифы").click()
+        page.locator("#help-modal").click(position={"x": 5, "y": 5})
+        assert page.locator("#help-modal").is_hidden()
+
+        page.set_viewport_size({"width": 390, "height": 844})
+        assert page.locator("#nav-resizer").is_hidden()
+        assert page.locator(".quick-help-button").count() == 10
+        assert page.locator("main").bounding_box()["y"] < page.locator("#quick-help").bounding_box()["y"]
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        page.get_by_role("button", name="Что не обещаем").click()
+        assert page.locator("#help-modal").is_visible()
+        assert page.locator("#help-dialog, .help-dialog").count() == 1
+        assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+        page.keyboard.press("Escape")
+        assert errors == []
+        browser.close()
+
+
 def test_navigation_guards_large_shared_cyclic_and_broken_graph(monkeypatch) -> None:
     SESSIONS.clear()
     configure_roles(monkeypatch)

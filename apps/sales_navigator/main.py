@@ -72,12 +72,16 @@ fill=function(){syncBranchNames();originalInlineFill();$('edit-title').value=n[c
  return layout("Навигатор продаж",f'''<section class="card"><div class="label">Клиент говорит</div><h2 id="client"></h2><div class="label">Ответ менеджера</div><div id="manager" class="answer"></div><p id="hint"></p><div id="choices" class="choices"></div><p><button id="back">← Назад</button> <button id="restart">Начать заново</button>{edit_controls}</section><script>const n={json.dumps(s,ensure_ascii=False)},names={{start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени'}};let c='start',h=[],editing=false,v='{revision(s)}';const $=x=>document.getElementById(x),name=x=>names[x]||'Новая ветка';function r(){{let x=n[c];$('client').textContent=x.client;$('manager').textContent=x.manager;$('hint').textContent='Подсказка: '+x.hint;$('choices').innerHTML='';x.choices.forEach(y=>{{let b=document.createElement('button');b.textContent=y.label;b.onclick=()=>{{h.push(c);c=y.next;r()}};$('choices').append(b)}});$('back').disabled=!h.length}}{edit_script}$('back').onclick=()=>{{if(!editing){{c=h.pop();r()}}}};$('restart').onclick=()=>{{if(!editing){{c='start';h=[];r()}}}};r()</script>''',role)
 def editor_page(): return layout("Редактор сценария",'''<div class="editor"><aside class="card"><div id="nodes"></div><button id="new">+ Новая ветка</button></aside><section class="card"><label>Что говорит клиент<textarea id="client"></textarea></label><label>Ответ менеджера<textarea id="manager"></textarea></label><label>Подсказка<textarea id="hint"></textarea></label><div id="choices"></div><button id="add">+ Вариант ответа</button><p><button class="primary" id="save">Сохранить</button> <button id="cancel">Отменить</button> <span id="status" class="status"></span></p></section></div><script>let d,id='start';const names={{start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени'}};const name=x=>names[x]||'Новая ветка';const $=x=>document.querySelector(x);async function load(){{d=await (await fetch('/api/scenario')).json();id='start';draw()}}function collect(){{let n=d.scenario[id];n.client=$('#client').value;n.manager=$('#manager').value;n.hint=$('#hint').value;document.querySelectorAll('[data-l]').forEach(x=>n.choices[x.dataset.l].label=x.value);document.querySelectorAll('[data-n]').forEach(x=>n.choices[x.dataset.n].next=x.value)}function draw(){{let n=d.scenario[id],ids=Object.keys(d.scenario);$('#nodes').innerHTML=ids.map(x=>`<button data-id="${{x}}">${{x===id?'● ':''}}${{name(x)}}</button>`).join('<br>');document.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>{{collect();id=b.dataset.id;draw()}});$('#client').value=n.client;$('#manager').value=n.manager;$('#hint').value=n.hint;$('#choices').innerHTML=n.choices.map((x,i)=>`<div class="choice"><input data-l="${{i}}" value="${{x.label}}"><select data-n="${{i}}">${{ids.map(k=>`<option value="${{k}}" ${{k===x.next?'selected':''}}>${{name(k)}}</option>`).join('')}}</select><button data-x="${{i}}">×</button></div>`).join('');document.querySelectorAll('[data-x]').forEach(b=>b.onclick=()=>{{collect();n.choices.splice(b.dataset.x,1);draw()}})}function freshNode(){{let i=1,k;while(d.scenario[k='new-node-'+i++]);d.scenario[k]={{client:'Ответ клиента',manager:'Новая реплика менеджера',hint:'Подсказка для менеджера',choices:[]}};return k}}$('#add').onclick=()=>{{collect();let from=id,k=freshNode();d.scenario[from].choices.push({{label:'Новый вариант ответа',next:k}});id=k;draw();$('#client').focus()}};$('#new').onclick=()=>{{collect();id=freshNode();draw();$('#client').focus()}};$('#cancel').onclick=load;$('#save').onclick=async()=>{{collect();let r=await fetch('/api/scenario',{{method:'PUT',headers:{{'Content-Type':'application/json'}},body:JSON.stringify(d)}}),x=await r.json();if(r.ok){{d=x;status.textContent='Сохранено'}}else status.textContent=x.detail}};load()</script>'''.replace("{{", "{").replace("}}", "}"),'admin')
 SCENARIO_NAV_STYLE = '''<style>
-body{display:grid;grid-template-columns:282px minmax(0,1fr);align-items:start}
-main{max-width:960px;width:100%;box-sizing:border-box;margin:0;padding:28px 32px}
-.branch-nav{position:sticky;top:0;box-sizing:border-box;height:100vh;display:flex;flex-direction:column;overflow:hidden;margin:8px;padding:18px 14px;background:#0f172a;border:1px solid #334155;border-radius:14px}
+body{--branch-nav-width:282px;display:grid;grid-template-columns:calc(var(--branch-nav-width) + 8px) minmax(0,1fr) 232px;gap:16px;align-items:start;min-height:100vh}
+main{max-width:860px;width:100%;box-sizing:border-box;justify-self:center;margin:0;padding:28px 16px}
+.branch-nav{position:sticky;top:0;box-sizing:border-box;height:100vh;display:flex;flex-direction:column;overflow:visible;margin:8px 0 8px 8px;padding:18px 14px;background:#0f172a;border:1px solid #334155;border-radius:14px}
 .branch-nav h2{font-size:20px;line-height:1.2;margin:0 0 16px}
 .branch-nav label{display:block;color:#94a3b8;font-size:13px}
 .branch-nav input{margin:6px 0 4px;background:#17243a}
+.nav-resizer{position:absolute;z-index:5;top:18px;right:-9px;width:16px;height:calc(100% - 36px);padding:0;border:0;background:transparent;cursor:col-resize;touch-action:none}
+.nav-resizer:before{content:'';position:absolute;top:0;bottom:0;left:7px;width:2px;border-radius:2px;background:#334155;transition:background .15s,box-shadow .15s}
+.nav-resizer:hover:before,.nav-resizer:focus-visible:before,.nav-resizer[data-dragging="true"]:before{background:#22d3ee;box-shadow:0 0 0 3px #22d3ee22}
+.nav-resizer:focus-visible{outline:none}
 .nav-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}
 #nav-mobile-toggle{display:none}
 #nav-status{min-height:18px;color:#67e8f9;font-size:13px;line-height:1.4;margin:4px 0}
@@ -94,21 +98,59 @@ main{max-width:960px;width:100%;box-sizing:border-box;margin:0;padding:28px 32px
 .nav-toggle:disabled{cursor:default;opacity:.6}
 .nav-group{margin:12px 0 4px;border-top:1px solid #334155;padding-top:10px}
 .nav-empty{color:#94a3b8;font-size:14px;padding:10px 5px}
-@media(max-width:650px){
+.quick-help{position:sticky;top:8px;box-sizing:border-box;max-height:calc(100vh - 16px);overflow-y:auto;margin:0 8px 0 0;padding:16px 12px;background:#0f172a;border:1px solid #334155;border-radius:14px}
+.quick-help h2{font-size:18px;margin:0 0 5px}
+.quick-help>p{margin:0 0 13px;color:#94a3b8;font-size:13px;line-height:1.4}
+.quick-help-buttons{display:grid;gap:7px}
+.quick-help-button{width:100%;text-align:left;background:#17243a;border-color:#334155;padding:9px 10px;font-size:14px;line-height:1.25}
+.quick-help-button:hover,.quick-help-button:focus-visible{border-color:#22d3ee;background:#1e3a5f}
+.help-modal[hidden]{display:none}
+.help-modal{position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:20px;background:#020617c9;backdrop-filter:blur(5px)}
+.help-dialog{position:relative;box-sizing:border-box;width:min(620px,100%);max-height:min(78vh,720px);overflow-y:auto;padding:26px;background:#0f172a;border:1px solid #475569;border-radius:18px;box-shadow:0 28px 90px #000b}
+.help-dialog h2{margin:0 42px 16px 0;font-size:25px}
+.help-dialog-content{color:#dbeafe;line-height:1.6}
+.help-dialog-content p{margin:0 0 12px}
+.help-dialog-content ul{margin:0;padding-left:21px}
+.help-dialog-content li{margin:8px 0}
+.help-close{position:absolute;top:14px;right:14px;width:38px;height:38px;padding:0;font-size:22px;line-height:1}
+body.help-open{overflow:hidden}
+@media(max-width:980px){
  body{display:block}
  .branch-nav{position:relative;height:auto;max-height:70vh;margin:10px 12px 0;padding:12px 14px}
+ .nav-resizer{display:none}
  .branch-nav[data-mobile-closed="true"] .nav-content{display:none}
  #nav-mobile-toggle{display:inline-block;font-size:13px;padding:7px 9px}
  .branch-nav h2{font-size:18px;margin:0}
  main{max-width:none;padding:14px 12px}
+ .quick-help{position:relative;max-height:none;margin:0 12px 14px;padding:14px}
+ .quick-help-buttons{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .help-dialog{padding:22px 18px}
+}
+@media(max-width:520px){
+ .quick-help-buttons{grid-template-columns:1fr}
 }
 </style>'''
-SCENARIO_NAV_PANEL = '''<aside id="branch-nav" class="branch-nav" aria-label="Навигация по веткам" data-mobile-closed="true"><div class="nav-heading"><h2>Навигатор</h2><button id="nav-mobile-toggle" type="button" aria-expanded="false" aria-controls="nav-content">Открыть ветки</button></div><div id="nav-content" class="nav-content"><label for="nav-search">Найти ветку</label><input id="nav-search" type="search" placeholder="Найти ветку" autocomplete="off"><p id="nav-status" role="status" aria-live="polite"></p><div id="nav-tree" class="nav-tree" aria-label="Ветки сценария"></div></div></aside>'''
+SCENARIO_NAV_PANEL = '''<aside id="branch-nav" class="branch-nav" aria-label="Навигация по веткам" data-mobile-closed="true"><button id="nav-resizer" class="nav-resizer" type="button" role="separator" aria-label="Изменить ширину дерева веток" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="282"></button><div class="nav-heading"><h2>Навигатор</h2><button id="nav-mobile-toggle" type="button" aria-expanded="false" aria-controls="nav-content">Открыть ветки</button></div><div id="nav-content" class="nav-content"><label for="nav-search">Найти ветку</label><input id="nav-search" type="search" placeholder="Найти ветку" autocomplete="off"><p id="nav-status" role="status" aria-live="polite"></p><div id="nav-tree" class="nav-tree" aria-label="Ветки сценария"></div></div></aside>'''
+QUICK_HELP_PANEL = '''<aside id="quick-help" class="quick-help" aria-label="Быстрая справка"><h2>Быстрая справка</h2><p>Откройте подсказку, не прерывая разговор.</p><div class="quick-help-buttons"><button class="quick-help-button" type="button" data-help="about">О MetricHit</button><button class="quick-help-button" type="button" data-help="mechanics">Как это работает</button><button class="quick-help-button" type="button" data-help="trial">Тест 1 000 кликов</button><button class="quick-help-button" type="button" data-help="prices">Цены и тарифы</button><button class="quick-help-button" type="button" data-help="start">Как начать</button><button class="quick-help-button" type="button" data-help="cabinet">Что видно в кабинете</button><button class="quick-help-button" type="button" data-help="questions">Частые вопросы</button><button class="quick-help-button" type="button" data-help="objections">Возражения</button><button class="quick-help-button" type="button" data-help="support">Поддержка и контакты</button><button class="quick-help-button" type="button" data-help="limits">Что не обещаем</button></div></aside><div id="help-modal" class="help-modal" hidden><section class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title" aria-describedby="help-content"><button id="help-close" class="help-close" type="button" aria-label="Закрыть справку">×</button><h2 id="help-title"></h2><div id="help-content" class="help-dialog-content"></div></section></div>'''
 SCENARIO_NAV_SCRIPT = '''<script>
 const navLegacyNames={start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени'};
 const navTitle=key=>n[key]?.title||navLegacyNames[key]||`Новая ветка ${key.replace('new-node-','')}`;
-const navPanel=$('branch-nav'),navTree=$('nav-tree'),navSearch=$('nav-search'),navStatus=$('nav-status');
+const navPanel=$('branch-nav'),navTree=$('nav-tree'),navSearch=$('nav-search'),navStatus=$('nav-status'),navResizer=$('nav-resizer');
+const navWidthMin=220,navWidthMax=480,navWidthStorage='sales-navigator-branch-width';
 let navExpanded=new Set(['start']),navOtherExpanded=false,navLastCurrent=null;
+function navSetWidth(value,persist=true){
+ const width=Math.max(navWidthMin,Math.min(navWidthMax,Math.round(value)));
+ document.body.style.setProperty('--branch-nav-width',`${width}px`);navResizer.setAttribute('aria-valuenow',String(width));
+ if(persist)try{localStorage.setItem(navWidthStorage,String(width))}catch(error){}
+ return width;
+}
+try{const savedWidth=Number(localStorage.getItem(navWidthStorage));if(Number.isFinite(savedWidth)&&savedWidth>0)navSetWidth(savedWidth,false)}catch(error){}
+let navResizeStartX=0,navResizeStartWidth=0;
+navResizer.onpointerdown=event=>{if(matchMedia('(max-width:980px)').matches)return;event.preventDefault();navResizeStartX=event.clientX;navResizeStartWidth=Number(navResizer.getAttribute('aria-valuenow'))||navPanel.getBoundingClientRect().width;navResizer.dataset.dragging='true';navResizer.setPointerCapture?.(event.pointerId)};
+navResizer.onpointermove=event=>{if(navResizer.dataset.dragging!=='true')return;navSetWidth(navResizeStartWidth+event.clientX-navResizeStartX,false)};
+function navFinishResize(event){if(navResizer.dataset.dragging!=='true')return;navResizer.dataset.dragging='false';navSetWidth(Number(navResizer.getAttribute('aria-valuenow'))||282);if(event?.pointerId!==undefined&&navResizer.hasPointerCapture?.(event.pointerId))navResizer.releasePointerCapture(event.pointerId)}
+navResizer.onpointerup=navFinishResize;navResizer.onpointercancel=navFinishResize;
+navResizer.onkeydown=event=>{let width=Number(navResizer.getAttribute('aria-valuenow'))||282;if(event.key==='ArrowLeft')width-=16;else if(event.key==='ArrowRight')width+=16;else if(event.key==='Home')width=navWidthMin;else if(event.key==='End')width=navWidthMax;else return;event.preventDefault();navSetWidth(width)};
 function navGraph(){
  const seen=new Set(),paths=new Map();
  function visit(key,trail,incoming=''){
@@ -203,6 +245,26 @@ $('nav-mobile-toggle').onclick=()=>{
 };
 r();
 </script>'''
+QUICK_HELP_SCRIPT = '''<script>
+const helpItems={
+ about:{title:'О MetricHit',html:'<p>MetricHit — сервис для усиления продвижения сайтов в поисковой выдаче Яндекса с помощью поведенческих факторов.</p><p>Клиент сам задаёт сайт, регион, запросы, дневные лимиты и расписание. Оплата списывается только за фактически выполненные клики, фиксированной абонентской платы нет.</p>'},
+ mechanics:{title:'Как это работает',html:'<p>Бот работает с поисковой выдачей: по запросу сначала открывает несколько других результатов, а целевой сайт — последним. После этого он не возвращается в поиск.</p><p>Это искусственные переходы из поиска, а не SEO, реклама, лиды или реальные покупатели. Действий внутри сайта бот не совершает.</p>'},
+ trial:{title:'Тест 1 000 кликов',html:'<p>Новый пользователь может один раз получить 1 000 тестовых кликов без оплаты и пополнения.</p><ul><li>Клиент регистрируется на mtrhit.ru.</li><li>Присылает менеджеру логин без пароля и кодов доступа.</li><li>Менеджер передаёт логин в поддержку для проверки и активации.</li></ul><p>Начисление не автоматическое. Для существующего аккаунта повторный бонус не обещаем.</p>'},
+ prices:{title:'Цены и тарифы',html:'<p>Цена одного выполненного клика зависит от суммы пополнения:</p><ul><li>от 1 000 ₽ — 0,50 ₽;</li><li>от 10 000 ₽ — 0,40 ₽;</li><li>от 50 000 ₽ — 0,30 ₽;</li><li>от 100 000 ₽ — 0,25 ₽;</li><li>от 150 000 ₽ — 0,20 ₽;</li><li>от 200 000 ₽ — 0,15 ₽.</li></ul><p>Неиспользованный остаток не сгорает.</p>'},
+ start:{title:'Как начать',html:'<p>Для запуска нужны сайт, регион продвижения и поисковые запросы. Затем клиент задаёт дневные лимиты и расписание.</p><p>Лучше начинать с подготовленных страниц и запросов, по которым сайт уже имеет релевантную посадочную страницу. Если сайт ещё разрабатывается, сначала договоритесь о следующем контакте.</p>'},
+ cabinet:{title:'Что видно в кабинете',html:'<p>В личном кабинете клиент настраивает сайт, регион, запросы, дневные лимиты и расписание.</p><p>После запуска он видит выполненные клики, расходы и изменение позиций. Кабинет находится на mtrhit.ru.</p>'},
+ questions:{title:'Частые вопросы',html:'<ul><li><strong>Когда сайт выйдет в ТОП?</strong> Точный срок обещать нельзя: результат зависит не только от переходов.</li><li><strong>Будут заявки?</strong> MetricHit не продаёт лиды и не обещает продажи.</li><li><strong>Можно остановить тест?</strong> Передайте запрос в поддержку и уточните порядок остановки.</li><li><strong>Сайт далеко в выдаче?</strong> Сначала уточните запросы и текущие позиции; запуск оценивается индивидуально.</li><li><strong>Нужны документы или возврат?</strong> Не придумывайте ответ — передайте вопрос в поддержку.</li></ul>'},
+ objections:{title:'Возражения',html:'<p><strong>«Мы таким не занимаемся»</strong> — уточните, имеется в виду продвижение сайта вообще или именно накрутка ПФ.</p><p><strong>«У нас уже есть SEO»</strong> — MetricHit не заменяет SEO; это отдельный инструмент для подготовленного сайта.</p><p><strong>«Нам нужны реальные лиды»</strong> — честно скажите, что сервис даёт искусственные переходы из поиска, а не покупателей.</p><p><strong>«Неинтересно» или «не звоните»</strong> — спокойно завершите разговор без повторного давления.</p>'},
+ support:{title:'Поддержка и контакты',html:'<ul><li>Личный кабинет и регистрация: <strong>https://mtrhit.ru/</strong></li><li>Telegram-поддержка: <strong>@Metric_Hit</strong></li><li>Официальный Telegram-канал: <strong>@mtr_hit</strong></li></ul><p>В поддержку передаются вопросы по начислению теста, доступу, счетам, документам, возвратам, особым условиям и техническим ошибкам.</p><p>Никогда не просите пароль, SMS-код, код из письма или код 2FA.</p>'},
+ limits:{title:'Что не обещаем',html:'<ul><li>гарантированный выход в ТОП и точный срок;</li><li>заявки, продажи или реальных посетителей;</li><li>безусловную безопасность и гарантированный учёт алгоритмом;</li><li>повторный тестовый бонус для существующего аккаунта;</li><li>условия по документам, возврату или особой цене без подтверждения поддержки.</li></ul><p>Корректная формулировка: MetricHit помогает усилить подготовленное продвижение, но не заменяет техническое SEO, релевантность страниц и коммерческую проработку сайта.</p>'}
+};
+const helpModal=$('help-modal'),helpTitle=$('help-title'),helpContent=$('help-content'),helpClose=$('help-close');let helpLastFocus=null;
+function openHelp(key){const item=helpItems[key];if(!item)return;helpLastFocus=document.activeElement;helpTitle.textContent=item.title;helpContent.innerHTML=item.html;helpModal.hidden=false;document.body.classList.add('help-open');helpClose.focus()}
+function closeHelp(){if(helpModal.hidden)return;helpModal.hidden=true;document.body.classList.remove('help-open');helpLastFocus?.focus?.()}
+document.querySelectorAll('[data-help]').forEach(button=>button.onclick=()=>openHelp(button.dataset.help));
+helpClose.onclick=closeHelp;helpModal.onclick=event=>{if(event.target===helpModal)closeHelp()};
+document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!helpModal.hidden)closeHelp()});
+</script>'''
 LOGIN='''<!doctype html><html lang="ru"><meta charset="utf-8"><body style="background:#111827;color:white;font:16px system-ui;padding:30px"><form method="post" action="/login"><h1>Навигатор продаж</h1><p>Введите пароль доступа.</p><input name="password" type="password" autocomplete="current-password"><button>Войти</button></form></body></html>'''
 @app.get("/",response_class=HTMLResponse)
 def home(r:Request):
@@ -219,7 +281,7 @@ $('save-edit').onclick=async()=>{await saveInlineEdit();if(!editing)inlineSnapsh
 </script>'''
  page=app_page(role)
  page=page.replace('<main>',SCENARIO_NAV_STYLE+SCENARIO_NAV_PANEL+'<main>')
- return HTMLResponse(page.replace('</main></html>',(safeguard if role=='admin' else '')+SCENARIO_NAV_SCRIPT+'</main></html>'))
+ return HTMLResponse(page.replace('</main></html>','</main>'+QUICK_HELP_PANEL+(safeguard if role=='admin' else '')+SCENARIO_NAV_SCRIPT+QUICK_HELP_SCRIPT+'</html>'))
 def map_page():
  s=load();labels={'start':'Первый звонок','qualification':'Уточнение ситуации','contact':'Передать контакт','planning':'Пока в планах','current_provider':'Уже есть подрядчик','price':'Возражение по цене','proof':'Нужны доказательства','time':'Нет времени'}
  def branch_name(key): return s[key].get('title') or labels.get(key) or 'Новая ветка '+key.replace('new-node-','')
