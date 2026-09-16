@@ -81,9 +81,11 @@ def test_admin_edits_quick_help_without_changing_scenario(monkeypatch, tmp_path)
     assert len(initial.json()["items"]) == 10
     edited = deepcopy(initial.json()["items"])
     edited["about"] = {"title": "О сервисе", "body": "Проверочный текст справки."}
+    edited["custom-1"] = {"title": "Новый раздел", "body": "Описание нового раздела."}
     saved = test_client.put("/api/quick-help", json={"items": edited, "revision": initial.json()["revision"]})
     assert saved.status_code == 200
     assert saved.json()["items"]["about"]["title"] == "О сервисе"
+    assert saved.json()["items"]["custom-1"]["body"] == "Описание нового раздела."
     assert load_quick_help() == edited
     assert quick_help_path().exists()
     assert revision(load()) == scenario_before
@@ -93,6 +95,11 @@ def test_admin_edits_quick_help_without_changing_scenario(monkeypatch, tmp_path)
     rejected = test_client.put("/api/quick-help", json={"items": invalid, "revision": saved.json()["revision"]})
     assert rejected.status_code == 422
     assert load_quick_help() == edited
+
+    invalid_key = deepcopy(edited)
+    invalid_key["новый-раздел"] = invalid_key.pop("custom-1")
+    rejected_key = test_client.put("/api/quick-help", json={"items": invalid_key, "revision": saved.json()["revision"]})
+    assert rejected_key.status_code == 422
 
     manager = client()
     manager.post("/login", data={"password": "manager-test-password"})
@@ -511,15 +518,16 @@ def test_admin_edits_quick_help_in_the_workspace(monkeypatch) -> None:
         page.locator("#edit-quick-help").click()
         page.locator("#help-editor-modal").wait_for(state="visible")
         assert page.locator("#help-editor-list button").count() == 10
-        page.locator("#help-editor-list button").first.click()
-        page.locator("#help-edit-title").fill("О сервисе")
+        page.locator("#help-editor-add").click()
+        assert page.locator("#help-editor-list button").count() == 11
+        page.locator("#help-edit-title").fill("Условия запуска")
         page.locator("#help-edit-body").fill("Первый абзац.\n\nВторой абзац.")
         page.locator("#help-editor-save").click()
         page.wait_for_function("document.querySelector('#help-editor-modal').hidden")
-        assert writes[-1]["items"]["about"] == {"title": "О сервисе", "body": "Первый абзац.\n\nВторой абзац."}
-        assert page.get_by_role("button", name="О сервисе").is_visible()
-        page.get_by_role("button", name="О сервисе").click()
-        assert page.locator("#help-title").inner_text() == "О сервисе"
+        assert writes[-1]["items"]["custom-1"] == {"title": "Условия запуска", "body": "Первый абзац.\n\nВторой абзац."}
+        assert page.get_by_role("button", name="Условия запуска").is_visible()
+        page.get_by_role("button", name="Условия запуска").click()
+        assert page.locator("#help-title").inner_text() == "Условия запуска"
         assert page.locator("#help-content p").count() == 2
         page.keyboard.press("Escape")
         assert page.locator("#help-modal").is_hidden()
