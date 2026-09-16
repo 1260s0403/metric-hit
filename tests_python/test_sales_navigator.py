@@ -517,14 +517,18 @@ def test_admin_edits_quick_help_in_the_workspace(monkeypatch) -> None:
         assert page.locator("#edit-quick-help").is_visible()
         page.locator("#edit-quick-help").click()
         page.locator("#help-editor-modal").wait_for(state="visible")
-        assert page.locator("#help-editor-list button").count() == 10
+        assert page.locator(".help-editor-item").count() == 10
+        page.get_by_role("button", name="Переместить О MetricHit ниже").click()
+        assert page.locator("#help-editor-list button").first.inner_text() == "Как это работает"
         page.locator("#help-editor-add").click()
-        assert page.locator("#help-editor-list button").count() == 11
+        assert page.locator(".help-editor-item").count() == 11
         page.locator("#help-edit-title").fill("Условия запуска")
         page.locator("#help-edit-body").fill("Первый абзац.\n\nВторой абзац.")
         page.locator("#help-editor-save").click()
         page.wait_for_function("document.querySelector('#help-editor-modal').hidden")
+        assert list(writes[-1]["items"])[0] == "mechanics"
         assert writes[-1]["items"]["custom-1"] == {"title": "Условия запуска", "body": "Первый абзац.\n\nВторой абзац."}
+        assert page.locator(".quick-help-button").first.inner_text() == "Как это работает"
         assert page.get_by_role("button", name="Условия запуска").is_visible()
         page.get_by_role("button", name="Условия запуска").click()
         assert page.locator("#help-title").inner_text() == "Условия запуска"
