@@ -4,7 +4,7 @@ from copy import deepcopy
 from playwright.sync_api import sync_playwright
 import pytest
 
-from apps.sales_navigator.main import SESSIONS, app, load, validate
+from apps.sales_navigator.main import SESSIONS, app, load, load_quick_help, quick_help_path, revision, validate
 
 
 def client() -> TestClient:
@@ -67,6 +67,37 @@ def test_unknown_branch_returns_not_found(monkeypatch) -> None:
     test_client.post("/login", data={"password": "manager-test-password"})
     response = test_client.get("/api/scenario/unknown")
     assert response.status_code == 404
+
+
+def test_admin_edits_quick_help_without_changing_scenario(monkeypatch, tmp_path) -> None:
+    SESSIONS.clear()
+    configure_roles(monkeypatch)
+    monkeypatch.setenv("SALES_NAVIGATOR_DATA_PATH", str(tmp_path / "scenario.json"))
+    test_client = client()
+    test_client.post("/login", data={"password": "admin-test-password"})
+    scenario_before = revision(load())
+    initial = test_client.get("/api/quick-help")
+    assert initial.status_code == 200
+    assert len(initial.json()["items"]) == 10
+    edited = deepcopy(initial.json()["items"])
+    edited["about"] = {"title": "О сервисе", "body": "Проверочный текст справки."}
+    saved = test_client.put("/api/quick-help", json={"items": edited, "revision": initial.json()["revision"]})
+    assert saved.status_code == 200
+    assert saved.json()["items"]["about"]["title"] == "О сервисе"
+    assert load_quick_help() == edited
+    assert quick_help_path().exists()
+    assert revision(load()) == scenario_before
+
+    invalid = deepcopy(edited)
+    invalid["about"]["body"] = "<b>Нельзя</b>"
+    rejected = test_client.put("/api/quick-help", json={"items": invalid, "revision": saved.json()["revision"]})
+    assert rejected.status_code == 422
+    assert load_quick_help() == edited
+
+    manager = client()
+    manager.post("/login", data={"password": "manager-test-password"})
+    assert manager.get("/api/quick-help").status_code == 403
+    assert 'id="edit-quick-help"' not in manager.get("/").text
 
 
 def test_editor_persists_valid_scenario_and_rejects_broken_link(monkeypatch, tmp_path) -> None:
@@ -446,6 +477,55 @@ def test_manager_centered_workspace_resizable_tree_and_quick_help(monkeypatch) -
         assert page.locator("#help-dialog, .help-dialog").count() == 1
         assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
         page.keyboard.press("Escape")
+        assert errors == []
+        browser.close()
+
+
+def test_admin_edits_quick_help_in_the_workspace(monkeypatch) -> None:
+    SESSIONS.clear()
+    configure_roles(monkeypatch)
+    SESSIONS["quick-help-admin-session"] = "admin"
+    test_client = client()
+    test_client.cookies.set("sales_session", "quick-help-admin-session")
+    home_page = test_client.get("/").text
+    initial = test_client.get("/api/quick-help").json()
+    writes = []
+    errors = []
+
+    def quick_help_route(route) -> None:
+        if route.request.method == "PUT":
+            payload = route.request.post_data_json
+            writes.append(payload)
+            route.fulfill(json={"items": payload["items"], "revision": "saved-help-revision"})
+        else:
+            route.fulfill(json=initial)
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1280, "height": 900})
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.route("https://sales.mtrhit.ru/", lambda route: route.fulfill(body=home_page, content_type="text/html"))
+        page.route("https://sales.mtrhit.ru/api/quick-help", quick_help_route)
+        page.goto("https://sales.mtrhit.ru/")
+        assert page.locator("#edit-quick-help").is_visible()
+        page.locator("#edit-quick-help").click()
+        page.locator("#help-editor-modal").wait_for(state="visible")
+        assert page.locator("#help-editor-list button").count() == 10
+        page.locator("#help-editor-list button").first.click()
+        page.locator("#help-edit-title").fill("О сервисе")
+        page.locator("#help-edit-body").fill("Первый абзац.\n\nВторой абзац.")
+        page.locator("#help-editor-save").click()
+        page.wait_for_function("document.querySelector('#help-editor-modal').hidden")
+        assert writes[-1]["items"]["about"] == {"title": "О сервисе", "body": "Первый абзац.\n\nВторой абзац."}
+        assert page.get_by_role("button", name="О сервисе").is_visible()
+        page.get_by_role("button", name="О сервисе").click()
+        assert page.locator("#help-title").inner_text() == "О сервисе"
+        assert page.locator("#help-content p").count() == 2
+        page.keyboard.press("Escape")
+        assert page.locator("#help-modal").is_hidden()
+        page.locator("#edit-quick-help").click()
+        page.locator("#help-editor-cancel").click()
+        assert page.locator("#help-editor-modal").is_hidden()
         assert errors == []
         browser.close()
 

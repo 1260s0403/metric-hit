@@ -17,9 +17,21 @@ DEFAULT_SCENARIO = {
  "price":{"client":"Нас прежде всего не устраивает цена.","manager":"Давайте сравним не только сумму, а стоимость результата. Какая задача должна окупиться в первую очередь?","hint":"Переводите разговор от скидки к экономике.","choices":[]},
  "proof":{"client":"Нам важна предсказуемость результата.","manager":"Покажу, как мы фиксируем стартовую точку, контрольные метрики и формат отчёта.","hint":"Предлагайте прозрачный процесс.","choices":[]},
  "time":{"client":"Сейчас нет времени разбираться.","manager":"Тогда не будем перегружать вас. Я подготовлю вариант, который можно оценить за пять минут.","hint":"Снижайте усилие клиента.","choices":[]}}
+DEFAULT_QUICK_HELP = {
+ "about":{"title":"О MetricHit","body":"MetricHit — сервис для усиления продвижения сайтов в поисковой выдаче Яндекса с помощью поведенческих факторов.\n\nКлиент сам задаёт сайт, регион, запросы, дневные лимиты и расписание. Оплата списывается только за фактически выполненные клики, фиксированной абонентской платы нет."},
+ "mechanics":{"title":"Как это работает","body":"Бот работает с поисковой выдачей: по запросу сначала открывает несколько других результатов, а целевой сайт — последним. После этого он не возвращается в поиск.\n\nЭто искусственные переходы из поиска, а не SEO, реклама, лиды или реальные покупатели. Действий внутри сайта бот не совершает."},
+ "trial":{"title":"Тест 1 000 кликов","body":"Новый пользователь может один раз получить 1 000 тестовых кликов без оплаты и пополнения.\n\nКлиент регистрируется на mtrhit.ru, присылает логин без пароля и кодов доступа, а менеджер передаёт логин в поддержку для проверки и активации. Начисление не автоматическое. Для существующего аккаунта повторный бонус не обещаем."},
+ "prices":{"title":"Цены и тарифы","body":"Цена одного выполненного клика зависит от суммы пополнения: от 1 000 ₽ — 0,50 ₽; от 10 000 ₽ — 0,40 ₽; от 50 000 ₽ — 0,30 ₽; от 100 000 ₽ — 0,25 ₽; от 150 000 ₽ — 0,20 ₽; от 200 000 ₽ — 0,15 ₽.\n\nНеиспользованный остаток не сгорает."},
+ "start":{"title":"Как начать","body":"Для запуска нужны сайт, регион продвижения и поисковые запросы. Затем клиент задаёт дневные лимиты и расписание.\n\nЛучше начинать с подготовленных страниц и запросов, по которым сайт уже имеет релевантную посадочную страницу."},
+ "cabinet":{"title":"Что видно в кабинете","body":"В личном кабинете клиент настраивает сайт, регион, запросы, дневные лимиты и расписание.\n\nПосле запуска он видит выполненные клики, расходы и изменение позиций. Кабинет находится на mtrhit.ru."},
+ "questions":{"title":"Частые вопросы","body":"Точный срок выхода в ТОП обещать нельзя: результат зависит не только от переходов. MetricHit не продаёт лиды и не обещает продажи.\n\nВопросы по документам, возврату, особым условиям и техническим проблемам передаются в поддержку без выдуманных ответов."},
+ "objections":{"title":"Возражения","body":"«Мы таким не занимаемся» — уточните, имеется в виду продвижение сайта вообще или именно накрутка ПФ.\n\n«У нас уже есть SEO» — MetricHit не заменяет SEO; это отдельный инструмент для подготовленного сайта.\n\n«Нам нужны реальные лиды» — честно скажите, что сервис даёт искусственные переходы из поиска, а не покупателей."},
+ "support":{"title":"Поддержка и контакты","body":"Личный кабинет и регистрация: https://mtrhit.ru/\nTelegram-поддержка: @Metric_Hit\nОфициальный Telegram-канал: @mtr_hit\n\nНикогда не просите пароль, SMS-код, код из письма или код 2FA."},
+ "limits":{"title":"Что не обещаем","body":"Не обещаем гарантированный выход в ТОП, точный срок, заявки, продажи, реальных посетителей, безусловную безопасность или гарантированный учёт алгоритмом.\n\nMetricHit помогает усилить подготовленное продвижение, но не заменяет техническое SEO, релевантность страниц и коммерческую проработку сайта."}}
 SESSIONS:dict[str,str]={}
 
 def store_path(): return Path(os.getenv("SALES_NAVIGATOR_DATA_PATH", Path(__file__).resolve().parents[2]/"data"/"sales_navigator"/"scenario.json"))
+def quick_help_path(): return Path(os.getenv("SALES_NAVIGATOR_HELP_PATH", store_path().with_name("quick_help.json")))
 def revision(s): return hashlib.sha256(json.dumps(s,ensure_ascii=False,sort_keys=True).encode()).hexdigest()
 def validate(s):
  if not isinstance(s,dict) or "start" not in s: raise ValueError("Нужна стартовая ветка.")
@@ -42,6 +54,26 @@ def save(s,old):
  p=store_path();p.parent.mkdir(parents=True,exist_ok=True);t=p.with_suffix(".new")
  with t.open("w",encoding="utf-8") as f: json.dump(s,f,ensure_ascii=False,indent=2);f.flush();os.fsync(f.fileno())
  os.replace(t,p);return {"scenario":s,"revision":revision(s)}
+def validate_quick_help(items):
+ if not isinstance(items,dict) or set(items)!=set(DEFAULT_QUICK_HELP): raise ValueError("Справка должна содержать все исходные разделы.")
+ for key,item in items.items():
+  if not isinstance(item,dict) or set(item)!={"title","body"}: raise ValueError("Некорректный раздел справки.")
+  for field,limit in (("title",100),("body",5000)):
+   value=item[field]
+   if not isinstance(value,str) or not value.strip() or len(value)>limit: raise ValueError("Заполните название и текст справки.")
+   if "<" in value or ">" in value: raise ValueError("HTML в справке не поддерживается.")
+ return items
+def load_quick_help():
+ p=quick_help_path()
+ if not p.exists(): return deepcopy(DEFAULT_QUICK_HELP)
+ try: return validate_quick_help(json.loads(p.read_text(encoding="utf-8")))
+ except Exception as error: raise HTTPException(500,"Сохранённая Быстрая справка повреждена; она не была перезаписана.") from error
+def save_quick_help(items,old):
+ validate_quick_help(items)
+ if old!=revision(load_quick_help()): raise HTTPException(409,"Быстрая справка изменена в другой вкладке. Обновите страницу.")
+ p=quick_help_path();p.parent.mkdir(parents=True,exist_ok=True);t=p.with_suffix(".new")
+ with t.open("w",encoding="utf-8") as f: json.dump(items,f,ensure_ascii=False,indent=2);f.flush();os.fsync(f.fileno())
+ os.replace(t,p);return {"items":items,"revision":revision(items)}
 def auth(r,required_role=None):
  role=SESSIONS.get(r.cookies.get("sales_session"))
  if not role: raise HTTPException(401,"Требуется вход")
@@ -104,6 +136,8 @@ main{max-width:860px;width:100%;box-sizing:border-box;justify-self:center;margin
 .quick-help-buttons{display:grid;gap:7px}
 .quick-help-button{width:100%;text-align:left;background:#17243a;border-color:#334155;padding:9px 10px;font-size:14px;line-height:1.25}
 .quick-help-button:hover,.quick-help-button:focus-visible{border-color:#22d3ee;background:#1e3a5f}
+.quick-help-actions{margin-top:12px;padding-top:12px;border-top:1px solid #334155}
+.quick-help-actions button{width:100%;font-size:13px;padding:8px 10px}
 .help-modal[hidden]{display:none}
 .help-modal{position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:20px;background:#020617c9;backdrop-filter:blur(5px)}
 .help-dialog{position:relative;box-sizing:border-box;width:min(620px,100%);max-height:min(78vh,720px);overflow-y:auto;padding:26px;background:#0f172a;border:1px solid #475569;border-radius:18px;box-shadow:0 28px 90px #000b}
@@ -113,6 +147,11 @@ main{max-width:860px;width:100%;box-sizing:border-box;justify-self:center;margin
 .help-dialog-content ul{margin:0;padding-left:21px}
 .help-dialog-content li{margin:8px 0}
 .help-close{position:absolute;top:14px;right:14px;width:38px;height:38px;padding:0;font-size:22px;line-height:1}
+.help-editor-dialog{width:min(820px,100%)}
+.help-editor-layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;margin:0 0 16px}
+.help-editor-list{display:grid;align-content:start;gap:5px;max-height:390px;overflow-y:auto}
+.help-editor-list button{background:transparent;border-color:transparent;text-align:left;padding:8px}.help-editor-list button[aria-current="true"]{background:#1e3a5f;border-color:#22d3ee}
+.help-editor-fields label{display:block;font-weight:600}.help-editor-fields textarea{min-height:230px;resize:vertical}.help-editor-note{margin:0;color:#94a3b8;font-size:13px;line-height:1.45}.help-editor-status{display:inline-block;margin-left:8px;color:#67e8f9}
 body.help-open{overflow:hidden}
 @media(max-width:980px){
  body{display:block}
@@ -125,13 +164,17 @@ body.help-open{overflow:hidden}
  .quick-help{position:relative;max-height:none;margin:0 12px 14px;padding:14px}
  .quick-help-buttons{grid-template-columns:repeat(2,minmax(0,1fr))}
  .help-dialog{padding:22px 18px}
+ .help-editor-layout{grid-template-columns:1fr}.help-editor-list{grid-template-columns:repeat(2,minmax(0,1fr));max-height:none}.help-editor-fields textarea{min-height:180px}
 }
 @media(max-width:520px){
  .quick-help-buttons{grid-template-columns:1fr}
+ .help-editor-list{grid-template-columns:1fr}
 }
 </style>'''
 SCENARIO_NAV_PANEL = '''<aside id="branch-nav" class="branch-nav" aria-label="Навигация по веткам" data-mobile-closed="true"><button id="nav-resizer" class="nav-resizer" type="button" role="separator" aria-label="Изменить ширину дерева веток" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="282"></button><div class="nav-heading"><h2>Навигатор</h2><button id="nav-mobile-toggle" type="button" aria-expanded="false" aria-controls="nav-content">Открыть ветки</button></div><div id="nav-content" class="nav-content"><label for="nav-search">Найти ветку</label><input id="nav-search" type="search" placeholder="Найти ветку" autocomplete="off"><p id="nav-status" role="status" aria-live="polite"></p><div id="nav-tree" class="nav-tree" aria-label="Ветки сценария"></div></div></aside>'''
-QUICK_HELP_PANEL = '''<aside id="quick-help" class="quick-help" aria-label="Быстрая справка"><h2>Быстрая справка</h2><p>Откройте подсказку, не прерывая разговор.</p><div class="quick-help-buttons"><button class="quick-help-button" type="button" data-help="about">О MetricHit</button><button class="quick-help-button" type="button" data-help="mechanics">Как это работает</button><button class="quick-help-button" type="button" data-help="trial">Тест 1 000 кликов</button><button class="quick-help-button" type="button" data-help="prices">Цены и тарифы</button><button class="quick-help-button" type="button" data-help="start">Как начать</button><button class="quick-help-button" type="button" data-help="cabinet">Что видно в кабинете</button><button class="quick-help-button" type="button" data-help="questions">Частые вопросы</button><button class="quick-help-button" type="button" data-help="objections">Возражения</button><button class="quick-help-button" type="button" data-help="support">Поддержка и контакты</button><button class="quick-help-button" type="button" data-help="limits">Что не обещаем</button></div></aside><div id="help-modal" class="help-modal" hidden><section class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title" aria-describedby="help-content"><button id="help-close" class="help-close" type="button" aria-label="Закрыть справку">×</button><h2 id="help-title"></h2><div id="help-content" class="help-dialog-content"></div></section></div>'''
+def quick_help_panel(is_admin):
+ editor = '''<div class="quick-help-actions"><button id="edit-quick-help" type="button">Редактировать справку</button></div><div id="help-editor-modal" class="help-modal" hidden><section class="help-dialog help-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="help-editor-title"><button id="help-editor-close" class="help-close" type="button" aria-label="Закрыть редактор справки">×</button><h2 id="help-editor-title">Редактировать Быструю справку</h2><div class="help-editor-layout"><div id="help-editor-list" class="help-editor-list" aria-label="Разделы справки"></div><div class="help-editor-fields"><label for="help-edit-title">Название раздела</label><input id="help-edit-title" maxlength="100"><label for="help-edit-body">Текст</label><textarea id="help-edit-body" maxlength="5000"></textarea><p class="help-editor-note">Обычный текст: пустая строка отделяет абзацы. HTML не поддерживается.</p></div></div><p><button id="help-editor-save" class="primary" type="button">Сохранить</button> <button id="help-editor-cancel" type="button">Отменить</button><span id="help-editor-status" class="help-editor-status" role="status" aria-live="polite"></span></p></section></div>''' if is_admin else ''
+ return f'''<aside id="quick-help" class="quick-help" aria-label="Быстрая справка"><h2>Быстрая справка</h2><p>Откройте подсказку, не прерывая разговор.</p><div id="quick-help-buttons" class="quick-help-buttons"></div>{editor}</aside><div id="help-modal" class="help-modal" hidden><section class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title" aria-describedby="help-content"><button id="help-close" class="help-close" type="button" aria-label="Закрыть справку">×</button><h2 id="help-title"></h2><div id="help-content" class="help-dialog-content"></div></section></div>'''
 SCENARIO_NAV_SCRIPT = '''<script>
 const navLegacyNames={start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени'};
 const navTitle=key=>n[key]?.title||navLegacyNames[key]||`Новая ветка ${key.replace('new-node-','')}`;
@@ -245,31 +288,32 @@ $('nav-mobile-toggle').onclick=()=>{
 };
 r();
 </script>'''
-QUICK_HELP_SCRIPT = '''<script>
-const helpItems={
- about:{title:'О MetricHit',html:'<p>MetricHit — сервис для усиления продвижения сайтов в поисковой выдаче Яндекса с помощью поведенческих факторов.</p><p>Клиент сам задаёт сайт, регион, запросы, дневные лимиты и расписание. Оплата списывается только за фактически выполненные клики, фиксированной абонентской платы нет.</p>'},
- mechanics:{title:'Как это работает',html:'<p>Бот работает с поисковой выдачей: по запросу сначала открывает несколько других результатов, а целевой сайт — последним. После этого он не возвращается в поиск.</p><p>Это искусственные переходы из поиска, а не SEO, реклама, лиды или реальные покупатели. Действий внутри сайта бот не совершает.</p>'},
- trial:{title:'Тест 1 000 кликов',html:'<p>Новый пользователь может один раз получить 1 000 тестовых кликов без оплаты и пополнения.</p><ul><li>Клиент регистрируется на mtrhit.ru.</li><li>Присылает менеджеру логин без пароля и кодов доступа.</li><li>Менеджер передаёт логин в поддержку для проверки и активации.</li></ul><p>Начисление не автоматическое. Для существующего аккаунта повторный бонус не обещаем.</p>'},
- prices:{title:'Цены и тарифы',html:'<p>Цена одного выполненного клика зависит от суммы пополнения:</p><ul><li>от 1 000 ₽ — 0,50 ₽;</li><li>от 10 000 ₽ — 0,40 ₽;</li><li>от 50 000 ₽ — 0,30 ₽;</li><li>от 100 000 ₽ — 0,25 ₽;</li><li>от 150 000 ₽ — 0,20 ₽;</li><li>от 200 000 ₽ — 0,15 ₽.</li></ul><p>Неиспользованный остаток не сгорает.</p>'},
- start:{title:'Как начать',html:'<p>Для запуска нужны сайт, регион продвижения и поисковые запросы. Затем клиент задаёт дневные лимиты и расписание.</p><p>Лучше начинать с подготовленных страниц и запросов, по которым сайт уже имеет релевантную посадочную страницу. Если сайт ещё разрабатывается, сначала договоритесь о следующем контакте.</p>'},
- cabinet:{title:'Что видно в кабинете',html:'<p>В личном кабинете клиент настраивает сайт, регион, запросы, дневные лимиты и расписание.</p><p>После запуска он видит выполненные клики, расходы и изменение позиций. Кабинет находится на mtrhit.ru.</p>'},
- questions:{title:'Частые вопросы',html:'<ul><li><strong>Когда сайт выйдет в ТОП?</strong> Точный срок обещать нельзя: результат зависит не только от переходов.</li><li><strong>Будут заявки?</strong> MetricHit не продаёт лиды и не обещает продажи.</li><li><strong>Можно остановить тест?</strong> Передайте запрос в поддержку и уточните порядок остановки.</li><li><strong>Сайт далеко в выдаче?</strong> Сначала уточните запросы и текущие позиции; запуск оценивается индивидуально.</li><li><strong>Нужны документы или возврат?</strong> Не придумывайте ответ — передайте вопрос в поддержку.</li></ul>'},
- objections:{title:'Возражения',html:'<p><strong>«Мы таким не занимаемся»</strong> — уточните, имеется в виду продвижение сайта вообще или именно накрутка ПФ.</p><p><strong>«У нас уже есть SEO»</strong> — MetricHit не заменяет SEO; это отдельный инструмент для подготовленного сайта.</p><p><strong>«Нам нужны реальные лиды»</strong> — честно скажите, что сервис даёт искусственные переходы из поиска, а не покупателей.</p><p><strong>«Неинтересно» или «не звоните»</strong> — спокойно завершите разговор без повторного давления.</p>'},
- support:{title:'Поддержка и контакты',html:'<ul><li>Личный кабинет и регистрация: <strong>https://mtrhit.ru/</strong></li><li>Telegram-поддержка: <strong>@Metric_Hit</strong></li><li>Официальный Telegram-канал: <strong>@mtr_hit</strong></li></ul><p>В поддержку передаются вопросы по начислению теста, доступу, счетам, документам, возвратам, особым условиям и техническим ошибкам.</p><p>Никогда не просите пароль, SMS-код, код из письма или код 2FA.</p>'},
- limits:{title:'Что не обещаем',html:'<ul><li>гарантированный выход в ТОП и точный срок;</li><li>заявки, продажи или реальных посетителей;</li><li>безусловную безопасность и гарантированный учёт алгоритмом;</li><li>повторный тестовый бонус для существующего аккаунта;</li><li>условия по документам, возврату или особой цене без подтверждения поддержки.</li></ul><p>Корректная формулировка: MetricHit помогает усилить подготовленное продвижение, но не заменяет техническое SEO, релевантность страниц и коммерческую проработку сайта.</p>'}
-};
-const helpModal=$('help-modal'),helpTitle=$('help-title'),helpContent=$('help-content'),helpClose=$('help-close');let helpLastFocus=null;
-function openHelp(key){const item=helpItems[key];if(!item)return;helpLastFocus=document.activeElement;helpTitle.textContent=item.title;helpContent.innerHTML=item.html;helpModal.hidden=false;document.body.classList.add('help-open');helpClose.focus()}
+def quick_help_script(items,is_admin):
+ return '''<script>
+let helpItems=__HELP_ITEMS__,helpRevision=__HELP_REVISION__,helpLastFocus=null,helpEditorLastFocus=null,helpEditorActive=null,helpEditorItems=null;
+const helpIsAdmin=__HELP_ADMIN__,helpModal=$('help-modal'),helpTitle=$('help-title'),helpContent=$('help-content'),helpClose=$('help-close'),helpButtons=$('quick-help-buttons');
+function helpText(body,target){target.replaceChildren();String(body).trim().split(/\\n\\s*\\n/).forEach(part=>{const paragraph=document.createElement('p');paragraph.textContent=part.trim();target.append(paragraph)})}
+function renderHelpButtons(){helpButtons.replaceChildren();Object.entries(helpItems).forEach(([key,item])=>{const button=document.createElement('button');button.type='button';button.className='quick-help-button';button.dataset.help=key;button.textContent=item.title;button.onclick=()=>openHelp(key);helpButtons.append(button)})}
+function openHelp(key){const item=helpItems[key];if(!item)return;helpLastFocus=document.activeElement;helpTitle.textContent=item.title;helpText(item.body,helpContent);helpModal.hidden=false;document.body.classList.add('help-open');helpClose.focus()}
 function closeHelp(){if(helpModal.hidden)return;helpModal.hidden=true;document.body.classList.remove('help-open');helpLastFocus?.focus?.()}
-document.querySelectorAll('[data-help]').forEach(button=>button.onclick=()=>openHelp(button.dataset.help));
-helpClose.onclick=closeHelp;helpModal.onclick=event=>{if(event.target===helpModal)closeHelp()};
-document.addEventListener('keydown',event=>{if(event.key==='Escape'&&!helpModal.hidden)closeHelp()});
-</script>'''
+renderHelpButtons();helpClose.onclick=closeHelp;helpModal.onclick=event=>{if(event.target===helpModal)closeHelp()};
+if(helpIsAdmin){
+ const helpEditorModal=$('help-editor-modal'),helpEditorList=$('help-editor-list'),helpEditorTitleInput=$('help-edit-title'),helpEditorBodyInput=$('help-edit-body'),helpEditorStatus=$('help-editor-status');
+ function drawHelpEditor(){helpEditorList.replaceChildren();Object.entries(helpEditorItems).forEach(([key,item])=>{const button=document.createElement('button');button.type='button';button.textContent=item.title;button.setAttribute('aria-current',String(key===helpEditorActive));button.onclick=()=>{collectHelpEditor();helpEditorActive=key;drawHelpEditor()};helpEditorList.append(button)});const item=helpEditorItems[helpEditorActive];helpEditorTitleInput.value=item.title;helpEditorBodyInput.value=item.body}
+ function collectHelpEditor(){if(!helpEditorActive)return;helpEditorItems[helpEditorActive]={title:helpEditorTitleInput.value.trim(),body:helpEditorBodyInput.value.trim()}}
+ async function openHelpEditor(){helpEditorLastFocus=document.activeElement;const response=await fetch('/api/quick-help'),payload=await response.json();if(!response.ok){helpEditorStatus.textContent=payload.detail||'Не удалось открыть справку';return}helpItems=payload.items;helpRevision=payload.revision;helpEditorItems=JSON.parse(JSON.stringify(helpItems));helpEditorActive=Object.keys(helpEditorItems)[0];helpEditorStatus.textContent='';drawHelpEditor();helpEditorModal.hidden=false;document.body.classList.add('help-open');helpEditorTitleInput.focus()}
+ function closeHelpEditor(){if(helpEditorModal.hidden)return;helpEditorModal.hidden=true;document.body.classList.remove('help-open');helpEditorLastFocus?.focus?.()}
+ $('edit-quick-help').onclick=openHelpEditor;$('help-editor-close').onclick=closeHelpEditor;$('help-editor-cancel').onclick=closeHelpEditor;helpEditorModal.onclick=event=>{if(event.target===helpEditorModal)closeHelpEditor()};
+ $('help-editor-save').onclick=async()=>{collectHelpEditor();const response=await fetch('/api/quick-help',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({items:helpEditorItems,revision:helpRevision})}),payload=await response.json();if(!response.ok){helpEditorStatus.textContent=payload.detail||'Не удалось сохранить';return}helpItems=payload.items;helpRevision=payload.revision;renderHelpButtons();helpEditorStatus.textContent='Сохранено';closeHelpEditor()};
+}
+document.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(helpIsAdmin&&!$('help-editor-modal').hidden)closeHelpEditor();else if(!helpModal.hidden)closeHelp()});
+</script>'''.replace('__HELP_ITEMS__',json.dumps(items,ensure_ascii=False)).replace('__HELP_REVISION__',json.dumps(revision(items))).replace('__HELP_ADMIN__','true' if is_admin else 'false')
 LOGIN='''<!doctype html><html lang="ru"><meta charset="utf-8"><body style="background:#111827;color:white;font:16px system-ui;padding:30px"><form method="post" action="/login"><h1>Навигатор продаж</h1><p>Введите пароль доступа.</p><input name="password" type="password" autocomplete="current-password"><button>Войти</button></form></body></html>'''
 @app.get("/",response_class=HTMLResponse)
 def home(r:Request):
  role=SESSIONS.get(r.cookies.get("sales_session"))
  if not role: return HTMLResponse(LOGIN)
+ help=load_quick_help()
  safeguard = '''<script>
 let inlineSnapshot=null;Object.keys(n).filter(k=>!names[k]).forEach(k=>names[k]=`Новая ветка ${k.replace('new-node-','')}`.trim());
 const mapLink=document.createElement('a');mapLink.href='/map';mapLink.textContent='Карта сценария';document.querySelector('header div').insertBefore(mapLink,document.querySelector('header form'));
@@ -281,7 +325,7 @@ $('save-edit').onclick=async()=>{await saveInlineEdit();if(!editing)inlineSnapsh
 </script>'''
  page=app_page(role)
  page=page.replace('<main>',SCENARIO_NAV_STYLE+SCENARIO_NAV_PANEL+'<main>')
- return HTMLResponse(page.replace('</main></html>','</main>'+QUICK_HELP_PANEL+(safeguard if role=='admin' else '')+SCENARIO_NAV_SCRIPT+QUICK_HELP_SCRIPT+'</html>'))
+ return HTMLResponse(page.replace('</main></html>','</main>'+quick_help_panel(role=='admin')+(safeguard if role=='admin' else '')+SCENARIO_NAV_SCRIPT+quick_help_script(help,role=='admin')+'</html>'))
 def map_page():
  s=load();labels={'start':'Первый звонок','qualification':'Уточнение ситуации','contact':'Передать контакт','planning':'Пока в планах','current_provider':'Уже есть подрядчик','price':'Возражение по цене','proof':'Нужны доказательства','time':'Нет времени'}
  def branch_name(key): return s[key].get('title') or labels.get(key) or 'Новая ветка '+key.replace('new-node-','')
@@ -334,6 +378,14 @@ async def login(r:Request):
 def logout(r:Request): SESSIONS.pop(r.cookies.get("sales_session",""),None);x=RedirectResponse("/",303);x.delete_cookie("sales_session");return x
 @app.get("/api/scenario")
 def get_scenario(r:Request): auth(r);s=load();return {"scenario":s,"revision":revision(s)}
+@app.get("/api/quick-help")
+def get_quick_help(r:Request):
+ auth(r,'admin');items=load_quick_help();return {"items":items,"revision":revision(items)}
+@app.put("/api/quick-help")
+async def put_quick_help(r:Request):
+ auth(r,'admin');p=await r.json()
+ try:return save_quick_help(p.get("items"),p.get("revision"))
+ except ValueError as e:raise HTTPException(422,str(e))
 @app.put("/api/scenario")
 async def put_scenario(r:Request):
  auth(r,'admin');p=await r.json()
