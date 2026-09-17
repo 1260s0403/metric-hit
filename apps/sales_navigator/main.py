@@ -8,7 +8,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 
 app = FastAPI(title="Навигатор продаж", docs_url=None, redoc_url=None)
-BRAND_LOGO_PATH = Path(__file__).resolve().parents[2] / "work" / "brand" / "logo-horizontal-dark.png"
+BRAND_LOGO_PATH = Path(__file__).resolve().parents[2] / "work" / "brand" / "logo-horizontal-light.png"
+CORE_THEME_STYLE = '''<style>:root{color-scheme:dark;--canvas:#101112;--surface:#151719;--raised:#1a1c1f;--hover:#242628;--active:#282a2d;--line:#393c40;--line-soft:#292c2f;--text:#e4e2dc;--muted:#999a9c;--focus:#d8d6d0}body{margin:0;background:var(--canvas);color:var(--text);font:16px system-ui}main{max-width:960px;margin:auto;padding:28px 20px}header{display:flex;justify-content:space-between;gap:12px;margin-bottom:24px}a,button{background:#242424;color:var(--text);border:1px solid #484848;border-radius:5px;padding:10px;text-decoration:none;font:inherit;cursor:pointer}a:hover,button:hover,a:focus-visible,button:focus-visible{background:#303030;border-color:#626262;outline:2px solid #777a7d;outline-offset:2px}button.primary{background:#dededb;border-color:#dededb;color:#171719;font-weight:700}button.primary:hover,button.primary:focus-visible{background:#f0eee9;border-color:#f0eee9}.card{background:var(--surface);border:1px solid var(--line);border-radius:7px;padding:22px}.label{color:var(--muted);font-size:12px;text-transform:uppercase}.answer{background:#1a1c1f;border-left:3px solid #d8d6d0;padding:12px;margin:8px 0}.choices{display:grid;gap:8px;margin-top:18px}.editor{display:grid;grid-template-columns:210px 1fr;gap:16px}textarea,input,select{box-sizing:border-box;width:100%;margin:5px 0 13px;padding:9px;background:#101112;color:var(--text);border:1px solid var(--line);border-radius:4px;font:inherit}textarea{min-height:72px}.choice{display:grid;grid-template-columns:1fr 150px auto;gap:7px}.status{color:#d8d6d0}@media(max-width:650px){.editor,.choice{grid-template-columns:1fr}header{flex-direction:column}}</style>'''
 DEFAULT_SCENARIO = {
  "start":{"client":"Первый холодный контакт","manager":"Здравствуйте. Меня зовут [Имя], я из команды MetricHit. Мы занимаемся продвижением сайтов в Яндексе. С кем можно поговорить по вопросу продвижения вашего сайта?","hint":"Сначала найдите человека, который отвечает за сайт и продвижение.","choices":[{"label":"Я отвечаю за сайт","next":"qualification"},{"label":"Это другой коллега","next":"contact"},{"label":"Сейчас неудобно говорить","next":"time"}]},
  "qualification":{"client":"Да, я отвечаю за сайт.","manager":"Отлично, тогда коротко уточню: вы уже продвигаете сайт в Яндексе или это пока в планах?","hint":"Дайте собеседнику выбрать статус без давления.","choices":[{"label":"Уже продвигаем","next":"current_provider"},{"label":"Пока в планах","next":"planning"}]},
@@ -94,11 +95,11 @@ def auth(r,required_role=None):
  if not role: raise HTTPException(401,"Требуется вход")
  if required_role and role!=required_role: raise HTTPException(403,"Недостаточно прав")
  return role
-@app.get("/brand/logo-horizontal-dark.png", include_in_schema=False)
+@app.get("/brand/logo-horizontal-light.png", include_in_schema=False)
 def brand_logo(): return FileResponse(BRAND_LOGO_PATH, media_type="image/png")
 def layout(title,body,role):
  editor_link=' <a href="/editor">Редактор</a>' if role=='admin' else ''
- return f'''<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>body{{margin:0;background:#111827;color:#f8fafc;font:16px system-ui}}main{{max-width:960px;margin:auto;padding:28px 20px}}header{{display:flex;justify-content:space-between;gap:12px;margin-bottom:24px}}a,button{{background:#1e293b;color:white;border:1px solid #475569;border-radius:8px;padding:10px;text-decoration:none;font:inherit;cursor:pointer}}button.primary{{background:#22d3ee;color:#083344;font-weight:700}}.card{{background:#0f172a;border:1px solid #334155;border-radius:16px;padding:22px}}.label{{color:#94a3b8;font-size:12px;text-transform:uppercase}}.answer{{background:#172554;border-left:3px solid #22d3ee;padding:12px;margin:8px 0}}.choices{{display:grid;gap:8px;margin-top:18px}}.editor{{display:grid;grid-template-columns:210px 1fr;gap:16px}}textarea,input,select{{box-sizing:border-box;width:100%;margin:5px 0 13px;padding:9px;background:#111827;color:white;border:1px solid #475569;border-radius:7px;font:inherit}}textarea{{min-height:72px}}.choice{{display:grid;grid-template-columns:1fr 150px auto;gap:7px}}.status{{color:#67e8f9}}@media(max-width:650px){{.editor,.choice{{grid-template-columns:1fr}}header{{flex-direction:column}}}}</style><main><header><h1>{title}</h1><div><a href="/">Сценарий</a>{editor_link} <form style="display:inline" method="post" action="/logout"><button>Выйти</button></form></div></header>{body}</main></html>'''
+ return f'''<!doctype html><html lang="ru"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>{CORE_THEME_STYLE}<main><header><h1>{title}</h1><div><a href="/">Сценарий</a>{editor_link} <form style="display:inline" method="post" action="/logout"><button>Выйти</button></form></div></header>{body}</main></html>'''
 def app_page(role):
  s=load();is_admin=role=='admin';shortcuts=[{"key":"start","label":"Первый контакт"}]+[{"key":key,"label":SHARED_DIALOGUE_NODES[key]["title"]} for key in SHARED_DIALOGUE_ROOTS+SHARED_DIALOGUE_DIRECT]
  edit_controls=''' <button id="edit">Редактировать этот шаг</button></p><section id="edit-panel" class="card" hidden style="margin-top:18px"><div class="label">Редактирование текущего шага</div><label>Название ветки<input id="edit-title" aria-label="Название ветки"></label><label>Клиент говорит<textarea id="edit-client"></textarea></label><label>Ответ менеджера<textarea id="edit-manager"></textarea></label><label>Подсказка для менеджера<textarea id="edit-hint"></textarea></label><div class="label">Варианты ответа клиента</div><div id="edit-choices" class="choices"></div><p><button id="add-choice">+ Добавить вариант ответа</button></p><p><button id="save-edit" class="primary">Сохранить изменения</button> <button id="cancel-edit">Отменить</button> <span id="edit-status" class="status"></span></p></section>''' if is_admin else '</p>'
@@ -123,45 +124,45 @@ def editor_page(): return layout("Редактор сценария",'''<div cla
 SCENARIO_NAV_STYLE = '''<style>
 body{--branch-nav-width:282px;display:grid;grid-template-columns:calc(var(--branch-nav-width) + 8px) minmax(0,1fr) 232px;gap:16px;align-items:start;min-height:100vh}
 main{max-width:860px;width:100%;box-sizing:border-box;justify-self:center;margin:0;padding:28px 16px}
-.conversation-shortcuts{margin:18px 0;padding:12px;background:#111c31;border:1px solid #334155;border-radius:10px}.conversation-shortcuts>span{display:block;color:#94a3b8;font-size:12px;text-transform:uppercase;margin-bottom:8px}.conversation-shortcuts>div{display:flex;flex-wrap:wrap;gap:7px}.conversation-shortcut{padding:7px 9px;background:#172554;font-size:14px}
-.branch-nav{position:sticky;top:0;box-sizing:border-box;height:100vh;display:flex;flex-direction:column;overflow:visible;margin:8px 0 8px 8px;padding:18px 14px;background:#0f172a;border:1px solid #334155;border-radius:14px}
-.brand-logo{display:block;width:176px;max-width:100%;height:auto;margin:0 0 20px}
+.conversation-shortcuts{margin:18px 0;padding:12px;background:#17191b;border:1px solid var(--line);border-radius:6px}.conversation-shortcuts>span{display:block;color:var(--muted);font-size:12px;text-transform:uppercase;margin-bottom:8px}.conversation-shortcuts>div{display:flex;flex-wrap:wrap;gap:7px}.conversation-shortcut{padding:7px 9px;background:#202225;border-color:#484848;font-size:14px}
+.branch-nav{position:sticky;top:0;box-sizing:border-box;height:100vh;display:flex;flex-direction:column;overflow:visible;margin:8px 0 8px 8px;padding:18px 14px;background:#0c0d0e;border:1px solid var(--line-soft);border-radius:7px}
+.brand-logo{display:block;width:208px;max-width:100%;height:auto;margin:0 0 22px}
 .branch-nav h2{font-size:20px;line-height:1.2;margin:0 0 16px}
-.branch-nav label{display:block;color:#94a3b8;font-size:13px}
-.branch-nav input{margin:6px 0 4px;background:#17243a}
+.branch-nav label{display:block;color:var(--muted);font-size:13px}
+.branch-nav input{margin:6px 0 4px;background:#101112}
 .nav-resizer{position:absolute;z-index:5;top:18px;right:-9px;width:16px;height:calc(100% - 36px);padding:0;border:0;background:transparent;cursor:col-resize;touch-action:none}
-.nav-resizer:before{content:'';position:absolute;top:0;bottom:0;left:7px;width:2px;border-radius:2px;background:#334155;transition:background .15s,box-shadow .15s}
-.nav-resizer:hover:before,.nav-resizer:focus-visible:before,.nav-resizer[data-dragging="true"]:before{background:#22d3ee;box-shadow:0 0 0 3px #22d3ee22}
+.nav-resizer:before{content:'';position:absolute;top:0;bottom:0;left:7px;width:2px;border-radius:2px;background:#393c40;transition:background .15s,box-shadow .15s}
+.nav-resizer:hover:before,.nav-resizer:focus-visible:before,.nav-resizer[data-dragging="true"]:before{background:#d8d6d0;box-shadow:0 0 0 3px #d8d6d022}
 .nav-resizer:focus-visible{outline:none}
 .nav-heading{display:flex;justify-content:space-between;align-items:center;gap:8px}
 #nav-mobile-toggle{display:none}
-#nav-status{min-height:18px;color:#67e8f9;font-size:13px;line-height:1.4;margin:4px 0}
+#nav-status{min-height:18px;color:#d8d6d0;font-size:13px;line-height:1.4;margin:4px 0}
 .nav-content{display:flex;flex-direction:column;flex:1;min-height:0}
 .nav-tree{margin-top:10px;flex:1;min-height:0;overflow-y:auto}
 .nav-row{display:flex;align-items:center;min-width:0;box-sizing:border-box;min-height:36px;margin:2px 0;border-left:3px solid transparent;border-radius:7px}
-.nav-row.current{background:#1e3a5f;border-left-color:#22d3ee}
+.nav-row.current{background:#282a2d;border-left-color:#d8d6d0}
 .nav-row.current .nav-open{font-weight:700}
-.nav-row.reference .nav-open{color:#cbd5e1}
+.nav-row.reference .nav-open{color:#c4c4c1}
 .nav-open,.nav-toggle{background:transparent;border:0;box-shadow:none;border-radius:5px;padding:5px 4px}
 .nav-open{flex:1;min-width:0;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.3}
-.nav-open:hover,.nav-toggle:not(:disabled):hover{background:#233852}
-.nav-toggle,.nav-spacer{flex:none;width:24px;height:28px;text-align:center;padding:4px 0;color:#94a3b8}
+.nav-open:hover,.nav-toggle:not(:disabled):hover{background:#242628}
+.nav-toggle,.nav-spacer{flex:none;width:24px;height:28px;text-align:center;padding:4px 0;color:var(--muted)}
 .nav-toggle:disabled{cursor:default;opacity:.6}
-.nav-group{margin:12px 0 4px;border-top:1px solid #334155;padding-top:10px}.nav-group-title{margin:0 0 5px;padding:0 4px;color:#94a3b8;font-size:12px;text-transform:uppercase}
-.nav-empty{color:#94a3b8;font-size:14px;padding:10px 5px}
-.quick-help{position:sticky;top:8px;box-sizing:border-box;max-height:calc(100vh - 16px);overflow-y:auto;margin:0 8px 0 0;padding:16px 12px;background:#0f172a;border:1px solid #334155;border-radius:14px}
+.nav-group{margin:12px 0 4px;border-top:1px solid var(--line);padding-top:10px}.nav-group-title{margin:0 0 5px;padding:0 4px;color:var(--muted);font-size:12px;text-transform:uppercase}
+.nav-empty{color:var(--muted);font-size:14px;padding:10px 5px}
+.quick-help{position:sticky;top:8px;box-sizing:border-box;max-height:calc(100vh - 16px);overflow-y:auto;margin:0 8px 0 0;padding:16px 12px;background:#151719;border:1px solid var(--line);border-radius:7px}
 .quick-help h2{font-size:18px;margin:0 0 5px}
-.quick-help>p{margin:0 0 13px;color:#94a3b8;font-size:13px;line-height:1.4}
+.quick-help>p{margin:0 0 13px;color:var(--muted);font-size:13px;line-height:1.4}
 .quick-help-buttons{display:grid;gap:7px}
-.quick-help-button{width:100%;text-align:left;background:#17243a;border-color:#334155;padding:9px 10px;font-size:14px;line-height:1.25}
-.quick-help-button:hover,.quick-help-button:focus-visible{border-color:#22d3ee;background:#1e3a5f}
-.quick-help-actions{margin-top:12px;padding-top:12px;border-top:1px solid #334155}
+.quick-help-button{width:100%;text-align:left;background:#202225;border-color:#484848;padding:9px 10px;font-size:14px;line-height:1.25}
+.quick-help-button:hover,.quick-help-button:focus-visible{border-color:#777a7d;background:#282a2d}
+.quick-help-actions{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
 .quick-help-actions button{width:100%;font-size:13px;padding:8px 10px}
 .help-modal[hidden]{display:none}
-.help-modal{position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:20px;background:#020617c9;backdrop-filter:blur(5px)}
-.help-dialog{position:relative;box-sizing:border-box;width:min(620px,100%);max-height:min(78vh,720px);overflow-y:auto;padding:26px;background:#0f172a;border:1px solid #475569;border-radius:18px;box-shadow:0 28px 90px #000b}
+.help-modal{position:fixed;z-index:1000;inset:0;display:grid;place-items:center;padding:20px;background:#000c;backdrop-filter:blur(5px)}
+.help-dialog{position:relative;box-sizing:border-box;width:min(620px,100%);max-height:min(78vh,720px);overflow-y:auto;padding:26px;background:#1a1c1f;border:1px solid #55585a;border-radius:7px;box-shadow:0 28px 90px #000b}
 .help-dialog h2{margin:0 42px 16px 0;font-size:25px}
-.help-dialog-content{color:#dbeafe;line-height:1.6}
+.help-dialog-content{color:#e4e2dc;line-height:1.6}
 .help-dialog-content p{margin:0 0 12px}
 .help-dialog-content ul{margin:0;padding-left:21px}
 .help-dialog-content li{margin:8px 0}
@@ -169,8 +170,8 @@ main{max-width:860px;width:100%;box-sizing:border-box;justify-self:center;margin
 .help-editor-dialog{width:min(820px,100%)}
 .help-editor-layout{display:grid;grid-template-columns:210px minmax(0,1fr);gap:16px;margin:0 0 16px}
 .help-editor-list{display:grid;align-content:start;gap:5px;max-height:390px;overflow-y:auto}
-.help-editor-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:3px}.help-editor-list button{background:transparent;border-color:transparent;text-align:left;padding:8px}.help-editor-list button[aria-current="true"]{background:#1e3a5f;border-color:#22d3ee}.help-editor-item .help-order{padding:8px;min-width:34px;text-align:center}
-.help-editor-fields label{display:block;font-weight:600}.help-editor-fields textarea{min-height:230px;resize:vertical}.help-editor-note{margin:0;color:#94a3b8;font-size:13px;line-height:1.45}.help-editor-status{display:inline-block;margin-left:8px;color:#67e8f9}
+.help-editor-item{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:3px}.help-editor-list button{background:transparent;border-color:transparent;text-align:left;padding:8px}.help-editor-list button[aria-current="true"]{background:#282a2d;border-color:#777a7d}.help-editor-item .help-order{padding:8px;min-width:34px;text-align:center}
+.help-editor-fields label{display:block;font-weight:600}.help-editor-fields textarea{min-height:230px;resize:vertical}.help-editor-note{margin:0;color:var(--muted);font-size:13px;line-height:1.45}.help-editor-status{display:inline-block;margin-left:8px;color:#d8d6d0}
 body.help-open{overflow:hidden}
 @media(max-width:980px){
  body{display:block}
@@ -190,7 +191,7 @@ body.help-open{overflow:hidden}
  .help-editor-list{grid-template-columns:1fr}
 }
 </style>'''
-SCENARIO_NAV_PANEL = '''<aside id="branch-nav" class="branch-nav" aria-label="Навигация по веткам" data-mobile-closed="true"><img class="brand-logo" src="/brand/logo-horizontal-dark.png" alt="MH MetricHit"><button id="nav-resizer" class="nav-resizer" type="button" role="separator" aria-label="Изменить ширину дерева веток" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="282"></button><div class="nav-heading"><h2>Навигатор</h2><button id="nav-mobile-toggle" type="button" aria-expanded="false" aria-controls="nav-content">Открыть ветки</button></div><div id="nav-content" class="nav-content"><label for="nav-search">Найти ветку</label><input id="nav-search" type="search" placeholder="Найти ветку" autocomplete="off"><p id="nav-status" role="status" aria-live="polite"></p><div id="nav-tree" class="nav-tree" aria-label="Ветки сценария"></div></div></aside>'''
+SCENARIO_NAV_PANEL = '''<aside id="branch-nav" class="branch-nav" aria-label="Навигация по веткам" data-mobile-closed="true"><img class="brand-logo" src="/brand/logo-horizontal-light.png" alt="MH MetricHit"><button id="nav-resizer" class="nav-resizer" type="button" role="separator" aria-label="Изменить ширину дерева веток" aria-orientation="vertical" aria-valuemin="220" aria-valuemax="480" aria-valuenow="282"></button><div class="nav-heading"><h2>Навигатор</h2><button id="nav-mobile-toggle" type="button" aria-expanded="false" aria-controls="nav-content">Открыть ветки</button></div><div id="nav-content" class="nav-content"><label for="nav-search">Найти ветку</label><input id="nav-search" type="search" placeholder="Найти ветку" autocomplete="off"><p id="nav-status" role="status" aria-live="polite"></p><div id="nav-tree" class="nav-tree" aria-label="Ветки сценария"></div></div></aside>'''
 def quick_help_panel(is_admin):
  editor = '''<div class="quick-help-actions"><button id="edit-quick-help" type="button">Редактировать справку</button></div><div id="help-editor-modal" class="help-modal" hidden><section class="help-dialog help-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="help-editor-title"><button id="help-editor-close" class="help-close" type="button" aria-label="Закрыть редактор справки">×</button><h2 id="help-editor-title">Редактировать Быструю справку</h2><div class="help-editor-layout"><div><button id="help-editor-add" type="button">+ Новый раздел</button><div id="help-editor-list" class="help-editor-list" aria-label="Разделы справки"></div></div><div class="help-editor-fields"><label for="help-edit-title">Название раздела</label><input id="help-edit-title" maxlength="100"><label for="help-edit-body">Текст</label><textarea id="help-edit-body" maxlength="5000"></textarea><p class="help-editor-note">Обычный текст: пустая строка отделяет абзацы. HTML не поддерживается.</p></div></div><p><button id="help-editor-save" class="primary" type="button">Сохранить</button> <button id="help-editor-cancel" type="button">Отменить</button><span id="help-editor-status" class="help-editor-status" role="status" aria-live="polite"></span></p></section></div>''' if is_admin else ''
  return f'''<aside id="quick-help" class="quick-help" aria-label="Быстрая справка"><h2>Быстрая справка</h2><p>Откройте подсказку, не прерывая разговор.</p><div id="quick-help-buttons" class="quick-help-buttons"></div>{editor}</aside><div id="help-modal" class="help-modal" hidden><section class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title" aria-describedby="help-content"><button id="help-close" class="help-close" type="button" aria-label="Закрыть справку">×</button><h2 id="help-title"></h2><div id="help-content" class="help-dialog-content"></div></section></div>'''
@@ -304,7 +305,7 @@ function navRender(){
   for(const node of shared)navRenderNode(node,0,query,selectedPath,group);
  }
  if(query&&!navTree.querySelector('[data-nav-key]')){const empty=document.createElement('p');empty.className='nav-empty';empty.textContent='Ветка не найдена';navTree.append(empty)}
- if(currentChanged)navTree.querySelector('.nav-row.current')?.scrollIntoView({block:'nearest'});
+ if(currentChanged||!query)navTree.querySelector('.nav-row.current')?.scrollIntoView({block:'nearest'});
 }
 const originalScenarioRender=r;
 r=function(){
@@ -346,7 +347,7 @@ if(helpIsAdmin){
 }
 document.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(helpIsAdmin&&!$('help-editor-modal').hidden)closeHelpEditor();else if(!helpModal.hidden)closeHelp()});
 </script>'''.replace('__HELP_ITEMS__',json.dumps(items,ensure_ascii=False)).replace('__HELP_REVISION__',json.dumps(revision(items))).replace('__HELP_ADMIN__','true' if is_admin else 'false')
-LOGIN='''<!doctype html><html lang="ru"><meta charset="utf-8"><body style="background:#111827;color:white;font:16px system-ui;padding:30px"><form method="post" action="/login"><h1>Навигатор продаж</h1><p>Введите пароль доступа.</p><input name="password" type="password" autocomplete="current-password"><button>Войти</button></form></body></html>'''
+LOGIN='''<!doctype html><html lang="ru"><meta charset="utf-8"><body style="background:#101112;color:#e4e2dc;font:16px system-ui;padding:30px"><form method="post" action="/login"><h1>Навигатор продаж</h1><p>Введите пароль доступа.</p><input name="password" type="password" autocomplete="current-password"><button>Войти</button></form></body></html>'''
 @app.get("/",response_class=HTMLResponse)
 def home(r:Request):
  role=SESSIONS.get(r.cookies.get("sales_session"))
@@ -371,7 +372,7 @@ def map_page():
  for key,node in s.items():
   links=''.join(f'<li><strong>{html.escape(x["label"])}</strong> → {html.escape(branch_name(x["next"]))}</li>' for x in node['choices']) or '<li>Конец ветки</li>'
   cards.append(f'<article class="map-node"><span>{html.escape(branch_name(key))}</span><h2>{html.escape(node["client"])}</h2><p>{html.escape(node["manager"])}</p><ul>{links}</ul></article>')
- return f'''<style>.map-help{{color:#cbd5e1;margin:0 0 18px}}.map{{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px}}.map-node{{background:#0f172a;border:1px solid #334155;border-radius:14px;padding:16px;box-shadow:0 12px 28px #0003}}.map-node>span{{color:#67e8f9;font-size:12px;text-transform:uppercase}}.map-node h2{{font-size:18px;margin:8px 0}}.map-node p{{color:#dbeafe;line-height:1.45}}.map-node ul{{border-top:1px solid #334155;margin:14px 0 0;padding:12px 0 0;list-style:none}}.map-node li{{padding:7px 0;color:#cbd5e1}}.map-node strong{{color:#f8fafc}}</style><p class="map-help">Все этапы и переходы сценария. Стрелка показывает, куда ведёт ответ клиента.</p><section class="map">{''.join(cards)}</section>'''
+ return f'''<style>.map-help{{color:#b9b9b6;margin:0 0 18px}}.map{{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px}}.map-node{{background:#151719;border:1px solid #393c40;border-radius:7px;padding:16px;box-shadow:0 12px 28px #0003}}.map-node>span{{color:#b9b9b6;font-size:12px;text-transform:uppercase}}.map-node h2{{font-size:18px;margin:8px 0}}.map-node p{{color:#e4e2dc;line-height:1.45}}.map-node ul{{border-top:1px solid #393c40;margin:14px 0 0;padding:12px 0 0;list-style:none}}.map-node li{{padding:7px 0;color:#b9b9b6}}.map-node strong{{color:#f0eee9}}</style><p class="map-help">Все этапы и переходы сценария. Стрелка показывает, куда ведёт ответ клиента.</p><section class="map">{''.join(cards)}</section>'''
 @app.get('/map',response_class=HTMLResponse)
 def map_view(r:Request):
  role=SESSIONS.get(r.cookies.get('sales_session'))
@@ -381,7 +382,7 @@ def map_view(r:Request):
 def editor(r:Request):
  auth(r,'admin')
  additions = '''<style>
-.editor-intro{margin:0 0 18px;padding:14px 16px;border:1px solid #334155;border-radius:12px;background:#172554;color:#dbeafe;line-height:1.45}.editor-intro strong{color:#67e8f9}.nodes{padding:14px!important}.nodes button{border:0!important;background:transparent!important;text-align:left;width:100%;margin:2px 0;padding:10px!important}.nodes button:hover{background:#1e293b!important}.nodes button:first-child{background:#164e63!important}.editor .card{box-shadow:0 18px 45px rgba(0,0,0,.2)}.editor label{display:block;font-weight:600}.editor label:before{content:'Редактируйте текст так, как его увидит менеджер';display:block;color:#94a3b8;font-size:12px;font-weight:400;margin-top:3px}.editor label:first-of-type:before{content:'Название видно в списке веток и переходах'}.editor label:nth-of-type(3):before{content:'Эта реплика показывается менеджеру';}.editor label:nth-of-type(4):before{content:'Короткая подсказка, не для клиента';}.choice{padding:8px;border:1px solid #334155;border-radius:10px;margin:8px 0}.choice:before{content:'Если клиент отвечает:';color:#94a3b8;font-size:12px;grid-column:1/-1}</style><script>
+ .editor-intro{margin:0 0 18px;padding:14px 16px;border:1px solid #393c40;border-radius:7px;background:#1a1c1f;color:#e4e2dc;line-height:1.45}.editor-intro strong{color:#f0eee9}.nodes{padding:14px!important}.nodes button{border:0!important;background:transparent!important;text-align:left;width:100%;margin:2px 0;padding:10px!important}.nodes button:hover{background:#242628!important}.nodes button:first-child{background:#282a2d!important}.editor .card{box-shadow:0 18px 45px rgba(0,0,0,.2)}.editor label{display:block;font-weight:600}.editor label:before{content:'Редактируйте текст так, как его увидит менеджер';display:block;color:#999a9c;font-size:12px;font-weight:400;margin-top:3px}.editor label:first-of-type:before{content:'Название видно в списке веток и переходах'}.editor label:nth-of-type(3):before{content:'Эта реплика показывается менеджеру';}.editor label:nth-of-type(4):before{content:'Короткая подсказка, не для клиента';}.choice{padding:8px;border:1px solid #393c40;border-radius:6px;margin:8px 0}.choice:before{content:'Если клиент отвечает:';color:#999a9c;font-size:12px;grid-column:1/-1}</style><script>
 const legacyBranchNames={...names};
 const escapeBranchName=value=>String(value).replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 function syncBranchNames(){Object.keys(d.scenario).forEach(key=>{names[key]=escapeBranchName(d.scenario[key].title||legacyBranchNames[key]||`Новая ветка ${key.replace('new-node-','')}`)})}
