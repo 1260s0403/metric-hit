@@ -138,7 +138,7 @@ main{max-width:860px;width:100%;box-sizing:border-box;justify-self:center;margin
 .nav-open:hover,.nav-toggle:not(:disabled):hover{background:#233852}
 .nav-toggle,.nav-spacer{flex:none;width:24px;height:28px;text-align:center;padding:4px 0;color:#94a3b8}
 .nav-toggle:disabled{cursor:default;opacity:.6}
-.nav-group{margin:12px 0 4px;border-top:1px solid #334155;padding-top:10px}
+.nav-group{margin:12px 0 4px;border-top:1px solid #334155;padding-top:10px}.nav-group-title{margin:0 0 5px;padding:0 4px;color:#94a3b8;font-size:12px;text-transform:uppercase}
 .nav-empty{color:#94a3b8;font-size:14px;padding:10px 5px}
 .quick-help{position:sticky;top:8px;box-sizing:border-box;max-height:calc(100vh - 16px);overflow-y:auto;margin:0 8px 0 0;padding:16px 12px;background:#0f172a;border:1px solid #334155;border-radius:14px}
 .quick-help h2{font-size:18px;margin:0 0 5px}
@@ -187,7 +187,7 @@ def quick_help_panel(is_admin):
  return f'''<aside id="quick-help" class="quick-help" aria-label="Быстрая справка"><h2>Быстрая справка</h2><p>Откройте подсказку, не прерывая разговор.</p><div id="quick-help-buttons" class="quick-help-buttons"></div>{editor}</aside><div id="help-modal" class="help-modal" hidden><section class="help-dialog" role="dialog" aria-modal="true" aria-labelledby="help-title" aria-describedby="help-content"><button id="help-close" class="help-close" type="button" aria-label="Закрыть справку">×</button><h2 id="help-title"></h2><div id="help-content" class="help-dialog-content"></div></section></div>'''
 SCENARIO_NAV_SCRIPT = '''<script>
 const navLegacyNames={start:'Первый звонок',qualification:'Уточнение ситуации',contact:'Передать контакт',planning:'Пока в планах',current_provider:'Уже есть подрядчик',price:'Возражение по цене',proof:'Нужны доказательства',time:'Нет времени'};
-const navTitle=key=>n[key]?.title||navLegacyNames[key]||`Новая ветка ${key.replace('new-node-','')}`;
+const navTitle=key=>n[key]?.title||shortcutNodes[key]?.title||navLegacyNames[key]||`Новая ветка ${key.replace('new-node-','')}`;
 const navPanel=$('branch-nav'),navTree=$('nav-tree'),navSearch=$('nav-search'),navStatus=$('nav-status'),navResizer=$('nav-resizer');
 const navWidthMin=220,navWidthMax=480,navWidthStorage='sales-navigator-branch-width';
 let navExpanded=new Set(['start']),navOtherExpanded=false,navLastCurrent=null;
@@ -233,7 +233,7 @@ function navWarnUnsaved(){
 }
 function navOpenBranch(key){
  if(editing){navWarnUnsaved();return}
- if(!n[key])return;
+ if(!n[key]&&!shortcutNodes[key])return;
  navStatus.textContent='';
  if(key!==c){h.push(c);c=key;r()}
  if(matchMedia('(max-width:650px)').matches){
@@ -265,17 +265,23 @@ function navRenderNode(node,depth,query,selectedPath,container){
 function navRender(){
  const graph=navGraph(),selectedPath=graph.paths.get(c)||[c],query=navSearch.value.trim().toLocaleLowerCase('ru-RU');
  const currentChanged=c!==navLastCurrent;
- if(currentChanged){navExpanded=new Set(selectedPath);navOtherExpanded=graph.other.some(node=>graph.paths.get(c)?.[0]===node.key);navLastCurrent=c}
+ if(currentChanged){if(shortcutNodes[c])navExpanded.add('start');else navExpanded=new Set(selectedPath);navOtherExpanded=graph.other.some(node=>graph.paths.get(c)?.[0]===node.key);navLastCurrent=c}
  for(const key of selectedPath.slice(0,-1))navExpanded.add(key);
  navTree.replaceChildren();
  if(graph.root)navRenderNode(graph.root,0,query,selectedPath,navTree);
  const visibleOther=graph.other.filter(node=>navHasMatch(node,query));
  if(visibleOther.length){
-  const group=document.createElement('div');group.className='nav-group';
+  const group=document.createElement('div');group.className='nav-group';group.dataset.navGroup='other';
   const toggle=document.createElement('button');toggle.type='button';toggle.className='nav-open';toggle.textContent=`Другие ветки (${visibleOther.length})`;
   toggle.setAttribute('aria-expanded',String(!!(query||navOtherExpanded)));
   toggle.onclick=()=>{navOtherExpanded=!navOtherExpanded;navRender()};group.append(toggle);navTree.append(group);
   if(query||navOtherExpanded)for(const node of visibleOther)navRenderNode(node,0,query,selectedPath,navTree);
+ }
+ const shared=shortcutList.map(item=>({key:item.key,incoming:'',reference:false,children:[]})).filter(node=>navHasMatch(node,query));
+ if(shared.length){
+  const group=document.createElement('div');group.className='nav-group';group.dataset.navGroup='shared';
+  const title=document.createElement('p');title.className='nav-group-title';title.textContent='Общие ответы';group.append(title);navTree.append(group);
+  for(const node of shared)navRenderNode(node,0,query,selectedPath,group);
  }
  if(query&&!navTree.querySelector('[data-nav-key]')){const empty=document.createElement('p');empty.className='nav-empty';empty.textContent='Ветка не найдена';navTree.append(empty)}
  if(currentChanged)navTree.querySelector('.nav-row.current')?.scrollIntoView({block:'nearest'});
@@ -284,7 +290,7 @@ const originalScenarioRender=r;
 r=function(){
  originalScenarioRender();
  if(!editing&&navStatus.textContent.startsWith('Сначала сохраните'))navStatus.textContent='';
- document.querySelectorAll('#choices button').forEach((button,index)=>{const open=button.onclick;button.onclick=()=>{if(editing){navWarnUnsaved();return}if(!n[n[c].choices[index]?.next]){navStatus.textContent='Связанная ветка недоступна. Выберите другую ветку.';return}open()}});
+ document.querySelectorAll('#choices button').forEach((button,index)=>{const open=button.onclick;button.onclick=()=>{if(editing){navWarnUnsaved();return}const activeNode=n[c]||shortcutNodes[c],next=activeNode?.choices[index]?.next;if(!n[next]&&!shortcutNodes[next]){navStatus.textContent='Связанная ветка недоступна. Выберите другую ветку.';return}open()}});
  navRender();
 };
 navSearch.oninput=()=>{navRender();navTree.querySelector('.nav-row.current')?.scrollIntoView({block:'nearest'})};
