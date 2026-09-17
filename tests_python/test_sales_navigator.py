@@ -35,6 +35,10 @@ def test_demo_login_opens_scenario(monkeypatch) -> None:
     assert "Редактировать этот шаг" in response.text
     assert "Добавить вариант ответа" in response.text
     assert "cancelInlineEdit" in response.text
+    assert 'class="brand-logo" src="/brand/logo-horizontal-dark.png" alt="MH MetricHit"' in response.text
+    logo = test_client.get("/brand/logo-horizontal-dark.png")
+    assert logo.status_code == 200
+    assert logo.headers["content-type"] == "image/png"
     assert test_client.get("/map").status_code == 200
     assert "Карта сценария" in test_client.get("/map").text
     qualification = test_client.get("/api/scenario/qualification")
@@ -361,6 +365,9 @@ def test_manager_persistent_navigation_search_collapse_current_and_mobile(monkey
         page.route("https://sales.mtrhit.ru/", lambda route: route.fulfill(body=home_page, content_type="text/html"))
         page.goto("https://sales.mtrhit.ru/")
         assert page.locator("#branch-nav").is_visible()
+        assert page.locator(".brand-logo").get_attribute("alt") == "MH MetricHit"
+        logo_box = page.locator(".brand-logo").bounding_box()
+        assert logo_box is not None and 170 <= logo_box["width"] <= 176
         assert page.locator("#nav-mobile-toggle").is_hidden()
         assert page.locator("#nav-tree [data-nav-key]").count() < len(page.evaluate("Object.keys(n)")) + len(page.evaluate("Object.keys(shortcutNodes)"))
         assert page.locator("#nav-tree [data-nav-open='start']").get_attribute("aria-current") == "step"
