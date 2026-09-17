@@ -439,6 +439,15 @@ def test_manager_centered_workspace_resizable_tree_and_quick_help(monkeypatch) -
         assert main_box is not None
         assert abs(main_box["x"] + main_box["width"] / 2 - 720) <= 30
         assert page.locator(".quick-help-button").count() == 10
+        assert page.locator(".conversation-shortcut").count() == 6
+        page.get_by_role("button", name="Бесплатный тест").click()
+        assert page.evaluate("c") == "shared-test"
+        assert "1 000 тестовых кликов" in page.locator("#manager").inner_text()
+        page.get_by_role("button", name="Перейти в Telegram").first.click()
+        assert page.evaluate("c") == "shared-telegram"
+        assert "Telegram-контакт" in page.locator("#manager").inner_text()
+        page.get_by_role("button", name="← Назад").click()
+        assert page.evaluate("c") == "shared-test"
 
         initial_width = page.locator("#branch-nav").bounding_box()["width"]
         handle = page.locator("#nav-resizer").bounding_box()
@@ -466,7 +475,7 @@ def test_manager_centered_workspace_resizable_tree_and_quick_help(monkeypatch) -
             page.locator("#help-close").click()
             assert page.locator("#help-modal").is_hidden()
 
-        page.get_by_role("button", name="Как это работает").click()
+        page.locator("#quick-help").get_by_role("button", name="Как это работает").click()
         assert "искусственные переходы" in page.locator("#help-content").inner_text()
         page.keyboard.press("Escape")
         assert page.locator("#help-modal").is_hidden()
