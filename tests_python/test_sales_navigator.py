@@ -439,7 +439,8 @@ def test_manager_centered_workspace_resizable_tree_and_quick_help(monkeypatch) -
         assert main_box is not None
         assert abs(main_box["x"] + main_box["width"] / 2 - 720) <= 30
         assert page.locator(".quick-help-button").count() == 10
-        assert page.locator(".conversation-shortcut").count() == 9
+        assert page.locator(".conversation-shortcut").count() == 10
+        assert page.locator(".conversation-shortcut").first.inner_text() == "Первый контакт"
         page.locator(".conversation-shortcuts").get_by_role("button", name="Рассказать о сервисе").click()
         assert page.evaluate("c") == "shared-product"
         assert "переходов из поиска" in page.locator("#manager").inner_text()
@@ -448,6 +449,9 @@ def test_manager_centered_workspace_resizable_tree_and_quick_help(monkeypatch) -
         assert shared_tree.locator("[data-nav-open='shared-product']").get_attribute("aria-current") == "step"
         shared_tree.locator("[data-nav-open='shared-prices']").click()
         assert page.evaluate("c") == "shared-prices"
+        page.locator(".conversation-shortcuts").get_by_role("button", name="Первый контакт").click()
+        assert page.evaluate("c") == "start"
+        assert page.locator("#nav-tree [data-nav-open='start']").get_attribute("aria-current") == "step"
         page.locator(".conversation-shortcuts").get_by_role("button", name="Бесплатный тест").click()
         assert page.evaluate("c") == "shared-test-details"
         page.locator(".conversation-shortcuts").get_by_role("button", name="Предложить тест").click()
