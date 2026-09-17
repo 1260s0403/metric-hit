@@ -366,7 +366,7 @@ def test_manager_persistent_navigation_search_collapse_current_and_mobile(monkey
         assert page.locator("#nav-tree [data-nav-open='start']").get_attribute("aria-current") == "step"
         assert page.locator("#nav-tree [data-nav-toggle='start']").get_attribute("aria-expanded") == "true"
         page.locator("#nav-tree [data-nav-toggle='start']").click()
-        assert page.locator("#nav-tree [data-nav-key]").count() == 1 + len(page.evaluate("Object.keys(shortcutNodes)"))
+        assert page.locator("#nav-tree [data-nav-key]").count() == 1 + len(page.evaluate("shortcutRoots"))
         assert page.locator("#nav-tree [data-nav-toggle='start']").get_attribute("aria-expanded") == "false"
         page.locator("#nav-tree [data-nav-toggle='start']").click()
         page.evaluate("n.qualification.title='Уточнить задачу';navRender()")
@@ -439,20 +439,24 @@ def test_manager_centered_workspace_resizable_tree_and_quick_help(monkeypatch) -
         assert main_box is not None
         assert abs(main_box["x"] + main_box["width"] / 2 - 720) <= 30
         assert page.locator(".quick-help-button").count() == 10
-        assert page.locator(".conversation-shortcut").count() == 6
-        page.locator(".conversation-shortcuts").get_by_role("button", name="Бесплатный тест").click()
-        assert page.evaluate("c") == "shared-test"
-        assert "1 000 тестовых кликов" in page.locator("#manager").inner_text()
+        assert page.locator(".conversation-shortcut").count() == 3
+        page.locator(".conversation-shortcuts").get_by_role("button", name="Рассказать о сервисе").click()
+        assert page.evaluate("c") == "shared-product"
+        assert "переходов из поиска" in page.locator("#manager").inner_text()
         shared_tree = page.locator("#nav-tree [data-nav-group='shared']")
         assert shared_tree.get_by_text("Общие ответы").is_visible()
-        assert shared_tree.locator("[data-nav-open='shared-test']").get_attribute("aria-current") == "step"
+        assert shared_tree.locator("[data-nav-open='shared-product']").get_attribute("aria-current") == "step"
         shared_tree.locator("[data-nav-open='shared-prices']").click()
         assert page.evaluate("c") == "shared-prices"
+        page.locator(".conversation-shortcuts").get_by_role("button", name="Предложить тест").click()
+        assert page.evaluate("c") == "shared-test"
+        page.get_by_role("button", name="Условия бесплатного теста").click()
+        assert page.evaluate("c") == "shared-test-details"
         page.get_by_role("button", name="Перейти в Telegram").first.click()
         assert page.evaluate("c") == "shared-telegram"
         assert "Telegram-контакт" in page.locator("#manager").inner_text()
         page.get_by_role("button", name="← Назад").click()
-        assert page.evaluate("c") == "shared-prices"
+        assert page.evaluate("c") == "shared-test-details"
 
         initial_width = page.locator("#branch-nav").bounding_box()["width"]
         handle = page.locator("#nav-resizer").bounding_box()
